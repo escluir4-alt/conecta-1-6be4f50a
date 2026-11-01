@@ -2,7 +2,7 @@
 
 ## Receitas / contas a receber
 - [x] Agenda: sem métricas, feriados de Brasília/DF vermelhos, registros por dia em janela e ordem presente/futuro/passado; verificada com registros reais.
-- [ ] Agenda: corrigir feriados e duplicação financeira; cadastrar aniversários, plantões 12x36, compromissos, eventos e listas com conclusão e regras de lembrete.
+- [x] Agenda: corrigir feriados e duplicação financeira; cadastrar aniversários, plantões 12x36, compromissos, eventos e listas com conclusão e regras de lembrete visíveis na agenda (sem envio de notificações externas); seis cadastros e persistência de checklist verificados com sessão real.
 - [x] Persistência por usuário, recebimentos atômicos e histórico imutável com correções auditadas.
 - [x] Página mensal com categorias, filtros, KPIs, recorrência e comprovantes.
 - [x] Contratos de crediário, parcelas, encargos e documentos de atualização (índice com taxa informada).
