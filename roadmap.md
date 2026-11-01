@@ -1,6 +1,7 @@
 # Roadmap — Módulo Despesas Casa Clara
 
 ## Receitas / contas a receber
+- [ ] Agenda: remover métricas, marcar feriados de Brasília/DF, abrir registros por dia em janela e ordenar o mês por presente, futuro e passado.
 - [x] Persistência por usuário, recebimentos atômicos e histórico imutável com correções auditadas.
 - [x] Página mensal com categorias, filtros, KPIs, recorrência e comprovantes.
 - [x] Contratos de crediário, parcelas, encargos e documentos de atualização (índice com taxa informada).
