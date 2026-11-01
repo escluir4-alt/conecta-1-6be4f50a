@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AgendaRouteImport } from './routes/agenda'
 import { Route as AuditoriaRouteImport } from './routes/auditoria'
+import { Route as ContasAReceberRouteImport } from './routes/contas-a-receber'
 import { Route as CotacoesRouteImport } from './routes/cotacoes'
 import { Route as CrediarioRouteImport } from './routes/crediario'
 import { Route as DespesasRouteImport } from './routes/despesas'
@@ -37,6 +38,11 @@ const AgendaRoute = AgendaRouteImport.update({
 const AuditoriaRoute = AuditoriaRouteImport.update({
   id: '/auditoria',
   path: '/auditoria',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ContasAReceberRoute = ContasAReceberRouteImport.update({
+  id: '/contas-a-receber',
+  path: '/contas-a-receber',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CotacoesRoute = CotacoesRouteImport.update({
@@ -99,6 +105,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/agenda': typeof AgendaRoute
   '/auditoria': typeof AuditoriaRoute
+  '/contas-a-receber': typeof ContasAReceberRoute
   '/cotacoes': typeof CotacoesRoute
   '/crediario': typeof CrediarioRoute
   '/despesas': typeof DespesasRouteWithChildren
@@ -115,6 +122,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/agenda': typeof AgendaRoute
   '/auditoria': typeof AuditoriaRoute
+  '/contas-a-receber': typeof ContasAReceberRoute
   '/cotacoes': typeof CotacoesRoute
   '/crediario': typeof CrediarioRoute
   '/despesas': typeof DespesasRouteWithChildren
@@ -132,6 +140,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/agenda': typeof AgendaRoute
   '/auditoria': typeof AuditoriaRoute
+  '/contas-a-receber': typeof ContasAReceberRoute
   '/cotacoes': typeof CotacoesRoute
   '/crediario': typeof CrediarioRoute
   '/despesas': typeof DespesasRouteWithChildren
@@ -150,6 +159,7 @@ export interface FileRouteTypes {
     | '/'
     | '/agenda'
     | '/auditoria'
+    | '/contas-a-receber'
     | '/cotacoes'
     | '/crediario'
     | '/despesas'
@@ -166,6 +176,7 @@ export interface FileRouteTypes {
     | '/'
     | '/agenda'
     | '/auditoria'
+    | '/contas-a-receber'
     | '/cotacoes'
     | '/crediario'
     | '/despesas'
@@ -182,6 +193,7 @@ export interface FileRouteTypes {
     | '/'
     | '/agenda'
     | '/auditoria'
+    | '/contas-a-receber'
     | '/cotacoes'
     | '/crediario'
     | '/despesas'
@@ -199,6 +211,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AgendaRoute: typeof AgendaRoute
   AuditoriaRoute: typeof AuditoriaRoute
+  ContasAReceberRoute: typeof ContasAReceberRoute
   CotacoesRoute: typeof CotacoesRoute
   CrediarioRoute: typeof CrediarioRoute
   DespesasRoute: typeof DespesasRouteWithChildren
@@ -231,6 +244,13 @@ declare module '@tanstack/react-router' {
       path: '/auditoria'
       fullPath: '/auditoria'
       preLoaderRoute: typeof AuditoriaRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/contas-a-receber': {
+      id: '/contas-a-receber'
+      path: '/contas-a-receber'
+      fullPath: '/contas-a-receber'
+      preLoaderRoute: typeof ContasAReceberRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/cotacoes': {
@@ -331,6 +351,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AgendaRoute: AgendaRoute,
   AuditoriaRoute: AuditoriaRoute,
+  ContasAReceberRoute: ContasAReceberRoute,
   CotacoesRoute: CotacoesRoute,
   CrediarioRoute: CrediarioRoute,
   DespesasRoute: DespesasRouteWithChildren,
