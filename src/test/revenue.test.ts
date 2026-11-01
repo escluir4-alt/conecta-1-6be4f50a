@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { annualRevenue, receivedRevenue, revenueSourceKey, lateCharges, reminderDays, revenueStatus, revenueSummary, type RevenueEntry } from '@/lib/finance/revenue';
-const row = (overrides: Partial<RevenueEntry>): RevenueEntry => ({ id: 'entry-1', source_id: 'source-1', contract_id: null, user_id: 'user-1', title: 'Salário', category: 'Salário', number: null, expected_cents: 100000, due_date: '2026-11-05', received_date: null, received_cents: null, note: '', adjustment: null, created_at: '2026-11-01', ...overrides });
+const row = (overrides: Partial<RevenueEntry>): RevenueEntry => ({ id: 'entry-1', source_id: 'source-1', contract_id: null, user_id: 'user-1', title: 'Salário', category: 'Salário', number: null, expected_cents: 100000, due_date: '2026-11-05', received_date: null, received_cents: null, note: '', adjustment: null, ...overrides });
 describe('Receitas',()=>{
   it('separa a grade anual das parcelas de contratos e de outros exercícios',()=>{
     const salary = row({});
