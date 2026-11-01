@@ -45,26 +45,32 @@ export interface AppUser {
 export function useRequireUser(): AppUser | null {
   const navigate = useNavigate();
   const [user, setUser] = useState<AppUser | null>(null);
+
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
       if (!data.user) navigate({ to: "/" });
-      else
+      else {
         setUser({
           email: data.user.email ?? "",
           name: (data.user.user_metadata?.["full_name"] as string) || data.user.email || "",
         });
+      }
     });
-    const { data: sub } = supabase.auth.onAuthStateChange((e) => {
-      if (e === "SIGNED_OUT") navigate({ to: "/", replace: true });
+
+    const { data: sub } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "SIGNED_OUT") navigate({ to: "/", replace: true });
     });
+
     return () => sub.subscription.unsubscribe();
   }, [navigate]);
+
   return user;
 }
 
 export function useSignOut() {
   const navigate = useNavigate();
   const qc = useQueryClient();
+
   return async () => {
     await qc.cancelQueries();
     qc.clear();
@@ -140,11 +146,27 @@ export function AppShell({
         onNavigate={onNavigate}
       />
       <div className="ml-4 space-y-1 border-l border-border/80 pl-2">
-        <NavLink to="/contas-a-receber" icon={CalendarDays} label="Contas a receber" active={active === "contas-a-receber" || active === "crediario"} indent onNavigate={onNavigate} />
-        <NavLink to="/historico-receitas" icon={History} label="Histórico de Receitas" active={active === "historico-receitas"} indent onNavigate={onNavigate} />
+        <NavLink
+          to="/contas-a-receber"
+          icon={CalendarDays}
+          label="Contas a receber"
+          active={active === "contas-a-receber" || active === "crediario"}
+          indent
+          onNavigate={onNavigate}
+        />
+        <NavLink
+          to="/historico-receitas"
+          icon={History}
+          label="Histórico de Receitas"
+          active={active === "historico-receitas"}
+          indent
+          onNavigate={onNavigate}
+        />
       </div>
       <div>
-        <Link to="/despesas" onClick={onNavigate}
+        <Link
+          to="/despesas"
+          onClick={onNavigate}
           className={`flex items-center gap-3 rounded-xl px-3 py-2.5 transition-all ${
             despesasActive ? "font-semibold text-foreground" : "text-muted-foreground"
           } ${indent ? "text-[13px]" : "text-sm"}`}
@@ -154,7 +176,15 @@ export function AppShell({
         </Link>
         <div className="ml-4 space-y-1 border-l border-border/80 pl-2">
           {DESPESAS_SUB.map((s) => (
-            <NavLink key={s.id} to={s.to} icon={s.icon} label={s.label} active={active === s.id} indent onNavigate={onNavigate} />
+            <NavLink
+              key={s.id}
+              to={s.to}
+              icon={s.icon}
+              label={s.label}
+              active={active === s.id}
+              indent
+              onNavigate={onNavigate}
+            />
           ))}
         </div>
       </div>
@@ -171,8 +201,11 @@ export function AppShell({
     <div className="flex min-h-screen bg-background">
       <aside className="no-print hidden w-72 shrink-0 flex-col border-r border-border/80 bg-sidebar/90 p-5 shadow-[0_0_0_1px_rgba(15,23,42,0.02)] backdrop-blur-md md:flex">
         <Logo />
-        <nav aria-label="Menu principal" className="mt-8 space-y-1.5">{nav(false)}</nav>
-        <Button variant="ghost"
+        <nav aria-label="Menu principal" className="mt-8 space-y-1.5">
+          {nav(false)}
+        </nav>
+        <Button
+          variant="ghost"
           onClick={signOut}
           className="mt-auto flex items-center justify-start gap-3 rounded-xl px-3 py-2.5 text-sm text-muted-foreground hover:bg-accent"
         >
@@ -186,17 +219,29 @@ export function AppShell({
           <div className="flex min-w-0 items-center gap-2 md:hidden">
             <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
               <SheetTrigger asChild>
-                <Button variant="ghost" size="icon" aria-label="Abrir menu" className="shrink-0"><Menu /></Button>
+                <Button variant="ghost" size="icon" aria-label="Abrir menu" className="shrink-0">
+                  <Menu />
+                </Button>
               </SheetTrigger>
-              <SheetContent side="left" aria-describedby={undefined} className="flex w-[min(20rem,90vw)] flex-col overflow-y-auto bg-sidebar p-5">
+              <SheetContent
+                side="left"
+                aria-describedby={undefined}
+                className="flex w-[min(20rem,90vw)] flex-col overflow-y-auto bg-sidebar p-5"
+              >
                 <SheetTitle className="sr-only">Menu principal</SheetTitle>
                 <Logo />
-                <nav aria-label="Menu principal" className="mt-6 space-y-1.5">{nav(false, () => setMenuOpen(false))}</nav>
-                <Button variant="ghost" onClick={signOut} className="mt-auto justify-start gap-3 text-muted-foreground"><LogOut />Sair</Button>
+                <nav aria-label="Menu principal" className="mt-6 space-y-1.5">
+                  {nav(false, () => setMenuOpen(false))}
+                </nav>
+                <Button variant="ghost" onClick={signOut} className="mt-auto justify-start gap-3 text-muted-foreground">
+                  <LogOut />
+                  Sair
+                </Button>
               </SheetContent>
             </Sheet>
             <Logo />
           </div>
+
           <div className="flex min-w-0 flex-1 items-center justify-end gap-3">
             {headerActions}
             <div className="hidden min-w-0 text-right text-sm md:block">
