@@ -14,7 +14,7 @@ import { setRevenueContractStatus,editRevenueInstallment } from '@/lib/finance/c
 import { formatBRL,formatDateBR,diffLabel,parseBRL } from '@/lib/finance/money';
 import { todayBR,type RevenueContract,type RevenueEntry } from '@/lib/finance/revenue';
 import { ContractInvoiceDialog } from './ContractInvoiceDialog';
-export function ContractWorkspace({contracts,entries,contractId,onNew,onReceive,onFiles,onSaved}:{contracts:RevenueContract[];entries:RevenueEntry[];contractId?:string;onNew:()=>void;onReceive:(e:RevenueEntry)=>void;onFiles:(e:RevenueEntry)=>void;onSaved:()=>void}){
+export function ContractWorkspace({contracts,entries,contractId,onNew,onReceive,onFiles,onSaved}:{contracts:RevenueContract[];entries:RevenueEntry[];contractId:string|undefined;onNew:()=>void;onReceive:(e:RevenueEntry)=>void;onFiles:(e:RevenueEntry)=>void;onSaved:()=>void}){
   const today=todayBR();const [search,setSearch]=useState('');const [selected,setSelected]=useState<string[]>([]);const [invoiceIds,setInvoiceIds]=useState<string[]|null>(null);const [edit,setEdit]=useState<RevenueEntry|null>(null);
   const statusFn=useServerFn(setRevenueContractStatus);const c=contracts.find(c=>c.id===contractId);const list=entries.filter(e=>e.contract_id===contractId);const paid=list.filter(fullyPaid);const outstanding=list.reduce((s,e)=>s+Math.max(0,amountDue(e)-(e.received_cents??0)),0);
   const stat=(label:string,value:string,tone='')=><div className="border-b py-3"><dt className="text-xs uppercase text-muted-foreground">{label}</dt><dd className={`mt-1 break-words text-lg font-bold ${tone}`}>{value}</dd></div>;
