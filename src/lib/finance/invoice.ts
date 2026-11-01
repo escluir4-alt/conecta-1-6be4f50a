@@ -1,4 +1,3 @@
-import { z } from 'zod';
 import type { quoteRevenueInstallments } from './contracts.functions';
 import { formatBRL,formatDateBR } from './money';
 import { pixRecipientSchema,pixMerchantText } from './pix-recipient';
