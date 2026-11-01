@@ -19,7 +19,9 @@ import { Route as DespesasRouteImport } from './routes/despesas'
 import { Route as HistoricoPagamentosRouteImport } from './routes/historico-pagamentos'
 import { Route as HistoricoReceitasRouteImport } from './routes/historico-receitas'
 import { Route as MoedasRouteImport } from './routes/moedas'
+import { Route as NuvemRouteImport } from './routes/nuvem'
 import { Route as PainelRouteImport } from './routes/painel'
+import { Route as PerfilRouteImport } from './routes/perfil'
 import { Route as ReceitasRouteImport } from './routes/receitas'
 import { Route as ContratosReceitasContractIdRouteImport } from './routes/contratos-receitas.$contractId'
 import { Route as CotacoesTickerRouteImport } from './routes/cotacoes_.$ticker'
@@ -76,9 +78,19 @@ const MoedasRoute = MoedasRouteImport.update({
   path: '/moedas',
   getParentRoute: () => rootRouteImport,
 } as any)
+const NuvemRoute = NuvemRouteImport.update({
+  id: '/nuvem',
+  path: '/nuvem',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PainelRoute = PainelRouteImport.update({
   id: '/painel',
   path: '/painel',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PerfilRoute = PerfilRouteImport.update({
+  id: '/perfil',
+  path: '/perfil',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ReceitasRoute = ReceitasRouteImport.update({
@@ -119,7 +131,9 @@ export interface FileRoutesByFullPath {
   '/historico-pagamentos': typeof HistoricoPagamentosRoute
   '/historico-receitas': typeof HistoricoReceitasRoute
   '/moedas': typeof MoedasRoute
+  '/nuvem': typeof NuvemRoute
   '/painel': typeof PainelRoute
+  '/perfil': typeof PerfilRoute
   '/receitas': typeof ReceitasRoute
   '/contratos-receitas/$contractId': typeof ContratosReceitasContractIdRoute
   '/cotacoes/$ticker': typeof CotacoesTickerRoute
@@ -137,7 +151,9 @@ export interface FileRoutesByTo {
   '/historico-pagamentos': typeof HistoricoPagamentosRoute
   '/historico-receitas': typeof HistoricoReceitasRoute
   '/moedas': typeof MoedasRoute
+  '/nuvem': typeof NuvemRoute
   '/painel': typeof PainelRoute
+  '/perfil': typeof PerfilRoute
   '/receitas': typeof ReceitasRoute
   '/contratos-receitas/$contractId': typeof ContratosReceitasContractIdRoute
   '/cotacoes/$ticker': typeof CotacoesTickerRoute
@@ -156,7 +172,9 @@ export interface FileRoutesById {
   '/historico-pagamentos': typeof HistoricoPagamentosRoute
   '/historico-receitas': typeof HistoricoReceitasRoute
   '/moedas': typeof MoedasRoute
+  '/nuvem': typeof NuvemRoute
   '/painel': typeof PainelRoute
+  '/perfil': typeof PerfilRoute
   '/receitas': typeof ReceitasRoute
   '/contratos-receitas/$contractId': typeof ContratosReceitasContractIdRoute
   '/cotacoes_/$ticker': typeof CotacoesTickerRoute
@@ -176,7 +194,9 @@ export interface FileRouteTypes {
     | '/historico-pagamentos'
     | '/historico-receitas'
     | '/moedas'
+    | '/nuvem'
     | '/painel'
+    | '/perfil'
     | '/receitas'
     | '/contratos-receitas/$contractId'
     | '/cotacoes/$ticker'
@@ -194,7 +214,9 @@ export interface FileRouteTypes {
     | '/historico-pagamentos'
     | '/historico-receitas'
     | '/moedas'
+    | '/nuvem'
     | '/painel'
+    | '/perfil'
     | '/receitas'
     | '/contratos-receitas/$contractId'
     | '/cotacoes/$ticker'
@@ -212,7 +234,9 @@ export interface FileRouteTypes {
     | '/historico-pagamentos'
     | '/historico-receitas'
     | '/moedas'
+    | '/nuvem'
     | '/painel'
+    | '/perfil'
     | '/receitas'
     | '/contratos-receitas/$contractId'
     | '/cotacoes_/$ticker'
@@ -231,7 +255,9 @@ export interface RootRouteChildren {
   HistoricoPagamentosRoute: typeof HistoricoPagamentosRoute
   HistoricoReceitasRoute: typeof HistoricoReceitasRoute
   MoedasRoute: typeof MoedasRoute
+  NuvemRoute: typeof NuvemRoute
   PainelRoute: typeof PainelRoute
+  PerfilRoute: typeof PerfilRoute
   ReceitasRoute: typeof ReceitasRoute
   ContratosReceitasContractIdRoute: typeof ContratosReceitasContractIdRoute
   CotacoesTickerRoute: typeof CotacoesTickerRoute
@@ -309,11 +335,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MoedasRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/nuvem': {
+      id: '/nuvem'
+      path: '/nuvem'
+      fullPath: '/nuvem'
+      preLoaderRoute: typeof NuvemRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/painel': {
       id: '/painel'
       path: '/painel'
       fullPath: '/painel'
       preLoaderRoute: typeof PainelRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/perfil': {
+      id: '/perfil'
+      path: '/perfil'
+      fullPath: '/perfil'
+      preLoaderRoute: typeof PerfilRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/receitas': {
@@ -379,7 +419,9 @@ const rootRouteChildren: RootRouteChildren = {
   HistoricoPagamentosRoute: HistoricoPagamentosRoute,
   HistoricoReceitasRoute: HistoricoReceitasRoute,
   MoedasRoute: MoedasRoute,
+  NuvemRoute: NuvemRoute,
   PainelRoute: PainelRoute,
+  PerfilRoute: PerfilRoute,
   ReceitasRoute: ReceitasRoute,
   ContratosReceitasContractIdRoute: ContratosReceitasContractIdRoute,
   CotacoesTickerRoute: CotacoesTickerRoute,

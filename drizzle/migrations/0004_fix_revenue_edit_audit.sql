@@ -1,0 +1,22 @@
+CREATE OR REPLACE FUNCTION public.revenue_edit_source(p_id uuid, p_data jsonb)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $function$
+DECLARE old_source public.revenue_sources; new_source public.revenue_sources; horizon date; first_date date; cents bigint; category_name text;
+BEGIN
+IF auth.uid() IS NULL THEN RAISE EXCEPTION 'Autenticação necessária'; END IF;
+SELECT * INTO old_source FROM public.revenue_sources WHERE id=p_id AND user_id=auth.uid() FOR UPDATE;
+IF NOT FOUND THEN RAISE EXCEPTION 'Fonte de renda não encontrada'; END IF;
+PERFORM id FROM public.revenue_entries WHERE source_id=p_id AND user_id=auth.uid() FOR UPDATE;
+first_date := (p_data->>'first_due')::date; cents := (p_data->>'expected_cents')::bigint; category_name := p_data->>'category';
+IF first_date IS NULL OR cents IS NULL OR cents < 1 OR cents > 999999999999 OR coalesce(length(trim(p_data->>'title')),0) NOT BETWEEN 1 AND 200 OR category_name IS NULL OR category_name NOT IN ('Salário','Benefício','Empréstimo Devolvido','Renda Extra','Doação','Outros Rendimentos') OR jsonb_typeof(p_data->'details') IS DISTINCT FROM 'object' OR jsonb_typeof(p_data->'recurring') IS DISTINCT FROM 'boolean' THEN RAISE EXCEPTION 'Cadastro de receita inválido'; END IF;
+IF category_name='Benefício' AND (coalesce(trim(p_data->'details'->>'source'),'')='' OR coalesce(trim(p_data->'details'->>'benefit'),'')='') THEN RAISE EXCEPTION 'Informe fonte e número do benefício'; END IF;
+IF category_name='Empréstimo Devolvido' AND (coalesce(trim(p_data->'details'->>'source'),'')='' OR coalesce(trim(p_data->'details'->>'original'),'')='') THEN RAISE EXCEPTION 'Informe de quem e a data original do empréstimo'; END IF;
+SELECT greatest(coalesce(max(due_date),first_date),first_date,(now() AT TIME ZONE 'America/Sao_Paulo')::date) INTO horizon FROM public.revenue_entries WHERE source_id=p_id AND user_id=auth.uid();
+UPDATE public.revenue_sources SET title=trim(p_data->>'title'), category=category_name, expected_cents=cents, first_due=first_date, recurring=(p_data->>'recurring')::boolean, details=p_data->'details' WHERE id=p_id AND user_id=auth.uid() RETURNING * INTO new_source;
+UPDATE public.revenue_entries e SET title=new_source.title,category=new_source.category,expected_cents=new_source.expected_cents,due_date=CASE WHEN new_source.recurring THEN date_trunc('month',e.due_date)::date + least(extract(day FROM first_date)::int,extract(day FROM (date_trunc('month',e.due_date)+interval '1 month - 1 day'))::int)-1 ELSE first_date END WHERE e.source_id=p_id AND e.user_id=auth.uid() AND e.received_date IS NULL AND date_trunc('month',e.due_date)>=date_trunc('month',first_date) AND (new_source.recurring OR date_trunc('month',e.due_date)=date_trunc('month',first_date)) AND NOT EXISTS(SELECT 1 FROM public.revenue_entries paid WHERE paid.source_id=p_id AND paid.received_date IS NOT NULL AND date_trunc('month',paid.due_date)=date_trunc('month',e.due_date));
+DELETE FROM public.revenue_entries e WHERE e.source_id=p_id AND e.user_id=auth.uid() AND e.received_date IS NULL AND (date_trunc('month',e.due_date)<date_trunc('month',first_date) OR (NOT new_source.recurring AND e.due_date<>first_date) OR (new_source.category='Empréstimo Devolvido' AND (extract(year FROM e.due_date)::int-extract(year FROM first_date)::int)*12+extract(month FROM e.due_date)::int-extract(month FROM first_date)::int >= greatest(1,least(600,coalesce(nullif(new_source.details->>'installments',''),'1')::int))));
+PERFORM public.revenue_sync(horizon);
+DELETE FROM public.revenue_entries e WHERE e.source_id=p_id AND e.user_id=auth.uid() AND e.received_date IS NULL AND EXISTS (SELECT 1 FROM public.revenue_entries paid WHERE paid.source_id=p_id AND paid.user_id=auth.uid() AND paid.received_date IS NOT NULL AND date_trunc('month',paid.due_date)=date_trunc('month',e.due_date));
+INSERT INTO public.audit_log(user_id,actor,action,entity_type,entity_id,before_json,after_json) VALUES(auth.uid(),auth.uid(),'editar receita','revenue_source',p_id::text,to_jsonb(old_source),to_jsonb(new_source));
+END $function$;
+REVOKE ALL ON FUNCTION public.revenue_edit_source(uuid,jsonb) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.revenue_edit_source(uuid,jsonb) TO authenticated, service_role;

@@ -9,7 +9,7 @@ export function toBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-export function fromBase64(value: string): Uint8Array {
+export function fromBase64(value: string): Uint8Array<ArrayBuffer> {
   const binary = atob(value);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i += 1) {
@@ -18,7 +18,7 @@ export function fromBase64(value: string): Uint8Array {
   return bytes;
 }
 
-export function randomBytes(length: number): Uint8Array {
+export function randomBytes(length: number): Uint8Array<ArrayBuffer> {
   return crypto.getRandomValues(new Uint8Array(length));
 }
 
@@ -45,7 +45,7 @@ export async function derivePasswordKey(password: string, salt: Uint8Array, iter
   return crypto.subtle.deriveKey(
     {
       name: "PBKDF2",
-      salt,
+      salt: new Uint8Array(salt),
       iterations,
       hash: "SHA-256",
     },
@@ -73,7 +73,7 @@ export async function encryptBytes(data: Uint8Array, key: CryptoKey): Promise<En
       tagLength: 128,
     },
     key,
-    data
+    new Uint8Array(data)
   );
 
   return {
@@ -82,7 +82,7 @@ export async function encryptBytes(data: Uint8Array, key: CryptoKey): Promise<En
   };
 }
 
-export async function decryptBytes(payload: EncryptedPayload, key: CryptoKey): Promise<Uint8Array> {
+export async function decryptBytes(payload: EncryptedPayload, key: CryptoKey): Promise<Uint8Array<ArrayBuffer>> {
   const iv = fromBase64(payload.ivB64);
   const ciphertext = fromBase64(payload.ciphertextB64);
 

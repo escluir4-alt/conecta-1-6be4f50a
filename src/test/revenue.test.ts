@@ -1,7 +1,22 @@
 import { describe, it, expect } from 'vitest';
-import { annualRevenue, receivedRevenue, revenueSourceKey, lateCharges, reminderDays, revenueStatus, revenueSummary, type RevenueEntry } from '@/lib/finance/revenue';
+import { annualRevenue, receivedRevenue, revenueSourceKey, revenueMonthEntries, revenueSettled, lateCharges, reminderDays, revenueStatus, revenueSummary, type RevenueEntry } from '@/lib/finance/revenue';
 const row = (overrides: Partial<RevenueEntry>): RevenueEntry => ({ id: 'entry-1', source_id: 'source-1', contract_id: null, user_id: 'user-1', title: 'Salário', category: 'Salário', number: null, expected_cents: 100000, due_date: '2026-11-05', received_date: null, received_cents: null, note: '', adjustment: null, ...overrides });
 describe('Receitas',()=>{
+  it('seleciona somente a parcela do contrato no mês de vencimento confirmado',()=>{
+    const november=row({id:'nov',source_id:null,contract_id:'contract-1',number:1});
+    const december=row({id:'dec',source_id:null,contract_id:'contract-1',number:2,due_date:'2026-12-05'});
+    expect(revenueMonthEntries([november,december,row({})],november,'2026-11').map(e=>e.id)).toEqual(['nov']);
+  });
+  it('recebimento confirmado da parcela entra no histórico exclusivo de receitas',()=>{
+    const paid=row({source_id:null,contract_id:'contract-1',received_date:'2026-11-01',received_cents:100000});
+    expect(receivedRevenue([paid,row({id:'unpaid'})],'2026','')).toEqual([paid]);
+  });
+  it('parcela fica quitada somente ao cobrir seu valor acordado',()=>{
+    const paid=row({contract_id:'contract-1',received_date:'2026-11-01',received_cents:100000});
+    expect(revenueSettled(paid)).toBe(true);
+    expect(revenueSettled({...paid,received_cents:99999})).toBe(false);
+    expect(revenueSettled({...paid,adjustment:{agreed:110000}})).toBe(false);
+  });
   it('inclui parcelas de contratos no exercício do vencimento',()=>{
     const salary = row({});
     const installment=row({id:'contract-entry',source_id:null,contract_id:'contract-1',due_date:'2026-01-10'});

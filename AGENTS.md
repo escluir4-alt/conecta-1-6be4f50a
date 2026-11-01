@@ -23,4 +23,5 @@
 - Agenda labels incoming revenue as payment on the received date (expected date until received) and expenses only as due items; holidays remain separate from daily activity rows to avoid duplicate display.
 
 - Annual receivables include both source and contract entries grouped by due month; the same revenue records keep the annual grid and contract details consistent.
+- Annual receipt actions target the existing entry ID; source edits use an owner-scoped atomic RPC to rebuild only unpaid projections and preserve confirmed receipt history.
 - Saved invoice recipients are user-owned Cloud records; IBGE supplies municipality choices with a bundled Brazilian municipality catalogue fallback for outages, and only Pix payload fields are normalized to protocol lengths so PDFs and saved names remain complete.
