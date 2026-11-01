@@ -1,7 +1,7 @@
 import { createServerFn } from '@tanstack/react-start';
 import { z } from 'zod';
 import { requireSupabaseAuth } from '@/integrations/supabase/auth-middleware';
-import { REVENUE_CATEGORIES } from './revenue';
+import { REVENUE_CATEGORIES, lateCharges } from './revenue';
 import { contactSchema, installmentPlan } from './contract-plan';
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(v => Number.isFinite(Date.parse(v)) && new Date(v).toISOString().slice(0,10) === v, 'Data inválida');
 const money = z.number().int().min(1).max(999999999999);
@@ -42,6 +42,14 @@ export const receiveRevenue = createServerFn({ method: 'POST' }).middleware([req
   return { ok: true };
 });
 export const adjustRevenue = createServerFn({ method: 'POST' }).middleware([requireSupabaseAuth]).inputValidator((v: unknown) => z.object({ id: z.string().uuid(), adjustment: z.object({ date, original: money, days: z.number().int().min(0), interestCents: z.number().int().min(0), fineCents: z.number().int().min(0), correctionCents: z.number().int(), total: money, agreed: money, note: z.string().max(2000), rate:z.number().min(-99).max(1000).optional() }) }).parse(v)).handler(async ({ data, context }) => {
+  const {data:entry}=await context.supabase.from('revenue_entries').select('*').eq('id',data.id).single();
+  if(!entry?.contract_id||entry.received_date)throw new Error('Parcela indisponível para atualização.');
+  const {data:contract}=await context.supabase.from('revenue_contracts').select('*').eq('id',entry.contract_id).single();
+  if(!contract)throw new Error('Contrato não encontrado.');
+  const a=data.adjustment;
+  const rate=contract.correction_index==='Sem correção'?0:a.rate??(a.correctionCents/entry.expected_cents*100);
+  const expected=lateCharges(entry.expected_cents,entry.due_date,a.date,contract.interest_percent,contract.fine_percent,rate);
+  if(a.original!==entry.expected_cents||a.days!==expected.days||a.interestCents!==expected.interestCents||a.fineCents!==expected.fineCents||a.correctionCents!==expected.correctionCents||a.total!==expected.total)throw new Error('O cálculo da parcela mudou. Recalcule antes de confirmar.');
   const { error } = await context.supabase.rpc('revenue_adjust', { p_id: data.id, p_adjustment: data.adjustment });
   if (error) throw new Error(error.message);
   return { ok: true };

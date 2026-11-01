@@ -20,7 +20,8 @@ export const quoteRevenueInstallments=createServerFn({method:'POST'}).middleware
     const start=entries.map(e=>e.due_date).sort()[0];if(!start)throw new Error('Período inválido');
     if(Number(data.date.slice(0,4))-Number(start.slice(0,4))>10)throw new Error('O período de correção deve ser de até 10 anos.');
     const br=(d:string)=>`${d.slice(8,10)}/${d.slice(5,7)}/${d.slice(0,4)}`;
-    const params=new URLSearchParams({formato:'json',dataInicial:br(start.slice(0,7)+'-01'),dataFinal:br(data.date)});
+    const lookback=new Date(`${start.slice(0,7)}-01T00:00:00Z`);lookback.setUTCMonth(lookback.getUTCMonth()-3);
+    const params=new URLSearchParams({formato:'json',dataInicial:br(lookback.toISOString().slice(0,10)),dataFinal:br(data.date)});
     let response:Response;try{response=await fetch(`https://api.bcb.gov.br/dados/serie/bcdata.sgs.${series}/dados?${params}`,{signal:AbortSignal.timeout(15000)});}catch{throw new Error('Índice oficial indisponível. Tente novamente; nenhum índice foi estimado.');}
     if(!response.ok)throw new Error('Não foi possível consultar o índice oficial.');
     const raw=z.array(z.object({data:z.string().regex(/^\d{2}\/\d{2}\/\d{4}$/),valor:z.string()})).parse(await response.json());
