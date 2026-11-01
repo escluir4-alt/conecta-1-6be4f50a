@@ -55,7 +55,7 @@ export function NewRevenueDialog({ onClose, onSaved, month, contractOnly=false }
   }
   return <Dialog open onOpenChange={o=>!o&&!busy&&onClose()}><DialogContent className="max-h-[90dvh] max-w-2xl overflow-y-auto"><DialogHeader><DialogTitle>{isContract?'Novo contrato — venda parcelada':'Nova Receita'}</DialogTitle><DialogDescription>{isContract?'Dados da venda e do comprador':'Lançamento previsto'}</DialogDescription></DialogHeader>
     <form onSubmit={save} className="space-y-4">
-      {!contractOnly&&<Choice label="Categoria" value={category} onChange={v=>{setCategory(v);setRecurring(v==='Salário');}} options={REVENUE_CATEGORIES} />}
+      {!contractOnly&&<Choice label="Categoria" value={category} onChange={v=>{setCategory(v);setRecurring(v==='Salário');}} options={REVENUE_CATEGORIES.filter(v=>v!=='Crediário')} />}
       <Field label="Fonte de renda / descrição"><Input required maxLength={200} value={title} onChange={e=>setTitle(e.target.value)} /></Field>
       {isContract&&<><Field label="Nome do comprador"><Input required value={buyer} onChange={e=>setBuyer(e.target.value)} /></Field><div className="grid gap-4 sm:grid-cols-2"><Field label="CPF"><Input value={cpf} onChange={e=>setCpf(e.target.value)} /></Field><Field label="RG"><Input value={rg} onChange={e=>setRg(e.target.value)} /></Field></div></>}
       <div className="grid gap-4 sm:grid-cols-2"><Field label={isContract?'Valor total do contrato (R$)':'Valor previsto (R$)'}><Input required inputMode="decimal" value={value} onChange={e=>setValue(e.target.value)} placeholder="0,00" /></Field><Field label={isContract?'Primeiro vencimento':'Vencimento previsto'}><Input required type="date" value={due} onChange={e=>setDue(e.target.value)} /></Field></div>

@@ -1,6 +1,7 @@
 # Roadmap — Módulo Despesas Casa Clara
 
 ## Receitas / contas a receber
+- [x] Reorganizar Receitas como cadastro, Contas a receber como grade anual, Histórico com tabela e filtros de pagamentos e Contratos parcelados com abas e parcelas; cadastro → recebimento → histórico verificado com sessão real, registro temporário removido. Arquivamento e comentários não foram adicionados às receitas (alterações limitadas à apresentação).
 - [x] Agenda: sem métricas, feriados de Brasília/DF vermelhos, registros por dia em janela e ordem presente/futuro/passado; verificada com registros reais.
 - [x] Agenda: corrigir feriados e duplicação financeira; cadastrar aniversários, plantões 12x36, compromissos, eventos e listas com conclusão e regras de lembrete visíveis na agenda (sem envio de notificações externas); seis cadastros e persistência de checklist verificados com sessão real.
 - [x] Persistência por usuário, recebimentos atômicos e histórico imutável com correções auditadas.
@@ -8,7 +9,7 @@
 - [x] Contratos de crediário, parcelas, encargos e documentos de atualização (índice com taxa informada).
 - [x] Histórico exclusivo com filtros e relatórios; previsão mensal e lembretes de 7, 3 e 1 dia na página.
 - [x] Testes dos cálculos, datas, lembretes e navegação.
-- [ ] Verificação do recebimento com sessão real — o novo projeto não tem usuários cadastrados; aguardando cadastro/entrada.
+- [x] Verificação do recebimento com sessão real — cadastro de receita, recebimento na grade anual e leitura no histórico verificados.
 - [x] Módulo Agenda (calendário mensal de receitas e despesas); lembretes removidos de Receitas (serão feitos pela IA).
 
 ## Correção do menu

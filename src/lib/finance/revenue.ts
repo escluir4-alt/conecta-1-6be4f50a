@@ -2,6 +2,15 @@ import type { Database } from '@/integrations/supabase/types';
 export type RevenueEntry = Database['public']['Tables']['revenue_entries']['Row'];
 export type RevenueContract = Database['public']['Tables']['revenue_contracts']['Row'];
 export const REVENUE_CATEGORIES = ['Salário', 'Benefício', 'Crediário', 'Empréstimo Devolvido', 'Renda Extra', 'Doação', 'Outros Rendimentos'] as const;
+export function revenueSourceKey(entry: Pick<RevenueEntry, 'source_id' | 'contract_id' | 'id'>) {
+  return entry.source_id ?? entry.contract_id ?? entry.id;
+}
+export function annualRevenue(entries: RevenueEntry[], year: string) {
+  return entries.filter(entry => !entry.contract_id && entry.due_date.startsWith(`${year}-`));
+}
+export function receivedRevenue(entries: RevenueEntry[], year: string, source: string) {
+  return entries.filter(entry => !!entry.received_date && (!year || entry.due_date.startsWith(`${year}-`)) && (!source || entry.title === source));
+}
 export function todayBR() { return new Intl.DateTimeFormat('sv-SE', { timeZone: 'America/Sao_Paulo' }).format(new Date()); }
 export function revenueStatus(entry: Pick<RevenueEntry, 'due_date' | 'received_date'>, today: string) {
   if (entry.received_date) return 'Recebido';

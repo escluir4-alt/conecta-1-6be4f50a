@@ -11,6 +11,7 @@ import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/s
 
 export type AppPage =
   | "receitas"
+  | "contas-a-receber"
   | "historico-receitas"
   | "crediario"
   | "despesas"
@@ -119,7 +120,7 @@ export function AppShell({
       <div className="px-3 pt-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Financeiro</div>
       <NavLink to="/receitas" icon={TrendingUp} label="Receitas" active={active === "receitas"} indent={indent} onNavigate={onNavigate} />
       <div className="ml-4 space-y-1 border-l pl-2">
-        <NavLink to="/crediario" icon={Layers} label="Crediário" active={active === "crediario"} indent onNavigate={onNavigate} />
+        <NavLink to="/contas-a-receber" icon={CalendarDays} label="Contas a receber" active={active === "contas-a-receber" || active === "crediario"} indent onNavigate={onNavigate} />
         <NavLink to="/historico-receitas" icon={History} label="Histórico de Receitas" active={active === "historico-receitas"} indent onNavigate={onNavigate} />
       </div>
       <div>
