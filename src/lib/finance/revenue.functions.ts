@@ -41,7 +41,7 @@ export const receiveRevenue = createServerFn({ method: 'POST' }).middleware([req
   if (error) throw new Error(error.message);
   return { ok: true };
 });
-export const adjustRevenue = createServerFn({ method: 'POST' }).middleware([requireSupabaseAuth]).inputValidator((v: unknown) => z.object({ id: z.string().uuid(), adjustment: z.object({ date, original: money, days: z.number().int().min(0), interestCents: z.number().int().min(0), fineCents: z.number().int().min(0), correctionCents: z.number().int().min(0), total: money, agreed: money, note: z.string().max(2000) }) }).parse(v)).handler(async ({ data, context }) => {
+export const adjustRevenue = createServerFn({ method: 'POST' }).middleware([requireSupabaseAuth]).inputValidator((v: unknown) => z.object({ id: z.string().uuid(), adjustment: z.object({ date, original: money, days: z.number().int().min(0), interestCents: z.number().int().min(0), fineCents: z.number().int().min(0), correctionCents: z.number().int(), total: money, agreed: money, note: z.string().max(2000), rate:z.number().min(-99).max(1000).optional() }) }).parse(v)).handler(async ({ data, context }) => {
   const { error } = await context.supabase.rpc('revenue_adjust', { p_id: data.id, p_adjustment: data.adjustment });
   if (error) throw new Error(error.message);
   return { ok: true };
