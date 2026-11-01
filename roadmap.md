@@ -1,6 +1,8 @@
 # Roadmap — Módulo Despesas Casa Clara
 
 ## Receitas / contas a receber
+- [x] Agenda: sem métricas, feriados de Brasília/DF vermelhos, registros por dia em janela e ordem presente/futuro/passado; verificada com registros reais.
+- [ ] Agenda: integrar escalas e aniversários — não há cadastros desses registros no aplicativo atual.
 - [x] Persistência por usuário, recebimentos atômicos e histórico imutável com correções auditadas.
 - [x] Página mensal com categorias, filtros, KPIs, recorrência e comprovantes.
 - [x] Contratos de crediário, parcelas, encargos e documentos de atualização (índice com taxa informada).
