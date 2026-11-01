@@ -25,10 +25,17 @@ describe('Agenda de Brasília', () => {
     expect(orderAgendaDays(['2026-12-18', '2026-12-01'], '2026-11-17')).toEqual(['2026-12-01', '2026-12-18']);
     expect(orderAgendaDays(['2026-10-18', '2026-10-01'], '2026-11-17')).toEqual(['2026-10-01', '2026-10-18']);
   });
-  it('mostra pagamentos no dia efetivo mesmo com vencimento em outro mês', () => {
-    expect(financialAgendaItems('2026-11', [], [], [{ id: 'p1', creditor: 'Conta', paidDate: '2026-11-17', note: 'Pago' }])).toEqual([{ id: 'paid:p1', date: '2026-11-17', title: 'Conta', kind: 'pagamento', detail: 'Pago', done: true }]);
+  it('não apresenta despesas pagas como pagamentos a receber', () => {
+    expect(financialAgendaItems('2026-11', [], [], [{ id: 'p1', creditor: 'Conta', paidDate: '2026-11-17', note: 'Pago' }])).toEqual([]);
   });
-  it('preserva vencimento e recebimento em dias diferentes', () => {
-    expect(financialAgendaItems('2026-11', [{ id: 'r1', title: 'Salário', due_date: '2026-11-01', received_date: '2026-11-02' }], [], []).map(i => [i.date, i.kind])).toEqual([['2026-11-01', 'vencimento'], ['2026-11-02', 'recebimento']]);
+  it('mostra receita uma vez na data efetiva do pagamento', () => {
+    expect(financialAgendaItems('2026-11', [{ id: 'r1', title: 'Salário', due_date: '2026-11-01', received_date: '2026-11-02' }], [], []).map(i => [i.date, i.kind])).toEqual([['2026-11-02', 'pagamento']]);
+  });
+  it('mostra pagamento previsto de Receitas sem recebimento ainda', () => {
+    expect(financialAgendaItems('2026-11',[{id:'r2',title:'Salário',due_date:'2026-11-17',received_date:null}],[]).map(i => [i.date,i.kind,i.done])).toEqual([['2026-11-17','pagamento',false]]);
+  });
+  it('deduplica despesa anual pela origem e competência', () => {
+    const bill = {id:'b1',creditor:'Conta',due_date:'2026-11-17',paid_date:null,source_annual_id:'a1',source_period:'2026-11',description:'Despesa anual · 2026-11'};
+    expect(financialAgendaItems('2026-11',[],[bill,{...bill,id:'b2'}])).toEqual([{id:'due:b:b1',date:'2026-11-17',title:'Conta',kind:'vencimento',detail:undefined,done:false}]);
   });
 });
