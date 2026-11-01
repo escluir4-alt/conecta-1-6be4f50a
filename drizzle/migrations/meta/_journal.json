@@ -29,6 +29,13 @@
       "when": 1793575821237,
       "tag": "0003_edit_revenue_source",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1793575977974,
+      "tag": "0004_fix_revenue_edit_audit",
+      "breakpoints": true
     }
   ]
 }
