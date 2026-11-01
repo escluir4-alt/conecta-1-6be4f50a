@@ -460,6 +460,33 @@ export type Database = {
           },
         ]
       }
+      invoice_recipients: {
+        Row: {
+          city: string
+          key: string
+          name: string
+          state: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          city: string
+          key: string
+          name: string
+          state: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          city?: string
+          key?: string
+          name?: string
+          state?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       pluggy_credentials: {
         Row: {
           client_id: string
