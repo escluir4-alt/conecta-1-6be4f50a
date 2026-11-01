@@ -32,6 +32,7 @@ import {
   decryptVaultName,
   encryptAndStoreFile,
   ensureVaultForUser,
+  getRuntime,
   listVaultFiles,
   listVaultFolders,
   lockVault,
@@ -70,14 +71,15 @@ function NuvemPage() {
   const [error, setError] = useState("");
 
   async function syncDisplayNames(nextFiles: CloudFile[]) {
-    if (!vault) {
+    const masterKey = getRuntime().masterKey;
+    if (!masterKey) {
       setDisplayNames({});
       return;
     }
 
     const map: Record<string, string> = {};
     for (const file of nextFiles) {
-      map[file.id] = await decryptVaultName(file, await (await import("@/lib/cloud/vault")).getRuntime().masterKey ?? null);
+      map[file.id] = await decryptVaultName(file, masterKey);
     }
     setDisplayNames(map);
   }
@@ -228,7 +230,6 @@ function NuvemPage() {
 
     for (const file of fileList) {
       const record = await encryptAndStoreFile(file, null);
-
       const encryptedBlob = await getEncryptedBlob(record.blobId);
       if (!encryptedBlob) continue;
 
