@@ -1,6 +1,14 @@
 import type { Database } from '@/integrations/supabase/types';
 export type RevenueEntry = Database['public']['Tables']['revenue_entries']['Row'];
 export type RevenueContract = Database['public']['Tables']['revenue_contracts']['Row'];
+export type RevenueSource = Database['public']['Tables']['revenue_sources']['Row'];
+export function revenueMonthEntries(entries: RevenueEntry[], row: RevenueEntry, month: string) {
+  return entries.filter(entry => revenueSourceKey(entry) === revenueSourceKey(row) && entry.due_date.startsWith(`${month}-`));
+}
+export function revenueSettled(entry: RevenueEntry) {
+  const agreed = entry.adjustment && typeof entry.adjustment === 'object' && !Array.isArray(entry.adjustment) ? entry.adjustment['agreed'] : null;
+  return Boolean(entry.received_date) && (!entry.contract_id || (entry.received_cents ?? 0) >= (typeof agreed === 'number' ? agreed : entry.expected_cents));
+}
 export const REVENUE_CATEGORIES = ['Salário', 'Benefício', 'Crediário', 'Empréstimo Devolvido', 'Renda Extra', 'Doação', 'Outros Rendimentos'] as const;
 export function revenueSourceKey(entry: Pick<RevenueEntry, 'source_id' | 'contract_id' | 'id'>) {
   return entry.source_id ?? entry.contract_id ?? entry.id;

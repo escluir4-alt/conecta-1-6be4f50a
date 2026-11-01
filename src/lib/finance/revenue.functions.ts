@@ -8,14 +8,20 @@ const money = z.number().int().min(1).max(999999999999);
 export const getRevenue = createServerFn({ method: 'POST' }).middleware([requireSupabaseAuth]).inputValidator((v: unknown) => z.object({ month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/) }).parse(v)).handler(async ({ data, context }) => {
   const { error: syncError } = await context.supabase.rpc('revenue_sync', { p_month: `${data.month}-01` });
   if (syncError) throw new Error(syncError.message);
-  const [entries, contracts, events, files] = await Promise.all([
+  const [entries, contracts, events, files, sources] = await Promise.all([
     context.supabase.from('revenue_entries').select('*').order('due_date'),
     context.supabase.from('revenue_contracts').select('*').order('created_at', { ascending: false }),
     context.supabase.from('revenue_events').select('*').order('created_at', { ascending: false }),
     context.supabase.from('revenue_files').select('*'),
+    context.supabase.from('revenue_sources').select('*').order('first_due'),
   ]);
-  for (const r of [entries, contracts, events, files]) if (r.error) throw new Error(r.error.message);
-  return { entries: entries.data ?? [], contracts: contracts.data ?? [], events: events.data ?? [], files: files.data ?? [] };
+  for (const r of [entries, contracts, events, files, sources]) if (r.error) throw new Error(r.error.message);
+  return { entries: entries.data ?? [], contracts: contracts.data ?? [], events: events.data ?? [], files: files.data ?? [], sources: sources.data ?? [] };
+});
+export const editRevenue = createServerFn({ method: 'POST' }).middleware([requireSupabaseAuth]).inputValidator((v: unknown) => z.object({ id: z.string().uuid(), title: z.string().trim().min(1).max(200), category: z.enum(REVENUE_CATEGORIES), expected_cents: money, first_due: date, recurring: z.boolean(), details: z.record(z.string().max(1000)) }).parse(v)).handler(async ({ data, context }) => {
+  const { error } = await context.supabase.rpc('revenue_edit_source', { p_id: data.id, p_data: data });
+  if (error) throw new Error(error.message);
+  return { ok: true };
 });
 export const createRevenue = createServerFn({ method: 'POST' }).middleware([requireSupabaseAuth]).inputValidator((v: unknown) => z.object({ title: z.string().trim().min(1).max(200), category: z.enum(REVENUE_CATEGORIES), expected_cents: money, first_due: date, recurring: z.boolean(), details: z.record(z.string().max(1000)) }).parse(v)).handler(async ({ data, context }) => {
   if (data.category === 'Crediário') throw new Error('Cadastre um contrato de venda parcelada.');

@@ -9,8 +9,8 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { formatBRL, parseBRL } from '@/lib/finance/money';
-import { REVENUE_CATEGORIES, lateCharges, todayBR, type RevenueEntry, type RevenueContract } from '@/lib/finance/revenue';
-import { createRevenue, createRevenueContract, receiveRevenue, adjustRevenue, uploadRevenueFile } from '@/lib/finance/revenue.functions';
+import { REVENUE_CATEGORIES, lateCharges, todayBR, type RevenueEntry, type RevenueContract, type RevenueSource } from '@/lib/finance/revenue';
+import { createRevenue, editRevenue, createRevenueContract, receiveRevenue, adjustRevenue, uploadRevenueFile } from '@/lib/finance/revenue.functions';
 import { fileToBase64, validateAttachmentFile } from '@/lib/finance/files';
 import { ContractForm } from './ContractForm';
 
@@ -26,16 +26,18 @@ export async function uploadFiles(fn: ReturnType<typeof useServerFn<typeof uploa
   }
 }
 function validateFiles(files:File[]) { for (const file of files) { const error=validateAttachmentFile(file); if (error) throw new Error(error); } }
-export function NewRevenueDialog({ onClose, onSaved, month, contractOnly=false }: { onClose:()=>void; onSaved:()=>void; month:string; contractOnly?:boolean }) {
-  const [category,setCategory] = useState<string>(contractOnly?'Crediário':'Salário');
-  const [title,setTitle] = useState(''); const [value,setValue] = useState('');
-  const [due,setDue] = useState(`${month}-05`); const [recurring,setRecurring] = useState(true);
+export function NewRevenueDialog({ onClose, onSaved, month, contractOnly=false, editing }: { onClose:()=>void; onSaved:()=>void; month:string; contractOnly?:boolean; editing?:RevenueSource }) {
+  const details = editing?.details && typeof editing.details === 'object' && !Array.isArray(editing.details) ? editing.details : {};
+  const detail = (key: string) => typeof details[key] === 'string' ? details[key] as string : '';
+  const [category,setCategory] = useState<string>(editing?.category ?? (contractOnly?'Crediário':'Salário'));
+  const [title,setTitle] = useState(editing?.title ?? ''); const [value,setValue] = useState(editing ? (editing.expected_cents/100).toFixed(2).replace('.',',') : '');
+  const [due,setDue] = useState(editing?.first_due ?? `${month}-05`); const [recurring,setRecurring] = useState(editing?.recurring ?? true);
   const [buyer,setBuyer] = useState(''); const [cpf,setCpf] = useState(''); const [rg,setRg] = useState('');
-  const [count,setCount] = useState('12'); const [interest,setInterest] = useState('0'); const [fine,setFine] = useState('0');
+  const [count,setCount] = useState(detail('installments') || '12'); const [interest,setInterest] = useState('0'); const [fine,setFine] = useState('0');
   const [index,setIndex] = useState('Sem correção'); const [other,setOther] = useState('');
-  const [source,setSource] = useState(''); const [benefit,setBenefit] = useState(''); const [original,setOriginal] = useState('');
-  const [notes,setNotes] = useState(''); const [files,setFiles] = useState<File[]>([]); const [busy,setBusy] = useState(false);
-  const create = useServerFn(createRevenue); const contract = useServerFn(createRevenueContract); const upload = useServerFn(uploadRevenueFile);
+  const [source,setSource] = useState(detail('source')); const [benefit,setBenefit] = useState(detail('benefit')); const [original,setOriginal] = useState(detail('original'));
+  const [notes,setNotes] = useState(detail('notes')); const [files,setFiles] = useState<File[]>([]); const [busy,setBusy] = useState(false);
+  const create = useServerFn(createRevenue); const edit = useServerFn(editRevenue); const contract = useServerFn(createRevenueContract); const upload = useServerFn(uploadRevenueFile);
   const isContract=category==='Crediário';
   async function save(e:React.FormEvent) {
     e.preventDefault(); const cents=parseBRL(value); if (!cents) { toast.error('Informe um valor válido.'); return; }
@@ -48,14 +50,18 @@ export function NewRevenueDialog({ onClose, onSaved, month, contractOnly=false }
       } else {
         if (category==='Benefício' && (!source.trim() || !benefit.trim())) throw new Error('Informe fonte e número do benefício.');
         if (category==='Empréstimo Devolvido' && (!source.trim() || !original)) throw new Error('Informe de quem e a data original do empréstimo.');
-        const { id } = await create({ data:{title,category:category as typeof REVENUE_CATEGORIES[number],expected_cents:cents,first_due:due,recurring:category==='Empréstimo Devolvido'?true:recurring,details:{source,benefit,original,notes,installments:count}} });
-        try { await uploadFiles(upload,files,id,null); } catch(error) { toast.error(`Receita salva, mas os arquivos não foram anexados: ${(error as Error).message}`); }
+        const data = {title,category:category as typeof REVENUE_CATEGORIES[number],expected_cents:cents,first_due:due,recurring:category==='Empréstimo Devolvido'?true:recurring,details:{source,benefit,original,notes,installments:count}};
+        if (editing) await edit({ data: { ...data, id: editing.id } });
+        else {
+          const { id } = await create({ data });
+          try { await uploadFiles(upload,files,id,null); } catch(error) { toast.error(`Receita salva, mas os arquivos não foram anexados: ${(error as Error).message}`); }
+        }
       }
-      toast.success(isContract?'Contrato cadastrado.':'Receita cadastrada.'); onSaved(); onClose();
+      toast.success(editing?'Receita atualizada.':isContract?'Contrato cadastrado.':'Receita cadastrada.'); onSaved(); onClose();
     } catch(error) { toast.error((error as Error).message); } finally { setBusy(false); }
   }
   if(contractOnly)return <ContractForm month={month} onClose={onClose} onSaved={onSaved} />;
-  return <Dialog open onOpenChange={o=>!o&&!busy&&onClose()}><DialogContent className="max-h-[90dvh] max-w-2xl overflow-y-auto"><DialogHeader><DialogTitle>{isContract?'Novo contrato — venda parcelada':'Nova Receita'}</DialogTitle><DialogDescription>{isContract?'Dados da venda e do comprador':'Lançamento previsto'}</DialogDescription></DialogHeader>
+  return <Dialog open onOpenChange={o=>!o&&!busy&&onClose()}><DialogContent className="max-h-[90dvh] max-w-2xl overflow-y-auto"><DialogHeader><DialogTitle>{editing?'Editar Receita':isContract?'Novo contrato — venda parcelada':'Nova Receita'}</DialogTitle><DialogDescription>{editing?'Recebimentos confirmados serão preservados.':isContract?'Dados da venda e do comprador':'Lançamento previsto'}</DialogDescription></DialogHeader>
     <form onSubmit={save} className="space-y-4">
       {!contractOnly&&<Choice label="Categoria" value={category} onChange={v=>{setCategory(v);setRecurring(v==='Salário');}} options={REVENUE_CATEGORIES.filter(v=>v!=='Crediário')} />}
       <Field label="Fonte de renda / descrição"><Input required maxLength={200} value={title} onChange={e=>setTitle(e.target.value)} /></Field>
@@ -67,7 +73,7 @@ export function NewRevenueDialog({ onClose, onSaved, month, contractOnly=false }
       {category==='Outros Rendimentos'&&<Field label="Fonte vinculada"><Input value={source} onChange={e=>setSource(e.target.value)} /></Field>}
       {isContract&&<><div className="grid gap-4 sm:grid-cols-3"><Field label="Número de parcelas"><Input required type="number" min="1" max="600" value={count} onChange={e=>setCount(e.target.value)} /></Field><Field label="Juros (% ao mês)"><Input required inputMode="decimal" value={interest} onChange={e=>setInterest(e.target.value)} /></Field><Field label="Multa por atraso (%)"><Input required inputMode="decimal" value={fine} onChange={e=>setFine(e.target.value)} /></Field></div><Choice label="Correção monetária" value={index} onChange={setIndex} options={['Sem correção','IGPM','IPCA','Outro']} />{index==='Outro'&&<Field label="Nome do índice"><Input required value={other} onChange={e=>setOther(e.target.value)} /></Field>}<FileInput onChange={setFiles} /></>}
       <Field label="Observação"><Textarea value={notes} onChange={e=>setNotes(e.target.value)} maxLength={1000} /></Field>
-      {!isContract&&<FileInput onChange={setFiles} />}
+      {!isContract&&!editing&&<FileInput onChange={setFiles} />}
       <div className="flex justify-end gap-2"><Button type="button" variant="outline" disabled={busy} onClick={onClose}>Cancelar</Button><Button type="submit" variant="brand" disabled={busy}>{busy?'Salvando…':'Salvar'}</Button></div>
     </form></DialogContent></Dialog>;
 }
