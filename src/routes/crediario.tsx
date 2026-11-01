@@ -1,0 +1,3 @@
+import { createFileRoute } from '@tanstack/react-router';
+import { RevenueWorkspace } from '@/components/finance/RevenueWorkspace';
+export const Route=createFileRoute('/crediario')({ssr:false,head:()=>({meta:[{title:'Crediário — Casa Clara'},{name:'description',content:'Contratos de vendas parceladas e recebimentos.'},{property:'og:title',content:'Crediário — Casa Clara'},{property:'og:description',content:'Acompanhe compradores, parcelas e encargos de suas vendas.'},{property:'og:type',content:'website'},{name:'twitter:card',content:'summary'}]}),component:()=> <RevenueWorkspace mode="contracts"/>});

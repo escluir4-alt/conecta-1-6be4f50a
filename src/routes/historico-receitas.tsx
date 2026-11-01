@@ -1,0 +1,3 @@
+import { createFileRoute } from '@tanstack/react-router';
+import { RevenueWorkspace } from '@/components/finance/RevenueWorkspace';
+export const Route=createFileRoute('/historico-receitas')({ssr:false,head:()=>({meta:[{title:'Histórico de Receitas — Casa Clara'},{name:'description',content:'Histórico exclusivo de recebimentos e correções registradas.'},{property:'og:title',content:'Histórico de Receitas — Casa Clara'},{property:'og:description',content:'Relatórios das entradas por fonte, categoria e vencimento.'},{property:'og:type',content:'website'},{name:'twitter:card',content:'summary'}]}),component:()=> <RevenueWorkspace mode="history"/>});
