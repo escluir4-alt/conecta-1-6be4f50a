@@ -1,0 +1,30 @@
+name: Verificação de Build e Sintaxe
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    name: Validar Build e Testes
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Baixar código do repositório
+        uses: actions/checkout@v4
+
+      - name: Configurar Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Instalar dependências
+        run: bun install --frozen-lockfile
+
+      - name: Verificar build e sintaxe
+        run: bun run build
+
+      - name: Rodar testes automatizados
+        run: bun run test
