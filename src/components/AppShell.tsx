@@ -9,6 +9,7 @@ import {
   LineChart,
   LogOut,
   Menu,
+  Shield,
   TrendingDown,
   TrendingUp,
   UserRound,
@@ -33,7 +34,8 @@ export type AppPage =
   | "moedas"
   | "agenda"
   | "perfil"
-  | "auditoria";
+  | "auditoria"
+  | "nuvem";
 
 export interface AppUser {
   email: string;
@@ -160,6 +162,7 @@ export function AppShell({
       <NavLink to="/painel" icon={Wallet} label="Carteira" active={active === "carteira"} indent={indent} onNavigate={onNavigate} />
       <NavLink to="/cotacoes" icon={LineChart} label="Bolsa de Valores" active={active === "cotacoes"} indent={indent} onNavigate={onNavigate} />
       <NavLink to="/moedas" icon={LineChart} label="Moedas" active={active === "moedas"} indent={indent} onNavigate={onNavigate} />
+      <NavLink to="/nuvem" icon={Shield} label="Nuvem" active={active === "nuvem"} indent={indent} onNavigate={onNavigate} />
       <NavLink to="/perfil" icon={UserRound} label="Perfil" active={active === "perfil"} indent={indent} onNavigate={onNavigate} />
     </>
   );
