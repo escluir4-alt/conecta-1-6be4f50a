@@ -18,13 +18,16 @@ import { AppShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
+import { fromBase64 } from "@/lib/cloud/crypto";
 import {
   clearVaultDB,
+  getEncryptedBlob,
   listFiles,
   listFolders,
   loadVaultConfig,
 } from "@/lib/cloud/offline-db";
 import {
+  createFolderRecord,
   createFreshVault,
   decryptVaultName,
   encryptAndStoreFile,
@@ -61,9 +64,23 @@ function NuvemPage() {
   const [vault, setVault] = useState<CloudVaultConfig | null>(null);
   const [folders, setFolders] = useState<CloudFolder[]>([]);
   const [files, setFiles] = useState<CloudFile[]>([]);
+  const [displayNames, setDisplayNames] = useState<Record<string, string>>({});
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  async function syncDisplayNames(nextFiles: CloudFile[]) {
+    if (!vault) {
+      setDisplayNames({});
+      return;
+    }
+
+    const map: Record<string, string> = {};
+    for (const file of nextFiles) {
+      map[file.id] = await decryptVaultName(file, await (await import("@/lib/cloud/vault")).getRuntime().masterKey ?? null);
+    }
+    setDisplayNames(map);
+  }
 
   useEffect(() => {
     async function init() {
@@ -85,6 +102,7 @@ function NuvemPage() {
       const [nextFolders, nextFiles] = await Promise.all([listVaultFolders(), listVaultFiles()]);
       setFolders(nextFolders);
       setFiles(nextFiles);
+      await syncDisplayNames(nextFiles);
     }
 
     void init();
@@ -96,15 +114,19 @@ function NuvemPage() {
     return () => sub.subscription.unsubscribe();
   }, [navigate]);
 
+  useEffect(() => {
+    void syncDisplayNames(files);
+  }, [files, vault]);
+
   const filteredFiles = useMemo(() => {
     const term = search.trim().toLowerCase();
     if (!term) return files;
 
     return files.filter((file) => {
-      const value = file.nameEnc.toLowerCase();
+      const value = (displayNames[file.id] ?? file.nameEnc).toLowerCase();
       return value.includes(term);
     });
-  }, [files, search]);
+  }, [files, displayNames, search]);
 
   async function createVault() {
     if (!user) return;
@@ -122,7 +144,9 @@ function NuvemPage() {
       await ensureVaultForUser(password, user.email);
       setVault(config);
       setStatus("unlocked");
-      setFiles(await listVaultFiles());
+      const nextFiles = await listVaultFiles();
+      setFiles(nextFiles);
+      await syncDisplayNames(nextFiles);
       toast.success("Cofre da Nuvem criado com sucesso.");
     } catch (err) {
       const message = err instanceof Error ? err.message : "Erro ao criar o cofre.";
@@ -150,8 +174,11 @@ function NuvemPage() {
     try {
       await ensureVaultForUser(password, user?.email ?? "");
       setStatus("unlocked");
-      setFiles(await listVaultFiles());
-      setFolders(await listVaultFolders());
+      const nextFiles = await listVaultFiles();
+      const nextFolders = await listVaultFolders();
+      setFiles(nextFiles);
+      setFolders(nextFolders);
+      await syncDisplayNames(nextFiles);
       toast.success("Nuvem desbloqueada.");
     } catch (err) {
       const message = err instanceof Error ? err.message : "Senha incorreta ou cofre inválido.";
@@ -167,15 +194,20 @@ function NuvemPage() {
     setStatus("locked");
     setPassword("");
     setError("");
+    setDisplayNames({});
     toast.info("Cofre bloqueado.");
   }
 
   async function createFolder() {
+    if (status === "locked") {
+      toast.error("Desbloqueie a Nuvem antes de criar pastas.");
+      return;
+    }
+
     const folderName = window.prompt("Nome da pasta:");
     if (!folderName || !folderName.trim()) return;
 
     try {
-      const { createFolderRecord } = await import("@/lib/cloud/vault");
       await createFolderRecord(folderName.trim(), null);
       setFolders(await listVaultFolders());
       toast.success("Pasta criada.");
@@ -187,16 +219,21 @@ function NuvemPage() {
 
   async function uploadFiles(fileList: File[]) {
     if (!fileList.length) return;
+    if (status === "locked") {
+      toast.error("Desbloqueie a Nuvem antes de enviar arquivos.");
+      return;
+    }
 
     const toRemote: Array<{ id: string; blob: Blob; path: string }> = [];
 
     for (const file of fileList) {
       const record = await encryptAndStoreFile(file, null);
 
-      const encryptedBlob = await (await import("@/lib/cloud/offline-db")).getEncryptedBlob(record.blobId);
+      const encryptedBlob = await getEncryptedBlob(record.blobId);
       if (!encryptedBlob) continue;
 
-      const remoteBlob = new Blob([new Uint8Array(Object.values(encryptedBlob.payload))], {
+      const ciphertextBytes = fromBase64(encryptedBlob.payload.ciphertextB64);
+      const remoteBlob = new Blob([ciphertextBytes], {
         type: file.type || "application/octet-stream",
       });
 
@@ -209,7 +246,9 @@ function NuvemPage() {
 
     try {
       await uploadBatchToSupabase(toRemote);
-      setFiles(await listVaultFiles());
+      const nextFiles = await listVaultFiles();
+      setFiles(nextFiles);
+      await syncDisplayNames(nextFiles);
       toast.success(`${fileList.length} arquivos cifrados e sincronizados.`);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Erro ao sincronizar arquivos.";
@@ -246,6 +285,7 @@ function NuvemPage() {
     setStatus("locked");
     setPassword("");
     setError("");
+    setDisplayNames({});
     toast.success("Cofre reiniciado.");
   }
 
@@ -412,25 +452,29 @@ function NuvemPage() {
                       Nenhum arquivo no cofre.
                     </div>
                   ) : (
-                    filteredFiles.map((file) => (
-                      <div key={file.id} className="flex items-center justify-between gap-3 rounded-xl border p-3">
-                        <div className="flex min-w-0 items-center gap-3">
-                          <FileText className="size-5 text-muted-foreground" />
-                          <div className="min-w-0">
-                            <div className="truncate font-medium">{file.nameEnc || "Arquivo cifrado"}</div>
-                            <div className="text-xs text-muted-foreground">
-                              {file.size} bytes • {new Date(file.createdAt).toLocaleString("pt-BR")}
+                    filteredFiles.map((file) => {
+                      const displayName = displayNames[file.id] ?? file.nameEnc;
+
+                      return (
+                        <div key={file.id} className="flex items-center justify-between gap-3 rounded-xl border p-3">
+                          <div className="flex min-w-0 items-center gap-3">
+                            <FileText className="size-5 text-muted-foreground" />
+                            <div className="min-w-0">
+                              <div className="truncate font-medium">{displayName || "Arquivo cifrado"}</div>
+                              <div className="text-xs text-muted-foreground">
+                                {file.size} bytes • {new Date(file.createdAt).toLocaleString("pt-BR")}
+                              </div>
                             </div>
                           </div>
-                        </div>
 
-                        <div className="flex items-center gap-2">
-                          <Button variant="outline" size="icon" onClick={() => downloadFile(file)} aria-label="Baixar arquivo">
-                            <Download className="size-4" />
-                          </Button>
+                          <div className="flex items-center gap-2">
+                            <Button variant="outline" size="icon" onClick={() => downloadFile(file)} aria-label="Baixar arquivo">
+                              <Download className="size-4" />
+                            </Button>
+                          </div>
                         </div>
-                      </div>
-                    ))
+                      );
+                    })
                   )}
                 </div>
               </div>
