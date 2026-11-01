@@ -833,6 +833,10 @@ export type Database = {
         Args: { p_cents: number; p_due: string; p_id: string; p_note: string }
         Returns: undefined
       }
+      revenue_edit_source: {
+        Args: { p_data: Json; p_id: string }
+        Returns: undefined
+      }
       revenue_receive: {
         Args: {
           p_cents: number
