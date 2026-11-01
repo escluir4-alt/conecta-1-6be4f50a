@@ -5,7 +5,7 @@ export type AgendaItem = {
   date: string;
   title: string;
   kind: 'feriado' | 'vencimento' | 'pagamento' | 'recebimento';
-  detail?: string;
+  detail?: string | undefined;
   done?: boolean;
 };
 
