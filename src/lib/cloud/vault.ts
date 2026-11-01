@@ -37,6 +37,21 @@ const runtime: VaultRuntime = {
   masterKey: null,
 };
 
+function getStorageErrorMessage(error: unknown, fallback: string): string {
+  const text = error instanceof Error ? error.message : String(error ?? "");
+  const normalized = text.toLowerCase();
+
+  if (normalized.includes("bucket not found") || normalized.includes("storage bucket") || normalized.includes("not found") && normalized.includes("bucket")) {
+    return "Bucket 'cloud-docs' não encontrado. Crie o bucket no Supabase Storage e confirme que o nome está exatamente 'cloud-docs'.";
+  }
+
+  if (normalized.includes("row level security") || normalized.includes("policy")) {
+    return "O bucket 'cloud-docs' existe, mas as políticas RLS do Supabase estão bloqueando o upload. Verifique as regras de acesso do Storage.";
+  }
+
+  return fallback;
+}
+
 export function getRuntime(): VaultRuntime {
   return runtime;
 }
@@ -155,7 +170,7 @@ export async function uploadBatchToSupabase(files: Array<{ id: string; blob: Blo
       });
 
       if (error) {
-        throw new Error(`Falha ao subir arquivo ${id}: ${error.message}`);
+        throw new Error(getStorageErrorMessage(error, `Falha ao subir arquivo ${id}: ${error.message}`));
       }
     })
   );
@@ -170,7 +185,7 @@ export async function saveEncryptedFileToRemote(fileRecord: CloudFile, blob: Blo
   });
 
   if (error) {
-    throw new Error(error.message);
+    throw new Error(getStorageErrorMessage(error, error.message));
   }
 
   return data?.path ?? path;
