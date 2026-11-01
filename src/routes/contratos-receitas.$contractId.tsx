@@ -1,0 +1,4 @@
+import { createFileRoute } from '@tanstack/react-router';
+import { RevenueWorkspace } from '@/components/finance/RevenueWorkspace';
+export const Route=createFileRoute('/contratos-receitas/$contractId')({ssr:false,head:()=>({meta:[{title:'Detalhes do contrato — Casa Clara'},{name:'description',content:'Cadastro, andamento, parcelas e faturas de um contrato de receitas.'},{property:'og:title',content:'Detalhes do contrato — Casa Clara'},{property:'og:description',content:'Acompanhe parcelas, pagamentos e faturas do contrato.'},{property:'og:type',content:'website'},{name:'twitter:card',content:'summary'}]}),component:ContractPage});
+function ContractPage(){const {contractId}=Route.useParams();return <RevenueWorkspace mode="contracts" detailContractId={contractId} />;}
