@@ -2,9 +2,16 @@ import { describe, it, expect } from 'vitest';
 import { annualRevenue, receivedRevenue, revenueSourceKey, lateCharges, reminderDays, revenueStatus, revenueSummary, type RevenueEntry } from '@/lib/finance/revenue';
 const row = (overrides: Partial<RevenueEntry>): RevenueEntry => ({ id: 'entry-1', source_id: 'source-1', contract_id: null, user_id: 'user-1', title: 'Salário', category: 'Salário', number: null, expected_cents: 100000, due_date: '2026-11-05', received_date: null, received_cents: null, note: '', adjustment: null, ...overrides });
 describe('Receitas',()=>{
-  it('separa a grade anual das parcelas de contratos e de outros exercícios',()=>{
+  it('inclui parcelas de contratos no exercício do vencimento',()=>{
     const salary = row({});
-    expect(annualRevenue([salary, row({id:'contract-entry',contract_id:'contract-1'}),row({id:'old',due_date:'2025-11-05'})], '2026')).toEqual([salary]);
+    const installment=row({id:'contract-entry',source_id:null,contract_id:'contract-1',due_date:'2026-01-10'});
+    expect(annualRevenue([salary, installment,row({id:'old',due_date:'2025-11-05'})], '2026')).toEqual([installment,salary]);
+  });
+  it('ordena parcelas de janeiro a dezembro pela data de vencimento',()=>{
+    const january=row({id:'jan',contract_id:'contract-1',due_date:'2027-01-10'});
+    const february=row({id:'feb',contract_id:'contract-1',due_date:'2027-02-10'});
+    const march=row({id:'mar',contract_id:'contract-1',due_date:'2027-03-10'});
+    expect(annualRevenue([march,january,february], '2027').map(e=>e.due_date)).toEqual(['2027-01-10','2027-02-10','2027-03-10']);
   });
   it('histórico contém apenas recebimentos confirmados da fonte e ano selecionados',()=>{
     const received = row({received_date:'2026-11-01',received_cents:100000});

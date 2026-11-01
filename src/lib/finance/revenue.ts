@@ -6,7 +6,7 @@ export function revenueSourceKey(entry: Pick<RevenueEntry, 'source_id' | 'contra
   return entry.source_id ?? entry.contract_id ?? entry.id;
 }
 export function annualRevenue(entries: RevenueEntry[], year: string) {
-  return entries.filter(entry => !entry.contract_id && entry.due_date.startsWith(`${year}-`));
+  return entries.filter(entry => entry.due_date.startsWith(`${year}-`)).sort((a,b)=>a.due_date.localeCompare(b.due_date));
 }
 export function receivedRevenue(entries: RevenueEntry[], year: string, source: string) {
   return entries.filter(entry => !!entry.received_date && (!year || entry.due_date.startsWith(`${year}-`)) && (!source || entry.title === source));

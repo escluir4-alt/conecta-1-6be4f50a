@@ -1,12 +1,12 @@
-import { z } from 'zod';
 import type { quoteRevenueInstallments } from './contracts.functions';
 import { formatBRL,formatDateBR } from './money';
+import { pixRecipientSchema,pixMerchantText } from './pix-recipient';
+export { pixRecipientSchema } from './pix-recipient';
 export type ContractQuote=Awaited<ReturnType<typeof quoteRevenueInstallments>>;
-export const pixRecipientSchema=z.object({key:z.string().trim().min(1).max(77),name:z.string().trim().min(1).max(25),city:z.string().trim().min(1).max(15)});
 export async function makePix(key:string,name:string,city:string,cents:number){
   const validated=pixRecipientSchema.parse({key,name,city});
   const {createStaticPix,hasError}=await import('pix-utils');
-  const p=createStaticPix({pixKey:validated.key,merchantName:validated.name,merchantCity:validated.city,transactionAmount:cents/100});
+  const p=createStaticPix({pixKey:validated.key,merchantName:pixMerchantText(validated.name,25),merchantCity:pixMerchantText(validated.city,15),transactionAmount:cents/100});
   if(hasError(p))throw new Error('Chave Pix ou dados do recebedor inválidos.');
   return p.toBRCode();
 }

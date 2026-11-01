@@ -15,6 +15,13 @@
       "when": 1793537063446,
       "tag": "0001_expand_revenue_contracts",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793539970984,
+      "tag": "0002_saved_invoice_recipient",
+      "breakpoints": true
     }
   ]
 }
