@@ -9,13 +9,13 @@ export type AgendaItem = {
   done?: boolean;
 };
 
-// Only legally public holidays are painted red; optional days are not holidays.
+// DF Law 72/1989 includes Corpus Christi; administrative optional leave is separate.
 export function brasiliaHolidays(year: number): AgendaItem[] {
   const calendar = new Holidays('BR', 'DF', { languages: 'pt' });
-  return calendar.getHolidays(year).filter(h => h.type === 'public').map(h => ({
+  return calendar.getHolidays(year).filter(h => h.type === 'public' || h.name === 'Corpo de Deus').map(h => ({
     id: `holiday:${h.date}:${h.name}`,
     date: h.date.slice(0, 10),
-    title: h.date.slice(5, 10) === '04-21' ? 'Tiradentes · Aniversário de Brasília' : h.name,
+    title: h.date.slice(5, 10) === '04-21' ? 'Tiradentes · Aniversário de Brasília' : h.name === 'Corpo de Deus' ? 'Corpus Christi' : h.name,
     kind: 'feriado',
   }));
 }

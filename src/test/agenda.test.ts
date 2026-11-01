@@ -14,6 +14,9 @@ describe('Agenda de Brasília', () => {
     expect(brasiliaHolidays(2026).some(h => h.date === '2026-04-03')).toBe(true);
     expect(brasiliaHolidays(2026).some(h => h.date === '2026-02-17')).toBe(false);
   });
+  it('inclui Corpus Christi como feriado local previsto na lei do DF', () => {
+    expect(brasiliaHolidays(2026).find(h => h.date === '2026-06-04')?.title).toBe('Corpus Christi');
+  });
   it('ordena presente, futuro e passado: 17, 18…30, 01…16', () => {
     const dates = Array.from({ length: 30 }, (_, i) => `2026-11-${String(i + 1).padStart(2, '0')}`);
     expect(orderAgendaDays(dates, '2026-11-17')).toEqual([...dates.slice(16), ...dates.slice(0, 16)]);
