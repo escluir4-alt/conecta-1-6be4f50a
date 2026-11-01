@@ -1,6 +1,9 @@
 # Roadmap — Módulo Despesas Casa Clara
 
 ## Receitas / contas a receber
+- [ ] Ampliar cadastro de contratos e cálculo do saldo/parcelas com entrada e remanescente.
+- [ ] Listagem e página individual com cadastro, andamento, status e parcelas coloridas.
+- [ ] Atualizar parcelas com índice publicado e gerar fatura PDF com Pix; testar cadastro, pagamento e download.
 - [x] Reorganizar Receitas como cadastro, Contas a receber como grade anual, Histórico com tabela e filtros de pagamentos e Contratos parcelados com abas e parcelas; cadastro → recebimento → histórico verificado com sessão real, registro temporário removido. Arquivamento e comentários não foram adicionados às receitas (alterações limitadas à apresentação).
 - [x] Agenda: sem métricas, feriados de Brasília/DF vermelhos, registros por dia em janela e ordem presente/futuro/passado; verificada com registros reais.
 - [x] Agenda: corrigir feriados e duplicação financeira; cadastrar aniversários, plantões 12x36, compromissos, eventos e listas com conclusão e regras de lembrete visíveis na agenda (sem envio de notificações externas); seis cadastros e persistência de checklist verificados com sessão real.
