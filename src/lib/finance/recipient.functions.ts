@@ -19,5 +19,8 @@ export const getRecipientCities=createServerFn({method:'POST'}).middleware([requ
     const response=await fetch(`https://servicodados.ibge.gov.br/api/v1/localidades/estados/${data.state}/municipios?orderBy=nome`,{signal:AbortSignal.timeout(15000)});
     if(!response.ok)throw new Error();
     return z.array(z.object({nome:z.string()})).parse(await response.json()).map(c=>c.nome);
-  }catch{throw new Error('Não foi possível consultar as cidades. Você pode digitar a cidade.');}
+  }catch{
+    const {default:municipalities}=await import('./municipalities.json');
+    return municipalities[data.state];
+  }
 });
