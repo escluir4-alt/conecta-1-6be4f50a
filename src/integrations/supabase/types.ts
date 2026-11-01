@@ -14,6 +14,83 @@ export type Database = {
   }
   public: {
     Tables: {
+      agenda_checks: {
+        Row: {
+          done: boolean
+          item_key: string
+          occurrence_date: string
+          record_id: string
+          user_id: string
+        }
+        Insert: {
+          done?: boolean
+          item_key: string
+          occurrence_date: string
+          record_id: string
+          user_id: string
+        }
+        Update: {
+          done?: boolean
+          item_key?: string
+          occurrence_date?: string
+          record_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agenda_checks_record_id_fkey"
+            columns: ["record_id"]
+            isOneToOne: false
+            referencedRelation: "agenda_records"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      agenda_records: {
+        Row: {
+          created_at: string
+          description: string
+          favorite: boolean
+          id: string
+          items: Json
+          kind: string
+          recurrence: string
+          reminder: boolean
+          start_date: string
+          time: string
+          title: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string
+          favorite?: boolean
+          id?: string
+          items?: Json
+          kind: string
+          recurrence?: string
+          reminder?: boolean
+          start_date: string
+          time?: string
+          title: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          description?: string
+          favorite?: boolean
+          id?: string
+          items?: Json
+          kind?: string
+          recurrence?: string
+          reminder?: boolean
+          start_date?: string
+          time?: string
+          title?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       annual_expense_months: {
         Row: {
           annual_expense_id: string
