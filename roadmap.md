@@ -14,10 +14,10 @@
 - [x] Verificar todos os links com sessão real e executar testes de navegação.
 
 ## Remix do projeto (novo)
-- [ ] Novo remix: atualizar ambas as credenciais Pluggy (formulário recusado; aguardando preenchimento).
-- [x] Novo remix: migrações copiadas estavam vazias; estrutura preservada e nova recorrência de receitas aplicada.
-- [ ] Atualizar segredo PLUGGY_CLIENT_ID (formulário seguro enviado ao usuário — primeiro envio foi recusado; reenviar quando confirmar)
-- [ ] Atualizar segredo PLUGGY_CLIENT_SECRET (formulário seguro enviado ao usuário — primeiro envio foi recusado; reenviar quando confirmar)
+- [ ] Novo remix: atualizar ambas as credenciais Pluggy (formulário seguro recusado novamente em 01/11/2026; reenviar somente quando o usuário confirmar).
+- [x] Novo remix: migrações copiadas limpas; conjunto de migrações rescaffolded vazio (journal vazio, schema.ts placeholder).
+- [ ] Atualizar segredo PLUGGY_CLIENT_ID (aguardando confirmação do usuário para reenviar o formulário seguro)
+- [ ] Atualizar segredo PLUGGY_CLIENT_SECRET (aguardando confirmação do usuário para reenviar o formulário seguro)
 - [x] Reaplicar estrutura do banco no novo projeto (migração baseline 0000 aplicada; 12 tabelas, RLS, 5 funções, grants)
 - [x] Bucket privado de comprovantes já existe no novo projeto (comprovantes, privado, ~1,28 MB)
 
