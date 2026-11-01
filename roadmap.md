@@ -1,7 +1,7 @@
 # Roadmap — Módulo Despesas Casa Clara
 
 ## Receitas / contas a receber
-- [ ] Incluir contratos na grade anual por vencimento, compactar cabeçalhos de ações e salvar recebedor Pix com nome completo e cidade por estado.
+- [x] Incluir contratos na grade anual por vencimento, compactar cabeçalhos de ações e salvar recebedor Pix com nome completo e cidade por estado; grade real, persistência e opções de municípios verificadas. Consulta de titular por chave Pix não disponível sem serviço bancário autorizado.
 - [x] Ampliar cadastro de contratos e cálculo do saldo/parcelas com entrada e remanescente; saldo de R$ 800 após entrada de R$ 200 verificado.
 - [x] Listagem e página individual com cadastro, andamento, status e parcelas coloridas; cadastro, edição, status persistente e linhas vermelha/verde/laranja verificados.
 - [x] Atualizar parcelas com índice publicado SGS e gerar fatura PDF com Pix; cadastro, pagamento, histórico e download verificados com sessão real; PDF de 1 e 3 páginas inspecionado sem cortes, teste temporário removido. Pix estático não confirma pagamentos automaticamente; índices personalizados exigem taxa informada.
