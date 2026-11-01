@@ -12,7 +12,7 @@ import { AGENDA_KINDS, type PersonalKind, type PersonalRecord } from '@/lib/fina
 import { savePersonalAgenda, deletePersonalAgenda } from '@/lib/finance/agenda.functions';
 import { parseBRL } from '@/lib/finance/money';
 
-export function AgendaForm({date, initial, onClose, onSaved}: {date:string; initial?:PersonalRecord; onClose:()=>void; onSaved:()=>Promise<void>}) {
+export function AgendaForm({date, initial, onClose, onSaved}: {date:string; initial?:PersonalRecord | undefined; onClose:()=>void; onSaved:()=>Promise<void>}) {
   const [kind,setKind] = useState<PersonalKind>(initial?.kind ?? 'appointment');
   const [title,setTitle] = useState(initial?.title ?? '');
   const [start,setStart] = useState(initial?.start_date ?? date);
