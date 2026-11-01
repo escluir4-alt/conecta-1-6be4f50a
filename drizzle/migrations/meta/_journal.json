@@ -8,6 +8,13 @@
       "when": 1793497461932,
       "tag": "0000_agenda_personal_records",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1793537063446,
+      "tag": "0001_expand_revenue_contracts",
+      "breakpoints": true
     }
   ]
 }

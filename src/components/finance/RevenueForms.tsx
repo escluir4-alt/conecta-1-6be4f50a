@@ -12,6 +12,7 @@ import { formatBRL, parseBRL } from '@/lib/finance/money';
 import { REVENUE_CATEGORIES, lateCharges, todayBR, type RevenueEntry, type RevenueContract } from '@/lib/finance/revenue';
 import { createRevenue, createRevenueContract, receiveRevenue, adjustRevenue, uploadRevenueFile } from '@/lib/finance/revenue.functions';
 import { fileToBase64, validateAttachmentFile } from '@/lib/finance/files';
+import { ContractForm } from './ContractForm';
 
 export function Field({ label, children }: { label: string; children: ReactNode }) { return <label className="block space-y-1.5 text-sm font-medium"><span>{label}</span>{children}</label>; }
 export function Choice({ label, value, onChange, options }: { label: string; value: string; onChange: (v:string)=>void; options: readonly string[] }) {
@@ -42,7 +43,7 @@ export function NewRevenueDialog({ onClose, onSaved, month, contractOnly=false }
     try {
       validateFiles(files);
       if (isContract) {
-        const { id } = await contract({ data:{ title,buyer,cpf,rg,total_cents:cents,count:Number(count),first_due:due,interest_percent:Number(interest.replace(',','.')),fine_percent:Number(fine.replace(',','.')),correction_index:index==='Outro'?other:index } });
+        const { id } = await contract({ data:{ title,buyer,cpf,rg,total_cents:cents,down_payment_cents:0,mode:'count',amount:Number(count),remainderAt:'first',address:'',postal_code:'',city:'',state:'',phone:'',email:'',note:notes,first_due:due,interest_percent:Number(interest.replace(',','.')),fine_percent:Number(fine.replace(',','.')),correction_index:index==='Outro'?other:index } });
         try { await uploadFiles(upload,files,null,id); } catch (error) { toast.error(`Contrato salvo, mas os arquivos não foram anexados: ${(error as Error).message}`); }
       } else {
         if (category==='Benefício' && (!source.trim() || !benefit.trim())) throw new Error('Informe fonte e número do benefício.');
@@ -53,6 +54,7 @@ export function NewRevenueDialog({ onClose, onSaved, month, contractOnly=false }
       toast.success(isContract?'Contrato cadastrado.':'Receita cadastrada.'); onSaved(); onClose();
     } catch(error) { toast.error((error as Error).message); } finally { setBusy(false); }
   }
+  if(contractOnly)return <ContractForm month={month} onClose={onClose} onSaved={onSaved} />;
   return <Dialog open onOpenChange={o=>!o&&!busy&&onClose()}><DialogContent className="max-h-[90dvh] max-w-2xl overflow-y-auto"><DialogHeader><DialogTitle>{isContract?'Novo contrato — venda parcelada':'Nova Receita'}</DialogTitle><DialogDescription>{isContract?'Dados da venda e do comprador':'Lançamento previsto'}</DialogDescription></DialogHeader>
     <form onSubmit={save} className="space-y-4">
       {!contractOnly&&<Choice label="Categoria" value={category} onChange={v=>{setCategory(v);setRecurring(v==='Salário');}} options={REVENUE_CATEGORIES.filter(v=>v!=='Crediário')} />}

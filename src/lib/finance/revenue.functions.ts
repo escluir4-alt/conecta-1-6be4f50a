@@ -1,7 +1,8 @@
 import { createServerFn } from '@tanstack/react-start';
 import { z } from 'zod';
 import { requireSupabaseAuth } from '@/integrations/supabase/auth-middleware';
-import { REVENUE_CATEGORIES } from './revenue';
+import { REVENUE_CATEGORIES, lateCharges } from './revenue';
+import { contactSchema, installmentPlan } from './contract-plan';
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(v => Number.isFinite(Date.parse(v)) && new Date(v).toISOString().slice(0,10) === v, 'Data inválida');
 const money = z.number().int().min(1).max(999999999999);
 export const getRevenue = createServerFn({ method: 'POST' }).middleware([requireSupabaseAuth]).inputValidator((v: unknown) => z.object({ month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/) }).parse(v)).handler(async ({ data, context }) => {
@@ -29,17 +30,26 @@ export const createRevenue = createServerFn({ method: 'POST' }).middleware([requ
   if (entryError || !entry) throw new Error('Receita cadastrada; não foi possível carregar o lançamento.');
   return { id: entry.id };
 });
-export const createRevenueContract = createServerFn({ method: 'POST' }).middleware([requireSupabaseAuth]).inputValidator((v: unknown) => z.object({ title: z.string().trim().min(1).max(200), buyer: z.string().trim().min(1).max(200), cpf: z.string().max(20), rg: z.string().max(30), total_cents: money, count: z.number().int().min(1).max(600), first_due: date, interest_percent: z.number().min(0).max(100), fine_percent: z.number().min(0).max(100), correction_index: z.string().min(1).max(100) }).parse(v)).handler(async ({ data, context }) => {
-  const { data: id, error } = await context.supabase.rpc('revenue_create_contract', { p_data: data });
-  if (error) throw new Error(error.message);
-  return { id };
+export const createRevenueContract = createServerFn({ method: 'POST' }).middleware([requireSupabaseAuth]).inputValidator((v: unknown) => contactSchema.extend({ title:z.string().trim().min(1).max(200),buyer:z.string().trim().min(1).max(200),cpf:z.string().max(20),rg:z.string().max(30),total_cents:money,down_payment_cents:z.number().int().min(0),mode:z.enum(['count','value']),amount:money,remainderAt:z.enum(['first','last']).nullable(),first_due:date,interest_percent:z.number().min(0).max(100),fine_percent:z.number().min(0).max(100),correction_index:z.string().min(1).max(100) }).parse(v)).handler(async ({data,context})=>{
+  const p=installmentPlan(data.total_cents,data.down_payment_cents,data.mode,data.amount,data.remainderAt);
+  if(p.needsChoice)throw new Error('Escolha a primeira ou última parcela para o remanescente.');
+  const {data:id,error}=await context.supabase.rpc('revenue_create_contract',{p_data:{...data,count:p.count,plan:p.plan}});
+  if(error)throw new Error(error.message);return {id};
 });
 export const receiveRevenue = createServerFn({ method: 'POST' }).middleware([requireSupabaseAuth]).inputValidator((v: unknown) => z.object({ id: z.string().uuid(), date, cents: money.min(0), note: z.string().max(2000), reason: z.string().max(1000) }).parse(v)).handler(async ({ data, context }) => {
   const { error } = await context.supabase.rpc('revenue_receive', { p_id: data.id, p_date: data.date, p_cents: data.cents, p_note: data.note, p_reason: data.reason });
   if (error) throw new Error(error.message);
   return { ok: true };
 });
-export const adjustRevenue = createServerFn({ method: 'POST' }).middleware([requireSupabaseAuth]).inputValidator((v: unknown) => z.object({ id: z.string().uuid(), adjustment: z.object({ date, original: money, days: z.number().int().min(0), interestCents: z.number().int().min(0), fineCents: z.number().int().min(0), correctionCents: z.number().int().min(0), total: money, agreed: money, note: z.string().max(2000) }) }).parse(v)).handler(async ({ data, context }) => {
+export const adjustRevenue = createServerFn({ method: 'POST' }).middleware([requireSupabaseAuth]).inputValidator((v: unknown) => z.object({ id: z.string().uuid(), adjustment: z.object({ date, original: money, days: z.number().int().min(0), interestCents: z.number().int().min(0), fineCents: z.number().int().min(0), correctionCents: z.number().int(), total: money, agreed: money, note: z.string().max(2000), rate:z.number().min(-99).max(1000).optional() }) }).parse(v)).handler(async ({ data, context }) => {
+  const {data:entry}=await context.supabase.from('revenue_entries').select('*').eq('id',data.id).single();
+  if(!entry?.contract_id||entry.received_date)throw new Error('Parcela indisponível para atualização.');
+  const {data:contract}=await context.supabase.from('revenue_contracts').select('*').eq('id',entry.contract_id).single();
+  if(!contract)throw new Error('Contrato não encontrado.');
+  const a=data.adjustment;
+  const rate=contract.correction_index==='Sem correção'?0:a.rate??(a.correctionCents/entry.expected_cents*100);
+  const expected=lateCharges(entry.expected_cents,entry.due_date,a.date,contract.interest_percent,contract.fine_percent,rate);
+  if(a.original!==entry.expected_cents||a.days!==expected.days||a.interestCents!==expected.interestCents||a.fineCents!==expected.fineCents||a.correctionCents!==expected.correctionCents||a.total!==expected.total)throw new Error('O cálculo da parcela mudou. Recalcule antes de confirmar.');
   const { error } = await context.supabase.rpc('revenue_adjust', { p_id: data.id, p_adjustment: data.adjustment });
   if (error) throw new Error(error.message);
   return { ok: true };

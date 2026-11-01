@@ -507,46 +507,73 @@ export type Database = {
       }
       revenue_contracts: {
         Row: {
+          address: string
           buyer: string
+          city: string
           correction_index: string
           count: number
           cpf: string
           created_at: string
+          down_payment_cents: number
+          email: string
           fine_percent: number
           first_due: string
           id: string
           interest_percent: number
+          note: string
+          phone: string
+          postal_code: string
           rg: string
+          state: string
+          status: string
           title: string
           total_cents: number
           user_id: string
         }
         Insert: {
+          address?: string
           buyer: string
+          city?: string
           correction_index?: string
           count: number
           cpf?: string
           created_at?: string
+          down_payment_cents?: number
+          email?: string
           fine_percent?: number
           first_due: string
           id?: string
           interest_percent?: number
+          note?: string
+          phone?: string
+          postal_code?: string
           rg?: string
+          state?: string
+          status?: string
           title: string
           total_cents: number
           user_id: string
         }
         Update: {
+          address?: string
           buyer?: string
+          city?: string
           correction_index?: string
           count?: number
           cpf?: string
           created_at?: string
+          down_payment_cents?: number
+          email?: string
           fine_percent?: number
           first_due?: string
           id?: string
           interest_percent?: number
+          note?: string
+          phone?: string
+          postal_code?: string
           rg?: string
+          state?: string
+          status?: string
           title?: string
           total_cents?: number
           user_id?: string
@@ -775,6 +802,10 @@ export type Database = {
         Returns: undefined
       }
       revenue_create_contract: { Args: { p_data: Json }; Returns: string }
+      revenue_edit_installment: {
+        Args: { p_cents: number; p_due: string; p_id: string; p_note: string }
+        Returns: undefined
+      }
       revenue_receive: {
         Args: {
           p_cents: number

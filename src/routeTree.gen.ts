@@ -21,6 +21,7 @@ import { Route as HistoricoReceitasRouteImport } from './routes/historico-receit
 import { Route as MoedasRouteImport } from './routes/moedas'
 import { Route as PainelRouteImport } from './routes/painel'
 import { Route as ReceitasRouteImport } from './routes/receitas'
+import { Route as ContratosReceitasContractIdRouteImport } from './routes/contratos-receitas.$contractId'
 import { Route as CotacoesTickerRouteImport } from './routes/cotacoes_.$ticker'
 import { Route as DespesasAnuaisRouteImport } from './routes/despesas.anuais'
 import { Route as DespesasParceladasRouteImport } from './routes/despesas.parceladas'
@@ -85,6 +86,12 @@ const ReceitasRoute = ReceitasRouteImport.update({
   path: '/receitas',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ContratosReceitasContractIdRoute =
+  ContratosReceitasContractIdRouteImport.update({
+    id: '/contratos-receitas/$contractId',
+    path: '/contratos-receitas/$contractId',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const CotacoesTickerRoute = CotacoesTickerRouteImport.update({
   id: '/cotacoes_/$ticker',
   path: '/cotacoes/$ticker',
@@ -114,6 +121,7 @@ export interface FileRoutesByFullPath {
   '/moedas': typeof MoedasRoute
   '/painel': typeof PainelRoute
   '/receitas': typeof ReceitasRoute
+  '/contratos-receitas/$contractId': typeof ContratosReceitasContractIdRoute
   '/cotacoes/$ticker': typeof CotacoesTickerRoute
   '/despesas/anuais': typeof DespesasAnuaisRoute
   '/despesas/parceladas': typeof DespesasParceladasRoute
@@ -131,6 +139,7 @@ export interface FileRoutesByTo {
   '/moedas': typeof MoedasRoute
   '/painel': typeof PainelRoute
   '/receitas': typeof ReceitasRoute
+  '/contratos-receitas/$contractId': typeof ContratosReceitasContractIdRoute
   '/cotacoes/$ticker': typeof CotacoesTickerRoute
   '/despesas/anuais': typeof DespesasAnuaisRoute
   '/despesas/parceladas': typeof DespesasParceladasRoute
@@ -149,6 +158,7 @@ export interface FileRoutesById {
   '/moedas': typeof MoedasRoute
   '/painel': typeof PainelRoute
   '/receitas': typeof ReceitasRoute
+  '/contratos-receitas/$contractId': typeof ContratosReceitasContractIdRoute
   '/cotacoes_/$ticker': typeof CotacoesTickerRoute
   '/despesas/anuais': typeof DespesasAnuaisRoute
   '/despesas/parceladas': typeof DespesasParceladasRoute
@@ -168,6 +178,7 @@ export interface FileRouteTypes {
     | '/moedas'
     | '/painel'
     | '/receitas'
+    | '/contratos-receitas/$contractId'
     | '/cotacoes/$ticker'
     | '/despesas/anuais'
     | '/despesas/parceladas'
@@ -185,6 +196,7 @@ export interface FileRouteTypes {
     | '/moedas'
     | '/painel'
     | '/receitas'
+    | '/contratos-receitas/$contractId'
     | '/cotacoes/$ticker'
     | '/despesas/anuais'
     | '/despesas/parceladas'
@@ -202,6 +214,7 @@ export interface FileRouteTypes {
     | '/moedas'
     | '/painel'
     | '/receitas'
+    | '/contratos-receitas/$contractId'
     | '/cotacoes_/$ticker'
     | '/despesas/anuais'
     | '/despesas/parceladas'
@@ -220,6 +233,7 @@ export interface RootRouteChildren {
   MoedasRoute: typeof MoedasRoute
   PainelRoute: typeof PainelRoute
   ReceitasRoute: typeof ReceitasRoute
+  ContratosReceitasContractIdRoute: typeof ContratosReceitasContractIdRoute
   CotacoesTickerRoute: typeof CotacoesTickerRoute
 }
 
@@ -309,6 +323,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ReceitasRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/contratos-receitas/$contractId': {
+      id: '/contratos-receitas/$contractId'
+      path: '/contratos-receitas/$contractId'
+      fullPath: '/contratos-receitas/$contractId'
+      preLoaderRoute: typeof ContratosReceitasContractIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/cotacoes_/$ticker': {
       id: '/cotacoes_/$ticker'
       path: '/cotacoes/$ticker'
@@ -360,6 +381,7 @@ const rootRouteChildren: RootRouteChildren = {
   MoedasRoute: MoedasRoute,
   PainelRoute: PainelRoute,
   ReceitasRoute: ReceitasRoute,
+  ContratosReceitasContractIdRoute: ContratosReceitasContractIdRoute,
   CotacoesTickerRoute: CotacoesTickerRoute,
 }
 export const routeTree = rootRouteImport
