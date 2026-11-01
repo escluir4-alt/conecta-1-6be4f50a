@@ -20,6 +20,7 @@ export type AppPage =
   | "carteira"
   | "cotacoes"
   | "moedas"
+  | "agenda"
   | "auditoria";
 
 export interface AppUser {
@@ -136,6 +137,7 @@ export function AppShell({
           ))}
         </div>
       </div>
+      <NavLink to="/agenda" icon={CalendarDays} label="Agenda" active={active === "agenda"} indent={indent} onNavigate={onNavigate} />
       <NavLink to="/painel" icon={Wallet} label="Carteira" active={active === "carteira"} indent={indent} onNavigate={onNavigate} />
       <NavLink to="/cotacoes" icon={LineChart} label="Bolsa de Valores" active={active === "cotacoes"} indent={indent} onNavigate={onNavigate} />
       <NavLink to="/moedas" icon={LineChart} label="Moedas" active={active === "moedas"} indent={indent} onNavigate={onNavigate} />

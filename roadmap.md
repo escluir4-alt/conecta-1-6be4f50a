@@ -7,7 +7,7 @@
 - [x] Histórico exclusivo com filtros e relatórios; previsão mensal e lembretes de 7, 3 e 1 dia na página.
 - [x] Testes dos cálculos, datas, lembretes e navegação.
 - [ ] Verificação do recebimento com sessão real — o novo projeto não tem usuários cadastrados; aguardando cadastro/entrada.
-- [ ] Integração com módulos externos de Previsão Orçamentária, Agenda e Assistente IA — esses módulos não existem neste projeto.
+- [x] Módulo Agenda (calendário mensal de receitas e despesas); lembretes removidos de Receitas (serão feitos pela IA).
 
 ## Correção do menu
 - [x] Corrigir abertura das despesas anuais e parceladas e tornar o menu acessível no celular.
