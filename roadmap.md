@@ -1,8 +1,8 @@
 # Roadmap — Módulo Despesas Casa Clara
 
 ## Receitas / contas a receber
-- [ ] Corrigir confirmação na grade anual com histórico e quitação da parcela correspondente; verificar com sessão real.
-- [ ] Abrir cadastro preenchido para editar a fonte de renda, preservando recebimentos já confirmados.
+- [x] Corrigir confirmação na grade anual com histórico e quitação da parcela correspondente; receita e contrato verificados com sessão real.
+- [x] Abrir cadastro preenchido para editar a fonte de renda, preservando recebimentos já confirmados; leitura após salvar verificada.
 - [x] Incluir contratos na grade anual por vencimento, compactar cabeçalhos de ações e salvar recebedor Pix com nome completo e cidade por estado; grade real, persistência e opções de municípios verificadas. Consulta de titular por chave Pix não disponível sem serviço bancário autorizado.
 - [x] Ampliar cadastro de contratos e cálculo do saldo/parcelas com entrada e remanescente; saldo de R$ 800 após entrada de R$ 200 verificado.
 - [x] Listagem e página individual com cadastro, andamento, status e parcelas coloridas; cadastro, edição, status persistente e linhas vermelha/verde/laranja verificados.
