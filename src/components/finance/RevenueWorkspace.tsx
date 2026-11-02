@@ -40,8 +40,12 @@ export function RevenueWorkspace({ mode = 'registration', detailContractId }: { 
   const entries = q.data?.entries ?? []; const contracts = q.data?.contracts ?? []; const files = q.data?.files ?? []; const events = q.data?.events ?? [];
   const years = [...new Set([today.slice(0, 4), year, ...entries.map(e => e.due_date.slice(0, 4))])].sort().reverse();
   const annual = annualRevenue(entries, year); const annualSummary = revenueSummary(annual, today);
-  const annualRows = [...new Map(annual.map(e => [revenueSourceKey(e), e])).values()];
-  const sources = [...new Map(entries.filter(e => !e.contract_id).map(e => [revenueSourceKey(e), e])).values()].filter(e => e.title.toLowerCase().includes(search.toLowerCase()));
+  const currentSource = (entry: RevenueEntry): RevenueEntry => {
+    const source = registeredSources.find(s => s.id === entry.source_id);
+    return source ? { ...entry, title: source.title, category: source.category } : entry;
+  };
+  const annualRows = [...new Map(annual.map(e => [revenueSourceKey(e), currentSource(e)])).values()];
+  const sources = [...new Map(entries.filter(e => !e.contract_id).map(e => [revenueSourceKey(e), currentSource(e)])).values()].filter(e => e.title.toLowerCase().includes(search.toLowerCase()));
   const history = receivedRevenue(entries, historyYear, source); const groups = [...new Set(history.map(e => e.due_date.slice(0, 7)))].sort().reverse();
   const currentContract = contracts.find(c => c.id === contractId) ?? contracts[0];
   const installments = currentContract ? entries.filter(e => e.contract_id === currentContract.id) : [];
