@@ -277,3 +277,25 @@ export async function assertUserFinanceAccount(supabase: any, userId: string, ac
   }
   throw new Error("Conta não pertence às conexões autorizadas.");
 }
+
+/** Faturas oficiais; nunca inferir fechamento a partir do limite disponível. */
+export type PluggyCardBill = {
+  id: string;
+  dueDate: string;
+  billClosingDate: string | null;
+  totalAmount: number;
+  totalAmountCurrencyCode: string;
+};
+export async function fetchAuthorizedCardBills(supabase: any, userId: string, accountId: string): Promise<PluggyCardBill[]> {
+  await assertUserCreditCard(supabase, userId, accountId);
+  const apiKey = await apiKeyFor(userId);
+  const results: PluggyCardBill[] = [];
+  for (let page = 1; page <= 3; page++) {
+    const response = await pluggyGet<{ results: PluggyCardBill[]; totalPages?: number }>(
+      apiKey, `/bills?accountId=${encodeURIComponent(accountId)}&pageSize=100&page=${page}`
+    );
+    results.push(...(response.results ?? []));
+    if (!response.totalPages || page >= response.totalPages) break;
+  }
+  return results;
+}
