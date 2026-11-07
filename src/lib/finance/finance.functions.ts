@@ -722,6 +722,11 @@ export const getGlobalDebtTotals = createServerFn({ method: "GET" })
       loadAll("installment_contracts", "id"),
       loadAll("installment_entries", "contract_id,number,expected_cents,paid_date,paid_cents"),
     ]);
+    const { data: cardLinks, error: cardLinksError } = await supabase.from("finance_card_debt_links")
+      .select("liability_key,card_id").eq("user_id", userId);
+    if (cardLinksError) throw new Error(`Não foi possível consultar conciliação de cartões: ${cardLinksError.message}. Aplique a migração 0008.`);
+    const links = (cardLinks ?? []) as Array<{ liability_key: string; card_id: string }>;
+    const candidates: Array<{ key: string; label: string; open: number }> = [];
     const annualIds = new Set(annual.map(row => row.id as string));
     const contractIds = new Set(contracts.map(row => row.id as string));
     const annualMonths: any[] = [];
@@ -761,7 +766,10 @@ export const getGlobalDebtTotals = createServerFn({ method: "GET" })
       total += value;
       contractsTotal += value;
       // Uma baixa da parcela pode existir no contrato ou no espelho financeiro.
-      totalPaid += Math.max(paid(entry), paid(linked ?? {}));
+      const settled = Math.max(paid(entry), paid(linked ?? {}));
+      totalPaid += settled;
+      const open = Math.max(0, value - settled);
+      if (open > 0) candidates.push({ key: `contract:${entry.contract_id}:${entry.number}`, label: `Contrato ${entry.contract_id} · Parcela ${entry.number}`, open });
     }
     const installmentKeys = new Set(installments.filter(e => contractIds.has(e.contract_id))
       .map(e => `${e.contract_id}:${e.number}`));
@@ -775,7 +783,10 @@ export const getGlobalDebtTotals = createServerFn({ method: "GET" })
       const value = amount(cell);
       total += value;
       annualTotal += value;
-      totalPaid += paid(bill ?? {});
+      const settled = paid(bill ?? {});
+      totalPaid += settled;
+      const open = Math.max(0, value - settled);
+      if (open > 0) candidates.push({ key: `annual:${cell.annual_expense_id}:${cell.month}`, label: `Despesa anual ${year} · Mês ${cell.month} · ${bill?.creditor ?? cell.annual_expense_id}`, open });
     }
     for (const bill of bills) {
       if (bill.contract_id && installmentKeys.has(`${bill.contract_id}:${bill.installment_number}`)) continue;
@@ -790,7 +801,56 @@ export const getGlobalDebtTotals = createServerFn({ method: "GET" })
       total += amount(bill);
       totalPaid += paid(bill);
       standalone += amount(bill);
+      const open = Math.max(0, amount(bill) - paid(bill));
+      if (open > 0) candidates.push({ key: `bill:${bill.id}`, label: `${bill.creditor} · ${bill.due_date}`, open });
     }
     return { expected: total, paid: totalPaid, open: Math.max(0, total - totalPaid),
-      contracts: contractsTotal, annual: annualTotal, standalone };
+      contracts: contractsTotal, annual: annualTotal, standalone, candidates, links };
+  });
+
+
+// Conciliação manual e explícita: nunca inferir duplicidade só por nome ou valor.
+// A ligação não modifica a despesa nem o saldo fornecido pelo banco.
+export const setCardDebtLink = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) => z.object({
+    key: z.string().min(3).max(160).regex(/^(bill|annual|contract):/),
+    cardId: z.string().min(1).max(160).nullable(),
+  }).parse(input))
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context as Ctx;
+    const [kind, entityId, part] = data.key.split(":");
+    if (kind === "bill") {
+      const { data: bill, error } = await supabase.from("finance_bills").select("id").eq("user_id", userId).eq("id", entityId).maybeSingle();
+      if (error) throw new Error(error.message);
+      if (!bill) throw new Error("Despesa não encontrada");
+    } else if (kind === "contract") {
+      const number = Number(part);
+      if (!Number.isInteger(number) || number < 1) throw new Error("Parcela inválida");
+      const { data: inst, error } = await supabase.from("installment_entries").select("number").eq("user_id", userId).eq("contract_id", entityId).eq("number", number).maybeSingle();
+      if (error) throw new Error(error.message);
+      if (!inst) throw new Error("Parcela não encontrada");
+    } else if (kind === "annual") {
+      const month = Number(part);
+      if (!Number.isInteger(month) || month < 1 || month > 12) throw new Error("Mês inválido");
+      const { data: annual, error } = await supabase.from("annual_expenses").select("id").eq("user_id", userId).eq("id", entityId).maybeSingle();
+      if (error) throw new Error(error.message);
+      if (!annual) throw new Error("Despesa anual não encontrada");
+    } else throw new Error("Origem inválida");
+    if (data.cardId) {
+      const { data: connected, error } = await supabase.from("pluggy_items").select("item_id").eq("user_id", userId);
+      if (error) throw new Error(error.message);
+      if (!connected?.length) throw new Error("Não há cartões conectados para conciliação");
+      // O ID bancário só afeta o total quando também está presente na carteira autenticada.
+      const { error: writeError } = await supabase.from("finance_card_debt_links").upsert({
+        user_id: userId, liability_key: data.key, card_id: data.cardId, updated_at: new Date().toISOString(),
+      }, { onConflict: "user_id,liability_key" });
+      if (writeError) throw new Error(writeError.message);
+    } else {
+      const { error } = await supabase.from("finance_card_debt_links").delete()
+        .eq("user_id", userId).eq("liability_key", data.key);
+      if (error) throw new Error(error.message);
+    }
+    await audit(supabase, "reconcile_card_debt", "card_debt_link", data.key, null, { cardLinked: Boolean(data.cardId) });
+    return { ok: true };
   });
