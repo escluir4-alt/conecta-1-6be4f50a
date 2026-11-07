@@ -8,7 +8,7 @@ import { PayDialog, type PayTarget } from "@/components/finance/PayDialog";
 import { AttachmentButton } from "@/components/finance/AttachmentButton";
 import { Button } from "@/components/ui/button";
 import { formatBRL, formatDateBR } from "@/lib/finance/money";
-import { getMonthExpenses, getContracts } from "@/lib/finance/finance.functions";
+import { getMonthExpenses, getContracts, getGlobalDebtTotals } from "@/lib/finance/finance.functions";
 import { getFinances } from "@/lib/pluggy.functions";
 import { getRevenue } from "@/lib/finance/revenue.functions";
 import { ReceiveDialog } from "@/components/finance/RevenueForms";
@@ -42,6 +42,7 @@ function HomeBroker() {
   const monthFn = useServerFn(getMonthExpenses);
   const walletFn = useServerFn(getFinances);
   const contractsFn = useServerFn(getContracts);
+  const globalDebtFn = useServerFn(getGlobalDebtTotals);
   const revenueFn = useServerFn(getRevenue);
   const expenses = useQuery({ queryKey: ["month-expenses", period], queryFn: () => monthFn({ data: { period } }), enabled: !!user });
   const revenue = useQuery({ queryKey: ["revenue", user?.email, period], queryFn: () => revenueFn({ data: { month: period } }), enabled: !!user });
@@ -50,6 +51,7 @@ function HomeBroker() {
   const incomeReceived = incomes.reduce((sum, item) => sum + (item.received_cents ?? 0), 0);
   const contracts = useQuery({ queryKey: ["home-broker-contracts"], queryFn: () => contractsFn({ data: { includeArchived: false } }), enabled: !!user });
   const wallet = useQuery({ queryKey: ["finances"], queryFn: () => walletFn(), enabled: !!user });
+  const globalDebt = useQuery({ queryKey: ["global-debt-totals", user?.email], queryFn: () => globalDebtFn(), enabled: !!user });
   const bills = expenses.data?.bills ?? [];
   const cards = wallet.data?.accounts?.filter(a => a.type === "CREDIT") ?? [];
   const limits = useMemo(() => cards.reduce((acc, card) => ({
@@ -57,13 +59,20 @@ function HomeBroker() {
     used: acc.used + Math.max(0, card.creditLimit - card.available),
   }), { limit: 0, used: 0 }), [cards]);
   const stats = expenses.data?.kpis ?? { expected: 0, paid: 0, open: 0, count: 0 };
-  const pct = stats.expected > 0 ? Math.min(100, Math.round(stats.paid / stats.expected * 100)) : 0;
+  const cardUsedCents = Math.round(limits.used * 100);
+  const financialReady = !!globalDebt.data && !!wallet.data && !wallet.data.error && !wallet.error;
+  const debtTotal = (globalDebt.data?.expected ?? 0) + cardUsedCents;
+  const debtPaid = globalDebt.data?.paid ?? 0;
+  const debtOpen = Math.max(0, debtTotal - debtPaid);
+  const pct = debtTotal > 0 ? Math.min(100, Math.round(debtPaid / debtTotal * 100)) : 0;
   const refresh = () => {
     void client.invalidateQueries({ queryKey: ["month-expenses", period] });
     void client.invalidateQueries({ queryKey: ["history"] });
     void client.invalidateQueries({ queryKey: ["annual-year"] });
+    void client.invalidateQueries({ queryKey: ["finances"] });
     void client.invalidateQueries({ queryKey: ["revenue"] });
     void client.invalidateQueries({ queryKey: ["home-broker-contracts"] });
+    void client.invalidateQueries({ queryKey: ["global-debt-totals"] });
   };
   return <AppShell active="home-broker" user={user}>
     <div className="space-y-6 p-5 lg:p-8">
@@ -78,11 +87,13 @@ function HomeBroker() {
         </div>
       </div>
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <Kpi label="Total previsto do mês" value={formatBRL(stats.expected)} emphasis />
-        <Kpi label="Total já pago" value={formatBRL(stats.paid)} />
-        <Kpi label="Saldo a pagar" value={formatBRL(stats.open)} />
-        <Kpi label="% quitado" value={`${pct}%`} />
+        <Kpi label="Valor total das dívidas" value={financialReady ? formatBRL(debtTotal) : "—"} emphasis />
+        <Kpi label="Total já pago" value={financialReady ? formatBRL(debtPaid) : "—"} />
+        <Kpi label="Saldo devedor total" value={financialReady ? formatBRL(debtOpen) : "—"} />
+        <Kpi label="% quitado" value={financialReady ? `${pct}%` : "—"} />
       </div>
+      {(globalDebt.error || wallet.error || wallet.data?.error) && <p role="alert" className="rounded-lg border border-destructive/30 p-3 text-sm text-destructive">Consolidado indisponível: {globalDebt.error?.message || wallet.error?.message || wallet.data?.error}. Não foi exibido um total incompleto como se fosse zero.</p>}
+      {financialReady && <p className="text-xs text-muted-foreground">Consolidado de todos os períodos: contratos {formatBRL(globalDebt.data!.contracts)}, despesas anuais {formatBRL(globalDebt.data!.annual)}, demais contas {formatBRL(globalDebt.data!.standalone)} e limites utilizados dos cartões {formatBRL(cardUsedCents)}. Se compras no cartão também tiverem sido lançadas como despesas independentes, confira possíveis sobreposições.</p>}
       <section className="rounded-2xl border bg-card p-4 shadow-soft">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div><h2 className="text-lg font-bold">Registro de pagamento</h2>
@@ -118,12 +129,12 @@ function HomeBroker() {
               </tr></thead>
               <tbody className="divide-y">
                 {expenses.isLoading && <tr><td colSpan={7} className="p-6 text-center">Carregando pagamentos…</td></tr>}
-                {!expenses.isLoading && bills.length === 0 && <tr><td colSpan={7} className="p-6 text-center text-muted-foreground">Nenhum lançamento neste mês.</td></tr>}
+                {!expenses.isLoading && !expenses.error && bills.length === 0 && <tr><td colSpan={7} className="p-6 text-center text-muted-foreground">Nenhum lançamento neste mês.</td></tr>}
                 {bills.map(b => <tr key={b.id} className={b.paid_date ? "bg-success-soft/40" : undefined}>
                   <td className="p-3 font-semibold">{b.creditor}</td><td className="p-3">{formatBRL(b.expected_cents)}</td>
                   <td className="p-3">{formatDateBR(b.due_date)}</td><td className="p-3">{formatDateBR(b.paid_date)}</td>
                   <td className="p-3">{b.paid_date ? formatBRL(b.paid_cents) : "—"}</td>
-                  <td className="p-3">{b.paid_date ? formatBRL((b.paid_cents ?? 0) - b.expected_cents) : "—"}</td>
+                  <td className="p-3">{formatBRL(Math.max(0, b.expected_cents - (b.paid_cents ?? 0)))}</td>
                   <td className="p-3"><div className="flex items-center gap-2">
                     <Button size="sm" variant={b.paid_date ? "outline" : "brand"} onClick={() => setTarget({
                       kind: "bill", id: b.id, creditor: b.creditor, due_date: b.due_date,
@@ -150,7 +161,7 @@ function HomeBroker() {
             </tr></thead>
             <tbody className="divide-y">
               {revenue.isLoading && <tr><td colSpan={6} className="p-5 text-center">Carregando receitas…</td></tr>}
-              {!revenue.isLoading && incomes.length === 0 && <tr><td colSpan={6} className="p-5 text-center text-muted-foreground">Nenhuma receita nesta competência.</td></tr>}
+              {!revenue.isLoading && !revenue.error && incomes.length === 0 && <tr><td colSpan={6} className="p-5 text-center text-muted-foreground">Nenhuma receita nesta competência.</td></tr>}
               {incomes.map(entry => <tr key={entry.id}>
                 <td className="p-3 font-semibold">{entry.title}</td><td className="p-3">{formatBRL(entry.expected_cents)}</td>
                 <td className="p-3">{formatDateBR(entry.due_date)}</td><td className="p-3">{formatDateBR(entry.received_date)}</td>
