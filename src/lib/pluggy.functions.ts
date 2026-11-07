@@ -261,3 +261,19 @@ export async function assertUserCreditCard(
   }
   throw new Error("Cartão não pertence às conexões de crédito autorizadas.");
 }
+
+/** Valida qualquer conta ou cartão vinculado a uma conexão do titular. */
+export async function assertUserFinanceAccount(supabase: any, userId: string, accountId: string): Promise<"BANK" | "CREDIT"> {
+  const { data: items, error } = await supabase.from("pluggy_items").select("item_id").eq("user_id", userId);
+  if (error) throw new Error("Falha ao verificar contas autorizadas.");
+  if (!items?.length) throw new Error("Nenhuma conexão autorizada.");
+  const apiKey = await apiKeyFor(userId);
+  for (const item of items) {
+    const response = await pluggyGet<{ results: Array<{ id: string; type: string }> }>(
+      apiKey, `/accounts?itemId=${encodeURIComponent(item.item_id)}`
+    );
+    const account = response.results.find(a => a.id === accountId);
+    if (account?.type === "BANK" || account?.type === "CREDIT") return account.type;
+  }
+  throw new Error("Conta não pertence às conexões autorizadas.");
+}
