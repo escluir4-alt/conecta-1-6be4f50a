@@ -15,18 +15,82 @@ async function owner(ctx: Context) {
   if (!(await isOwner(ctx))) throw new Error("Axion IA disponível apenas ao titular autorizado.");
   return dbFor(ctx);
 }
-function providerConfig() {
+function environmentProvider() {
   const cents = Number(process.env["AXION_MAX_REQUEST_CENTS"]);
   const model = process.env["AXION_OPENAI_MODEL"]?.trim();
   const key = process.env["AXION_OPENAI_API_KEY"]?.trim();
-  return key && model && Number.isInteger(cents) && cents >= 1 && cents <= 3000 ? { key, model, cents } : null;
+  return key && model && Number.isInteger(cents) && cents >= 1 && cents <= 3000 ? { key, model, cents, web: process.env["AXION_WEB_SEARCH"] === "1" } : null;
 }
 
+async function adminDb() {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  return supabaseAdmin as unknown as SupabaseClient;
+}
+const providerStatusSchema = z.object({ model: z.string(), max_request_cents: z.number().int(), web: z.boolean() });
+const providerForm = z.object({
+  key: z.union([z.literal(""), z.string().min(20).max(512).regex(/^sk-[A-Za-z0-9_-]+$/)]),
+  model: z.string().trim().regex(/^[a-zA-Z0-9._:-]{1,120}$/),
+  cents: z.number().int().min(1).max(3000),
+  web: z.boolean(),
+});
+async function providerConfig(ctx: Context) {
+  if (process.env["SUPABASE_SERVICE_ROLE_KEY"]) {
+    const r = await (await adminDb()).rpc("axion_read_provider", { p_owner: ctx.userId }).maybeSingle();
+    if (r.error) throw new Error("Não foi possível ler a configuração segura da Axion.");
+    if (r.data) {
+      const row = providerStatusSchema.extend({ api_key: z.string().min(1) }).parse(r.data);
+      return { key: row.api_key, model: row.model, cents: row.max_request_cents, web: row.web };
+    }
+  }
+  return environmentProvider();
+}
 export const axionStatus = createServerFn({ method: "POST" }).middleware([requireSupabaseAuth])
-  .handler(async ({ context }) => ({
-    owner: await isOwner(context), configured: !!providerConfig(),
-    web: process.env["AXION_WEB_SEARCH"] === "1",
-  }));
+  .handler(async ({ context }) => {
+    if (!(await isOwner(context))) {
+      const pending = await dbFor(context).rpc("axion_transfer_pending");
+      return { owner: false, incoming: pending.data === true, configured: false, web: false, setup: false, provider: null };
+    }
+    const r = await dbFor(context).rpc("axion_provider_status").maybeSingle();
+    const setup = !r.error && !!process.env["SUPABASE_SERVICE_ROLE_KEY"];
+    const parsed = providerStatusSchema.safeParse(r.data);
+    const provider = setup && parsed.success ? parsed.data : null;
+    const env = environmentProvider();
+    return { owner: true, incoming: false, configured: !!(provider || env), web: provider?.web ?? env?.web ?? false, setup, provider };
+  });
+
+export const axionSaveProvider = createServerFn({ method: "POST" }).middleware([requireSupabaseAuth])
+  .inputValidator(providerForm)
+  .handler(async ({ context, data }) => {
+    await owner(context);
+    const db = await adminDb();
+    const r = await db.rpc("axion_save_provider", {
+      p_owner: context.userId, p_key: data.key || null, p_model: data.model, p_cents: data.cents, p_web: data.web,
+    });
+    if (r.error) throw new Error("Não foi possível salvar. Na primeira configuração, informe a chave da API.");
+    return { ok: true };
+  });
+
+export const axionRequestTransfer = createServerFn({ method: "POST" }).middleware([requireSupabaseAuth])
+  .inputValidator(z.string().trim().email().max(254))
+  .handler(async ({ context, data }) => {
+    const db = await owner(context);
+    const r = await db.rpc("axion_request_transfer", { p_email: data });
+    if (r.error) throw new Error("Informe outra conta confirmada do Conecta.");
+    return true;
+  });
+export const axionCancelTransfer = createServerFn({ method: "POST" }).middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const db = await owner(context);
+    const r = await db.rpc("axion_cancel_transfer");
+    if (r.error) throw new Error("Não foi possível cancelar a transferência.");
+    return true;
+  });
+export const axionAcceptTransfer = createServerFn({ method: "POST" }).middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const r = await dbFor(context).rpc("axion_accept_transfer");
+    if (r.error) throw new Error("Transferência indisponível ou expirada.");
+    return true;
+  });
 
 async function loadPreferences(db: SupabaseClient, userId: string) {
   const r = await db.from("axion_preferences").select("tone,deep,memory").eq("user_id", userId).maybeSingle();
@@ -125,9 +189,9 @@ export const axionAsk = createServerFn({ method: "POST" }).middleware([requireSu
   .inputValidator(askSchema)
   .handler(async ({ context, data }): Promise<Message> => {
     const db = await owner(context);
-    const config = providerConfig();
+    const config = await providerConfig(context);
     if (!config) throw new Error("Configure o modelo e o custo máximo no servidor antes de conversar.");
-    if (data.scope === "web" && process.env["AXION_WEB_SEARCH"] !== "1") throw new Error("Pesquisa web ainda desativada.");
+    if (data.scope === "web" && !config.web) throw new Error("Pesquisa web ainda desativada.");
     const privateData = data.scope === "private" ? await privateContext(db, context.userId) : undefined;
     const memory = data.includeMemory ? (await loadPreferences(db, context.userId)).memory : "";
     const reserved = await db.rpc("axion_reserve", { p_cents: config.cents });

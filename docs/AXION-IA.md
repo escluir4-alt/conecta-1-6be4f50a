@@ -33,3 +33,9 @@ A reserva atômica do banco soma o limite superior de cada chamada no mês de S�
 ## Reversão
 
 Remova/desative os segredos de IA para parar chamadas. Reverta o commit da instalação para retirar o acesso pelo aplicativo; não reescreva o histórico Git. Exporte conversas antes de decidir sobre a retenção dos objetos Axion; a reversão do código não apaga dados.
+
+## Configuração no aplicativo
+
+Aplique também `drizzle/migrations/0006_axion_provider_vault.sql` em ambientes com Supabase Vault. Depois de vincular a primeira conta, abra **Axion IA → Configuração → Provedor OpenAI**. Informe a chave, o identificador do modelo e o limite superior por chamada. Para trocar a chave, informe outra; para alterar só modelo e custo, deixe a chave em branco. O valor nunca é devolvido à interface. A instalação usa a credencial de serviço existente apenas no servidor e RPCs restritas para acessar o segredo. As variáveis de ambiente acima são uma alternativa administrativa global; evite usá-las se quiser separar as credenciais na troca de titular.
+
+Em **Alterar titular**, indique outra conta confirmada. Em até 15 minutos, o destinatário entra no Conecta e abre `/assistente` para aceitar. Não há envio de e-mail. A aceitação revoga o acesso anterior à Axion, remove a chave cadastrada no app e não migra histórico ou memória. O novo titular cadastra sua própria chave. A reserva mensal continua compartilhada pela instalação. Para alterar apenas o e-mail da mesma conta, use a configuração da conta: a Axion identifica pelo UUID, não pelo e-mail.
