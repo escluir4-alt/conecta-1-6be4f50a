@@ -39,7 +39,7 @@ export function RevenueWorkspace({ mode = 'registration', detailContractId, asRe
   const [attachment, setAttachment] = useState<{ entryId: string | null; contractId: string | null } | null>(null); const [fileBusy, setFileBusy] = useState(false);
   const fetch = useServerFn(getRevenue); const openFile = useServerFn(openRevenueFile); const upload = useServerFn(uploadRevenueFile); const updateForecast = useServerFn(updateRevenueForecast);
   const month = mode === 'annual' ? `${year}-${today.slice(5, 7)}` : today.slice(0, 7);
-  const q = useQuery({ queryKey: ['revenue', user?.email, month], queryFn: () => fetch({ data: { month } }), enabled: !!user });
+  const q = useQuery({ queryKey: ['revenue', user?.email, month], queryFn: () => fetch({ data: { month, fullYear: mode === 'annual' } }), enabled: !!user });
   const registeredSources = q.data?.sources ?? [];
   const entries = q.data?.entries ?? []; const contracts = q.data?.contracts ?? []; const files = q.data?.files ?? []; const events = q.data?.events ?? [];
   const years = [...new Set([today.slice(0, 4), year, ...entries.map(e => e.due_date.slice(0, 4))])].sort().reverse();
