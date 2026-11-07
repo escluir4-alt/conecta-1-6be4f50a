@@ -18,9 +18,9 @@ export const Route = createFileRoute("/despesas/anuais")({
   ssr: false,
   head: () => ({
     meta: [
-      { title: "Despesas Anuais — Casa Clara" },
+      { title: "Despesas Anuais — Axion" },
       { name: "description", content: "Grade anual de despesas por credor e mês." },
-      { property: "og:title", content: "Despesas Anuais — Casa Clara" },
+      { property: "og:title", content: "Despesas Anuais — Axion" },
       { property: "og:description", content: "Grade anual de despesas por credor e mês." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },

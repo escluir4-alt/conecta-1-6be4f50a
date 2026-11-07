@@ -1,8 +1,8 @@
-# Nuvem (Cloud Vault) no Casa Clara
+# Nuvem (Cloud Vault) no Axion
 
 ## Objetivo
 
-A Nuvem é um módulo de documentos pessoais, separado da senha principal do Casa Clara. Ela deve funcionar como um cofre exclusivo, com autenticação própria, criptografia obrigatória e cache local protegido.
+A Nuvem é um módulo de documentos pessoais, separado da senha principal do Axion. Ela deve funcionar como um cofre exclusivo, com autenticação própria, criptografia obrigatória e cache local protegido.
 
 ## Regras principais
 
@@ -17,7 +17,7 @@ A Nuvem é um módulo de documentos pessoais, separado da senha principal do Cas
 
 ### 1. Senha do cofre
 
-A senha da Nuvem é independente da senha do Casa Clara.
+A senha da Nuvem é independente da senha do Axion.
 
 - mínimo 12 caracteres
 - bloqueio após inatividade configurável
@@ -114,4 +114,4 @@ Para armazenamento em Supabase:
 - sem preview persistente em disco
 - sem backup em texto puro
 
-Essa arquitetura mantém a Nuvem como um cofre digital privado, alinhado ao modelo do Casa Clara e compatível com o padrão da aplicação atual.
+Essa arquitetura mantém a Nuvem como um cofre digital privado, alinhado ao modelo do Axion e compatível com o padrão da aplicação atual.

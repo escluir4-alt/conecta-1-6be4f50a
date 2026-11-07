@@ -1,4 +1,4 @@
-// Dados reais importados do sistema Casa Clara (secoes A-D do arquivo de referencia).
+// Dados reais importados do sistema Axion (secoes A-D do arquivo de referencia).
 // Valores em centavos inteiros. Nao editar manualmente.
 
 export interface SeedAnnual { sourceId: string; id: string; position: number; creditor: string; dueDay: number | null; months: (number | null)[] }

@@ -1,4 +1,4 @@
-# Roadmap — Módulo Despesas Casa Clara
+# Roadmap — Módulo Despesas Axion
 
 ## Receitas / contas a receber
 - [x] Corrigir confirmação na grade anual com histórico e quitação da parcela correspondente; receita e contrato verificados com sessão real.

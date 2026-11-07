@@ -1,20 +1,20 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { BarChart3, Bell, Check, Eye, EyeOff, Lock, Mail, ShieldCheck, Target, ArrowRight } from "lucide-react";
+import { BarChart3, Coins, CreditCard, Eye, EyeOff, Lock, Mail, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { lovable } from "@/integrations/lovable/index";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Logo } from "@/components/Logo";
+import { AxionMark, Logo } from "@/components/Logo";
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Entrar — Casa Clara" },
-      { name: "description", content: "Entre ou crie sua conta Casa Clara e controle contas e cartões via Open Finance." },
-      { property: "og:title", content: "Entrar — Casa Clara" },
+      { title: "Entrar — Axion" },
+      { name: "description", content: "Entre ou crie sua conta Axion e controle contas e cartões via Open Finance." },
+      { property: "og:title", content: "Entrar — Axion" },
       { property: "og:description", content: "Controle de contas e cartões via Open Finance." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
@@ -24,10 +24,9 @@ export const Route = createFileRoute("/")({
 });
 
 const features = [
-  { icon: BarChart3, title: "Controle Total", text: "Acompanhe contas, despesas e saldo em tempo real." },
-  { icon: Target, title: "Planejamento Inteligente", text: "Defina metas e organize seus objetivos financeiros." },
-  { icon: Bell, title: "Alertas e Lembretes", text: "Acompanhe faturas, vencimentos e movimentações." },
-  { icon: ShieldCheck, title: "Segurança dos Seus Dados", text: "Conexão bancária oficial via Open Finance." },
+  { icon: Coins, title: "Receitas" },
+  { icon: CreditCard, title: "Despesas" },
+  { icon: BarChart3, title: "Planejamento" },
 ];
 
 function AuthPage() {
@@ -79,44 +78,41 @@ function AuthPage() {
 
   return (
     <div className="grid min-h-screen lg:grid-cols-2">
-      <section className="relative hidden bg-hero px-16 py-14 lg:flex lg:flex-col">
-        <Logo />
+      <section className="relative hidden overflow-hidden bg-hero px-16 py-14 text-hero-foreground lg:flex lg:flex-col">
+        <Logo tone="light" />
         <div className="mt-20 max-w-xl">
-          <h1 className="text-5xl font-extrabold leading-tight">
+          <h1 className="text-5xl font-semibold leading-tight">
             Mais controle hoje,
             <br />
-            <span className="text-primary">mais tranquilidade amanhã.</span>
+            <span className="text-gold-gradient">mais tranquilidade amanhã.</span>
           </h1>
-          <p className="mt-6 text-muted-foreground">
-            Conecte seus bancos com Open Finance e veja contas, cartões e movimentações em um só lugar.
+          <p className="mt-6 text-hero-foreground/85">
+            Acompanhe suas receitas, despesas e contas em um só lugar.
           </p>
-          <div className="mt-10 grid grid-cols-2 gap-4">
-            {features.map((f) => (
-              <div key={f.title} className="rounded-xl border bg-card/80 p-5 shadow-soft">
-                <f.icon className="size-5 text-primary" />
-                <div className="mt-3 font-semibold">{f.title}</div>
-                <p className="mt-1 text-sm text-muted-foreground">{f.text}</p>
-              </div>
-            ))}
-          </div>
-          <ul className="mt-6 space-y-1.5 text-sm text-muted-foreground">
-            {[
-              "Interface simples e intuitiva",
-              "Dados sincronizados com seus bancos",
-              "Cartões e faturas em tempo real",
-            ].map((t) => (
-              <li key={t} className="flex items-center gap-2"><Check className="size-4 text-success" />{t}</li>
-            ))}
-          </ul>
+        </div>
+        <svg viewBox="0 0 600 300" className="pointer-events-none mt-auto w-full text-gold" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+          <path d="M0 200 C150 150 250 260 400 230 S560 170 600 180" opacity="0.6" />
+          <path d="M0 240 C180 200 300 290 600 220" opacity="0.35" />
+          <path d="M260 120 L380 20 L500 120 M290 100 V230 M470 100 V230 M440 50 V30 H460 V68" />
+          <rect x="365" y="70" width="12" height="12" fill="currentColor" stroke="none" /><rect x="381" y="70" width="12" height="12" fill="currentColor" stroke="none" />
+          <rect x="365" y="86" width="12" height="12" fill="currentColor" stroke="none" /><rect x="381" y="86" width="12" height="12" fill="currentColor" stroke="none" />
+          <rect x="330" y="190" width="22" height="40" rx="3" /><rect x="365" y="165" width="22" height="65" rx="3" /><rect x="400" y="140" width="22" height="90" rx="3" /><rect x="435" y="115" width="22" height="115" rx="3" />
+        </svg>
+        <div className="mt-8 flex items-center gap-6 text-sm">
+          {features.map((f, i) => (
+            <div key={f.title} className={`flex items-center gap-2 ${i ? "border-l border-gold/40 pl-6" : ""}`}>
+              <f.icon className="size-5 text-gold" />{f.title}
+            </div>
+          ))}
         </div>
       </section>
 
       <section className="flex items-center justify-center bg-card px-6 py-12">
         <div className="w-full max-w-md">
-          <div className="flex justify-center"><Logo /></div>
-          <h2 className="mt-12 text-2xl font-bold">{mode === "login" ? "Bem-vindo de volta!" : "Crie sua conta"}</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {mode === "login" ? "Entre na sua conta para continuar gerenciando suas finanças." : "Leva menos de um minuto."}
+          <div className="flex justify-center"><AxionMark className="h-12 w-16" /></div>
+          <h2 className="mt-6 text-center text-3xl font-semibold">{mode === "login" ? "Bem-vindo de volta" : "Crie sua conta"}</h2>
+          <p className="mt-1 text-center text-sm text-muted-foreground">
+            {mode === "login" ? "Entre na sua conta para continuar." : "Leva menos de um minuto."}
           </p>
 
           <form onSubmit={submit} className="mt-8 space-y-5">

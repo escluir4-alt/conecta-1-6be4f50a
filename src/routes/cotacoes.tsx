@@ -13,9 +13,9 @@ export const Route = createFileRoute("/cotacoes")({
   ssr: false,
   head: () => ({
     meta: [
-      { title: "Bolsa de Valores — Casa Clara" },
+      { title: "Bolsa de Valores — Axion" },
       { name: "description", content: "Ações da B3 em tempo real: destaques, maiores altas e maiores quedas." },
-      { property: "og:title", content: "Bolsa de Valores — Casa Clara" },
+      { property: "og:title", content: "Bolsa de Valores — Axion" },
       { property: "og:description", content: "Ações da B3 em tempo real: destaques, maiores altas e maiores quedas." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },

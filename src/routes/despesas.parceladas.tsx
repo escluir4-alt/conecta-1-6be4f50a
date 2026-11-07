@@ -20,9 +20,9 @@ export const Route = createFileRoute("/despesas/parceladas")({
   ssr: false,
   head: () => ({
     meta: [
-      { title: "Despesas Parceladas — Casa Clara" },
+      { title: "Despesas Parceladas — Axion" },
       { name: "description", content: "Contratos parcelados e suas parcelas." },
-      { property: "og:title", content: "Despesas Parceladas — Casa Clara" },
+      { property: "og:title", content: "Despesas Parceladas — Axion" },
       { property: "og:description", content: "Contratos parcelados e suas parcelas." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
