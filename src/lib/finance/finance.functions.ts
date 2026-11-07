@@ -354,7 +354,19 @@ export const getAnnualYear = createServerFn({ method: "POST" })
       paidCents: paidYearBills.reduce((s: number, b: any) => s + (b.paid_cents ?? 0), 0),
       paidExpected: paidYearBills.reduce((s: number, b: any) => s + b.expected_cents, 0),
     };
-    return { year: yearRow ?? null, rows: rows ?? [], months: months ?? [], paidMonths, years: years ?? [], stats };
+    // Nome de apresentação unificado pelo vínculo técnico account_id → credor anual.
+    // Não renomeia registros históricos ou muda os valores originais.
+    const { data: accountNames, error: accountNamesError } = await (supabase as any)
+      .from("finance_account_profiles").select("annual_expense_id,display_name")
+      .not("annual_expense_id","is",null);
+    if (accountNamesError) throw new Error("Não foi possível carregar nomes de cartões: " + accountNamesError.message);
+    const alias = new Map<string,string>((accountNames ?? []).filter((p: {annual_expense_id:string;display_name:string|null})=>!!p.display_name)
+      .map((p: {annual_expense_id:string;display_name:string})=>[p.annual_expense_id,p.display_name]));
+    const visibleRows = (rows ?? []).map((row: any) => ({ ...row,
+      creditor: alias.get(row.id) || row.creditor,
+      creditor_original: row.creditor,
+    }));
+    return { year: yearRow ?? null, rows: visibleRows, months: months ?? [], paidMonths, years: years ?? [], stats };
   });
 
 async function assertYearOpen(supabase: any, year: number) {
