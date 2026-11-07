@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { AppShell, useRequireUser } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { AxionTripCompare } from "@/components/AxionTripCompare";
 import { Label } from "@/components/ui/label";
 
 export const Route = createFileRoute("/viagens")({ head: () => ({ meta: [{ title: "Viagens — Axion" }] }), component: Page });
@@ -56,7 +57,9 @@ function Page() {
           <Button variant="ghost" size="sm" onClick={() => remove(item.id)}>Excluir</Button>
         </div>)}
       </div>
+      <AxionTripCompare />
       <p className="mt-8 text-xs text-muted-foreground">Versão inicial: registros armazenados apenas neste navegador e separados por usuário. Não há sincronização com o banco ou transferência automática de dados antigos.</p>
     </div>
   </AppShell>;
 }
+

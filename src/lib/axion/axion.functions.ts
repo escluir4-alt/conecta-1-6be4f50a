@@ -7,6 +7,8 @@ import { askSchema, conversationSchema, modelHistory, outstanding, periodBounds,
 
 import { FREE_MODEL, brl, dateOffset, geminiPayload, internalIntent } from "./free-mode";
 
+import { marketIntent } from "./domains";
+
 type Context = { supabase: unknown; userId: string };
 const dbFor = (ctx: Context) => ctx.supabase as SupabaseClient;
 async function isOwner(ctx: Context) {
@@ -202,7 +204,7 @@ async function privateContext(db: SupabaseClient, userId: string) {
 
 async function internalAnswer(db: SupabaseClient, userId: string, question: string) {
   const intent = internalIntent(question);
-  if (!intent) return "Neste modo posso consultar contas abertas do mês, vencimentos dos próximos 7 dias, receitas previstas e próximos compromissos.";
+  if (!intent) return "Neste modo posso consultar contas abertas do mês, vencimentos dos próximos 7 dias, receitas previstas, próximos compromissos, cotações por ticker (PETR4) e meta Selic.";
   const { today, start, end } = periodBounds(new Date());
   const next = dateOffset(today, 7);
   if (intent === "agenda") {
@@ -264,8 +266,17 @@ export const axionAsk = createServerFn({ method: "POST" }).middleware([requireSu
   .inputValidator(askSchema)
   .handler(async ({ context, data }): Promise<Message> => {
     const db = await owner(context);
-    if (data.scope === "internal")
+    if (data.scope === "internal") {
+      const intent = marketIntent(data.question);
+      if (intent) {
+        const { marketAnswer } = await import("./market.server");
+        return { role: "assistant", scope: data.scope, ...(await marketAnswer(intent)) };
+      }
+      if (/\b(viagem|viagens|rota|rotas|pedágio|pedagio)\b/i.test(data.question)) {
+        return { role: "assistant", scope: data.scope, text: "Use Comparar viagens para calcular alternativas por distância, tempo, combustível e pedágio informado." };
+      }
       return { role: "assistant", scope: data.scope, text: await internalAnswer(db, context.userId, data.question) };
+    }
     if (data.scope === "free")
       return { role: "assistant", scope: data.scope, text: await freeAnswer(context, data.question, data.tone, data.deep) };
     const config = await providerConfig(context);

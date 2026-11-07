@@ -2,7 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
 export type LiveStock = { symbol: string; name: string; price: number; changePercent: number };
-export type StockHistory = LiveStock & { high: number; low: number; previousClose: number; points: { t: number; p: number }[] };
+export type StockHistory = LiveStock & { quotedAt: number | null; currency: string | null; high: number; low: number; previousClose: number; points: { t: number; p: number }[] };
 
 const YH = "https://query1.finance.yahoo.com";
 const headers = { "User-Agent": "Mozilla/5.0", Accept: "application/json" };
@@ -40,10 +40,9 @@ export const getLiveStocks = createServerFn({ method: "POST" })
 
 const RANGES = { "1d": "5m", "5d": "30m", "1mo": "1d", "6mo": "1d" } as const;
 
-export const getStockHistory = createServerFn({ method: "POST" })
-  .inputValidator((d: unknown) => z.object({ symbol: tick, range: z.enum(["1d", "5d", "1mo", "6mo"]) }).parse(d))
-  .handler(async ({ data }): Promise<StockHistory | null> => {
-    const r = await fetch(`${YH}/v8/finance/chart/${data.symbol}.SA?range=${data.range}&interval=${RANGES[data.range]}`, { headers });
+export async function loadStockHistory(data: { symbol: string; range: keyof typeof RANGES }): Promise<StockHistory | null> {
+    const symbol = tick.parse(data.symbol);
+    const r = await fetch(`${YH}/v8/finance/chart/${symbol}.SA?range=${data.range}&interval=${RANGES[data.range]}`, { headers, redirect: "error", signal: AbortSignal.timeout(8000) });
     if (!r.ok) { console.error("chart falhou", r.status); return null; }
     const j = (await r.json()) as any;
     const res = j?.chart?.result?.[0];
@@ -53,8 +52,13 @@ export const getStockHistory = createServerFn({ method: "POST" })
     const cl: (number | null)[] = res.indicators?.quote?.[0]?.close ?? [];
     const points = ts.flatMap((t, i) => (cl[i] != null ? [{ t: t * 1000, p: Number(cl[i]) }] : []));
     return {
+      quotedAt: typeof m.regularMarketTime === "number" && m.regularMarketTime > 0 ? m.regularMarketTime * 1000 : null,
+      currency: typeof m.currency === "string" ? m.currency : null,
       symbol: data.symbol, name: m.longName ?? m.shortName ?? data.symbol, price: Number(m.regularMarketPrice ?? 0),
       changePercent: pct(m), high: Number(m.regularMarketDayHigh ?? 0), low: Number(m.regularMarketDayLow ?? 0),
       previousClose: Number(m.chartPreviousClose ?? m.previousClose ?? 0), points,
     };
-  });
+  }
+export const getStockHistory = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => z.object({ symbol: tick, range: z.enum(["1d", "5d", "1mo", "6mo"]) }).parse(d))
+  .handler(({ data }) => loadStockHistory(data));

@@ -282,10 +282,11 @@ function Chat({ access, email, onConfigured, initial }: ConfiguredProps & { init
     </section>}
     {!access.geminiConfigured && <p role="status" className="rounded-xl border p-3 text-sm">As consultas internas já estão disponíveis. Para conversa geral, cadastre sua chave em Configuração → Gemini gratuito.</p>}
     <div className="flex flex-wrap gap-2" aria-label="Consultas gratuitas do Conecta">
-      {["Quanto falta pagar neste mês?", "O que vence nos próximos 7 dias?", "Quais são meus próximos compromissos?", "Quais as receitas previstas?"].map(q =>
+      {["Quanto falta pagar neste mês?", "O que vence nos próximos 7 dias?", "Quais são meus próximos compromissos?", "Quais as receitas previstas?", "Qual a cotação de PETR4 e VALE3?", "Qual é a meta Selic?"].map(q =>
         <Button key={q} type="button" variant="outline" size="sm" disabled={busy} onClick={() => {
           setScope("internal"); setImage(undefined); setIncludeMemory(false); setEdit(null); setQuestion(q);
         }}>{q}</Button>)}
+      <Link to="/viagens" hash="comparar-viagens" className="inline-flex items-center rounded-md border px-3 text-sm">Comparar viagens</Link>
       {access.geminiConfigured && <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => {
         setScope("free"); setImage(undefined); setIncludeMemory(false); setEdit(null);
       }}>Conversar com Gemini</Button>}
