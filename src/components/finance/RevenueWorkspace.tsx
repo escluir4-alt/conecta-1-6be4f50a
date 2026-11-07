@@ -10,7 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { formatBRL, formatDateBR, diffLabel, parseBRL } from '@/lib/finance/money';
 import { printRevenueDocument } from '@/lib/finance/revenue-document';
-import { getRevenue, openRevenueFile, uploadRevenueFile, updateRevenueForecast } from '@/lib/finance/revenue.functions';
+import { getRevenue, openRevenueFile, uploadRevenueFile, updateRevenueSourceAdjustment } from '@/lib/finance/revenue.functions';
 import { annualRevenue, receivedRevenue, revenueSourceKey, revenueSummary, revenueMonthEntries, revenueSettled, todayBR, type RevenueEntry, type RevenueContract, type RevenueSource } from '@/lib/finance/revenue';
 import { NewRevenueDialog, ReceiveDialog, AdjustmentDialog, FileInput, uploadFiles } from './RevenueForms';
 import { RevenueTable } from './RevenueTable';
@@ -28,16 +28,18 @@ export function RevenueWorkspace({ mode = 'registration', detailContractId, asRe
   const user = useRequireUser(); const qc = useQueryClient(); const today = todayBR();
   const [year, setYear] = useState(today.slice(0, 4)); const [historyYear, setHistoryYear] = useState(''); const [source, setSource] = useState('');
   const [editing, setEditing] = useState<RevenueSource | null>(null);
-  const [forecast, setForecast] = useState<RevenueEntry | null>(null);
-  const [forecastValue, setForecastValue] = useState('');
-  const [forecastReason, setForecastReason] = useState('');
-  const [forecastBusy, setForecastBusy] = useState(false);
+  const [reajusteSource, setReajusteSource] = useState<RevenueSource | null>(null);
+  const [reajusteMode, setReajusteMode] = useState<'percentage' | 'amount'>('percentage');
+  const [reajusteValue, setReajusteValue] = useState('');
+  const [reajusteStart, setReajusteStart] = useState(`${today.slice(0, 7)}-01`);
+  const [reajusteReason, setReajusteReason] = useState('');
+  const [reajusteBusy, setReajusteBusy] = useState(false);
   const [search, setSearch] = useState(''); const [newOpen, setNewOpen] = useState(false);
   const [selected, setSelected] = useState<RevenueEntry | null>(null); const [contractId, setContractId] = useState<string | null>(null);
   const [adjust, setAdjust] = useState<RevenueEntry | null>(null); const [document, setDocument] = useState<string | null>(null);
   const [cell, setCell] = useState<{ title: string; entries: RevenueEntry[] } | null>(null);
   const [attachment, setAttachment] = useState<{ entryId: string | null; contractId: string | null } | null>(null); const [fileBusy, setFileBusy] = useState(false);
-  const fetch = useServerFn(getRevenue); const openFile = useServerFn(openRevenueFile); const upload = useServerFn(uploadRevenueFile); const updateForecast = useServerFn(updateRevenueForecast);
+  const fetch = useServerFn(getRevenue); const openFile = useServerFn(openRevenueFile); const upload = useServerFn(uploadRevenueFile); const updateSourceAdjustment = useServerFn(updateRevenueSourceAdjustment);
   const month = mode === 'annual' ? `${year}-${today.slice(5, 7)}` : today.slice(0, 7);
   const q = useQuery({ queryKey: ['revenue', user?.email, month], queryFn: () => fetch({ data: { month, fullYear: mode === 'annual' } }), enabled: !!user });
   const registeredSources = q.data?.sources ?? [];
@@ -66,25 +68,40 @@ export function RevenueWorkspace({ mode = 'registration', detailContractId, asRe
     if (!source) { toast.error('Cadastro da receita não encontrado.'); return; }
     setCell(null); setEditing(source);
   }
-  function openForecast(entry: RevenueEntry) {
-    if (entry.received_date || entry.contract_id) return;
-    setCell(null); setForecast(entry);
-    setForecastValue((entry.expected_cents / 100).toFixed(2).replace('.', ','));
-    setForecastReason('');
+  function openReajuste(row: RevenueEntry) {
+    const selected = registeredSources.find(s => s.id === row.source_id);
+    if (!selected) { toast.error('Fonte pagadora não encontrada.'); return; }
+    setReajusteSource(selected); setReajusteMode('percentage'); setReajusteValue('');
+    setReajusteStart(`${year}-${today.slice(5, 7)}-01`); setReajusteReason('');
   }
-  async function saveForecast() {
-    if (!forecast) return;
-    const cents = parseBRL(forecastValue);
-    if (cents === null || cents <= 0 || forecastReason.trim().length < 3) {
-      toast.error('Informe o valor e o motivo do reajuste.'); return;
+  const reajusteBase = reajusteSource ? (() => {
+    const schedule = reajusteSource.details && typeof reajusteSource.details === 'object' && !Array.isArray(reajusteSource.details)
+      ? (reajusteSource.details as Record<string, unknown>).axion_reajustes : null;
+    const rules = Array.isArray(schedule) ? schedule.filter((v): v is { start: string; cents: number } =>
+      !!v && typeof v === 'object' && typeof v.start === 'string' && typeof v.cents === 'number' && v.start < reajusteStart.slice(0, 7)) : [];
+    rules.sort((a,b) => b.start.localeCompare(a.start));
+    return rules[0]?.cents ?? reajusteSource.expected_cents;
+  })() : 0;
+  const reajustePercentage = Number(reajusteValue.replace(',', '.'));
+  const reajusteCalculated = reajusteMode === 'percentage'
+    ? (reajusteValue.trim() && Number.isFinite(reajustePercentage) ? Math.round(reajusteBase * (1 + reajustePercentage / 100)) : null)
+    : parseBRL(reajusteValue);
+  async function saveReajuste() {
+    if (!reajusteSource || reajusteCalculated === null || reajusteCalculated <= 0 ||
+        reajusteReason.trim().length < 3 || !/^\d{4}-(0[1-9]|1[0-2])-01$/.test(reajusteStart)) {
+      toast.error('Informe valor, competência inicial e justificativa.'); return;
     }
-    setForecastBusy(true);
+    setReajusteBusy(true);
     try {
-      await updateForecast({ data: { id: forecast.id, cents, previousCents: forecast.expected_cents, reason: forecastReason.trim() } });
-      toast.success('Previsão mensal ajustada e registrada no histórico.');
-      setForecast(null); saved();
+      await updateSourceAdjustment({ data: {
+        sourceId: reajusteSource.id, start: reajusteStart.slice(0, 7),
+        mode: reajusteMode, value: reajusteMode === 'percentage' ? reajustePercentage : reajusteCalculated,
+        baseCents: reajusteBase, newCents: reajusteCalculated, reason: reajusteReason.trim(),
+      } });
+      toast.success('Reajuste aplicado às competências a partir da data informada.');
+      setReajusteSource(null); saved();
     } catch (error) { toast.error((error as Error).message); }
-    finally { setForecastBusy(false); }
+    finally { setReajusteBusy(false); }
   }
   function saved() { void qc.invalidateQueries({ queryKey: ['revenue'] }); setCell(null); }
   function fileButton(e: RevenueEntry) { setAttachment({ entryId: e.id, contractId: null }); }
@@ -147,7 +164,7 @@ export function RevenueWorkspace({ mode = 'registration', detailContractId, asRe
 
       {mode === 'annual' && <><div className="mt-5 flex flex-wrap items-center gap-3"><span className="rounded-md bg-success-soft px-3 py-1 text-xs font-bold text-success">Em andamento</span><label className="flex items-center gap-2 text-sm font-medium text-muted-foreground">Exercício:<select aria-label="Exercício" className="h-10 rounded-md border bg-card px-3 text-sm" value={year} onChange={e => setYear(e.target.value)}>{years.map(y => <option key={y} value={y}>{y}</option>)}</select></label></div>
         <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-5"><Summary label="Total geral previsto" value={formatBRL(annualSummary.expected)} /><Summary label="Valor recebido no ano" value={formatBRL(annualSummary.received)} tone="text-success" /><Summary label="A receber no ano" value={formatBRL(annualSummary.pending)} tone="text-destructive" /><Summary label="Fontes registradas" value={String(annualRows.length)} /><Summary label="Status do exercício" value="Em andamento" /></div>
-        <div className="mt-6 overflow-x-auto rounded-lg border bg-card shadow-soft"><table className="w-full min-w-[900px] text-sm"><thead><tr className="bg-muted text-xs uppercase text-muted-foreground"><th className="sticky left-0 z-10 bg-muted px-3 py-2.5 text-left">Fonte Pagadora</th><th className="px-3 py-2.5 text-center">Jan</th>{MONTHS.slice(1).map(m => <th key={m} className="px-2 py-2.5 text-center">{m}</th>)}<th className="px-3 py-2.5 text-right">Total anual</th></tr></thead><tbody className="divide-y">{annualRows.length ? annualRows.map(row => { const list = annual.filter(e => revenueSourceKey(e) === revenueSourceKey(row)); return <tr key={revenueSourceKey(row)}><td className="sticky left-0 z-10 bg-card px-3 py-2 font-semibold"><div className="flex items-center justify-between gap-2"><span>{row.title}</span>{!row.contract_id && <Button size="icon" variant="ghost" aria-label={`Editar receita ${row.title}`} title="Editar receita" onClick={() => editSource(row)}><Pencil /></Button>}</div></td>{MONTHS.map((m, i) => { const monthEntries = revenueMonthEntries(annual, row, `${year}-${String(i + 1).padStart(2, '0')}`); const paid = monthEntries.length > 0 && monthEntries.every(revenueSettled); return <td key={`${revenueSourceKey(row)}-${m}`} className={`px-2 py-2 text-center ${paid ? 'font-medium text-success' : ''}`}>{monthEntries.length ? <div className="flex items-center justify-center gap-0.5"><Button variant="ghost" className={`h-auto min-w-20 px-1 py-2 ${paid ? 'text-success' : ''}`} aria-label={`${row.title} — ${m} ${year}`} onClick={() => setCell({ title: `${row.title} — ${m} ${year}`, entries: monthEntries })}>{formatBRL(monthEntries.reduce((sum, e) => sum + e.expected_cents, 0))}</Button>{monthEntries.length === 1 && !monthEntries[0].received_date && !monthEntries[0].contract_id && <Button size="icon" variant="ghost" className="h-6 w-6 text-muted-foreground hover:text-primary" title={`Reajustar ${row.title} em ${m}/${year}`} aria-label={`Reajustar ${row.title} em ${m}/${year}`} onClick={() => openForecast(monthEntries[0])}><Pencil className="h-3 w-3" /></Button>}</div> : '—'}</td>; })}<td className="px-3 py-2 text-right font-bold">{formatBRL(list.reduce((sum, e) => sum + e.expected_cents, 0))}</td></tr>; }) : <tr><td colSpan={14} className="px-4 py-12 text-center text-muted-foreground">Nenhuma conta a receber neste exercício.</td></tr>}</tbody><tfoot><tr className="border-t-2 bg-muted/70 font-bold"><th scope="row" className="sticky left-0 z-10 bg-muted px-3 py-3 text-left">Total mensal</th>{MONTHS.map((m, i) => { const monthly = annual.filter(e => e.due_date.startsWith(`${year}-${String(i + 1).padStart(2, '0')}-`)); return <td key={m} className="px-2 py-3 text-center whitespace-nowrap">{monthly.length ? formatBRL(monthly.reduce((sum, e) => sum + e.expected_cents, 0)) : '—'}</td>; })}<td className="px-3 py-3 text-right whitespace-nowrap">{formatBRL(annualSummary.expected)}</td></tr></tfoot></table></div><Button className="mt-4" variant="outline" onClick={() => setNewOpen(true)}><Plus />Nova fonte de renda</Button></>}
+        <div className="mt-6 overflow-x-auto rounded-lg border bg-card shadow-soft"><table className="w-full min-w-[900px] text-sm"><thead><tr className="bg-muted text-xs uppercase text-muted-foreground"><th className="sticky left-0 z-10 bg-muted px-3 py-2.5 text-left">Fonte Pagadora</th><th className="px-3 py-2.5 text-center">Jan</th>{MONTHS.slice(1).map(m => <th key={m} className="px-2 py-2.5 text-center">{m}</th>)}<th className="px-3 py-2.5 text-right">Total anual</th></tr></thead><tbody className="divide-y">{annualRows.length ? annualRows.map(row => { const list = annual.filter(e => revenueSourceKey(e) === revenueSourceKey(row)); return <tr key={revenueSourceKey(row)}><td className="sticky left-0 z-10 bg-card px-3 py-2 font-semibold"><div className="flex items-center justify-between gap-2"><span>{row.title}</span>{row.source_id && !row.contract_id && <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground hover:text-primary" aria-label={`Reajustar ${row.title}`} title="Reajustar fonte pagadora" onClick={() => openReajuste(row)}><Pencil className="h-3.5 w-3.5" /></Button>}</div></td>{MONTHS.map((m, i) => { const monthEntries = revenueMonthEntries(annual, row, `${year}-${String(i + 1).padStart(2, '0')}`); const paid = monthEntries.length > 0 && monthEntries.every(revenueSettled); return <td key={`${revenueSourceKey(row)}-${m}`} className={`px-2 py-2 text-center ${paid ? 'font-medium text-success' : ''}`}>{monthEntries.length ? <Button variant="ghost" className={`h-auto min-w-20 px-1 py-2 ${paid ? 'text-success' : ''}`} aria-label={`${row.title} — ${m} ${year}`} onClick={() => setCell({ title: `${row.title} — ${m} ${year}`, entries: monthEntries })}>{formatBRL(monthEntries.reduce((sum, e) => sum + e.expected_cents, 0))}</Button> : '—'}</td>; })}<td className="px-3 py-2 text-right font-bold">{formatBRL(list.reduce((sum, e) => sum + e.expected_cents, 0))}</td></tr>; }) : <tr><td colSpan={14} className="px-4 py-12 text-center text-muted-foreground">Nenhuma conta a receber neste exercício.</td></tr>}</tbody><tfoot><tr className="border-t-2 bg-muted/70 font-bold"><th scope="row" className="sticky left-0 z-10 bg-muted px-3 py-3 text-left">Total mensal</th>{MONTHS.map((m, i) => { const monthly = annual.filter(e => e.due_date.startsWith(`${year}-${String(i + 1).padStart(2, '0')}-`)); return <td key={m} className="px-2 py-3 text-center whitespace-nowrap">{monthly.length ? formatBRL(monthly.reduce((sum, e) => sum + e.expected_cents, 0)) : '—'}</td>; })}<td className="px-3 py-3 text-right whitespace-nowrap">{formatBRL(annualSummary.expected)}</td></tr></tfoot></table></div><Button className="mt-4" variant="outline" onClick={() => setNewOpen(true)}><Plus />Nova fonte de renda</Button></>}
 
       {mode === 'history' && <>{!history.length && <p className="mt-10 text-center text-muted-foreground">Nenhum recebimento confirmado encontrado.</p>}{groups.map(g => { const list = history.filter(e => e.due_date.startsWith(g)); return <section key={g} className="mt-6 border-t pt-4"><div className="mb-3 flex flex-wrap items-center justify-between gap-2"><h2 className="text-lg font-bold">{monthLabel(g)}</h2><span className="text-sm text-success">{list.length} recebimentos • {formatBRL(list.reduce((sum, e) => sum + (e.received_cents ?? 0), 0))}</span></div><RevenueTable entries={list} onReceive={setSelected} onFiles={fileButton} /></section>; })}{events.some(e => e.kind === 'correção') && <section className="mt-6 border-t pt-5"><h2 className="text-lg font-bold">Registro de alterações</h2><div className="mt-3 divide-y text-sm">{events.filter(e => e.kind === 'correção').map(e => <div key={e.id} className="py-3"><strong>{entries.find(r => r.id === e.entry_id)?.title}</strong><span className="ml-2 text-muted-foreground">{new Date(e.created_at).toLocaleString('pt-BR')}</span><p className="mt-1">{e.reason}</p></div>)}</div></section>}</>}
 
@@ -208,13 +225,24 @@ export function RevenueWorkspace({ mode = 'registration', detailContractId, asRe
     )}
 
 
-    {forecast && <Dialog open onOpenChange={open => !open && !forecastBusy && setForecast(null)}>
+    {reajusteSource && <Dialog open onOpenChange={open => !open && !reajusteBusy && setReajusteSource(null)}>
       <DialogContent className="max-w-md">
-        <DialogHeader><DialogTitle>Reajustar renda mensal</DialogTitle><DialogDescription>{forecast.title} · {monthLabel(forecast.due_date.slice(0, 7))}. O reajuste altera somente este mês e não modifica recebimentos confirmados.</DialogDescription></DialogHeader>
+        <DialogHeader><DialogTitle>Reajustar renda — {reajusteSource.title}</DialogTitle><DialogDescription>Defina o novo valor mensal e a competência inicial. Meses já recebidos ficam preservados.</DialogDescription></DialogHeader>
         <div className="space-y-4">
-          <label className="block space-y-1 text-sm font-medium"><span>Novo valor previsto (R$)</span><Input inputMode="decimal" value={forecastValue} onChange={e => setForecastValue(e.target.value)} /></label>
-          <label className="block space-y-1 text-sm font-medium"><span>Motivo do reajuste</span><Input value={forecastReason} maxLength={1000} placeholder="Ex.: reajuste salarial" onChange={e => setForecastReason(e.target.value)} /></label>
-          <div className="flex justify-end gap-2"><Button variant="outline" disabled={forecastBusy} onClick={() => setForecast(null)}>Cancelar</Button><Button variant="brand" disabled={forecastBusy} onClick={saveForecast}>{forecastBusy ? 'Salvando…' : 'Salvar reajuste'}</Button></div>
+          <div className="rounded-lg bg-muted/60 p-3 text-sm">Valor de referência: <strong>{formatBRL(reajusteBase)}</strong></div>
+          <div className="flex gap-2" role="group" aria-label="Tipo de reajuste">
+            <Button className="flex-1" variant={reajusteMode === 'percentage' ? 'brand' : 'outline'} onClick={() => { setReajusteMode('percentage'); setReajusteValue(''); }}>Porcentagem (%)</Button>
+            <Button className="flex-1" variant={reajusteMode === 'amount' ? 'brand' : 'outline'} onClick={() => { setReajusteMode('amount'); setReajusteValue(''); }}>Valor em reais (R$)</Button>
+          </div>
+          <label className="block space-y-1 text-sm font-medium"><span>{reajusteMode === 'percentage' ? 'Percentual de reajuste (%)' : 'Novo valor mensal (R$)'}</span><Input inputMode="decimal" value={reajusteValue} onChange={e => setReajusteValue(e.target.value)} placeholder={reajusteMode === 'percentage' ? 'Ex.: 5,5' : 'Ex.: 2.100,00'} /></label>
+          <label className="block space-y-1 text-sm font-medium"><span>Início do reajuste</span><Input type="month" value={reajusteStart.slice(0, 7)} onChange={e => setReajusteStart(`${e.target.value}-01`)} /></label>
+          <div className="rounded-lg border p-3 text-sm">
+            <p>Novo valor mensal: <strong>{reajusteCalculated !== null && reajusteCalculated > 0 ? formatBRL(reajusteCalculated) : '—'}</strong></p>
+            <p className="mt-1 text-muted-foreground">Diferença: {reajusteCalculated !== null ? formatBRL(reajusteCalculated - reajusteBase) : '—'}</p>
+          </div>
+          <label className="block space-y-1 text-sm font-medium"><span>Justificativa</span><Input value={reajusteReason} maxLength={1000} placeholder="Ex.: reajuste salarial" onChange={e => setReajusteReason(e.target.value)} /></label>
+          <p className="text-xs text-muted-foreground">O novo valor será aplicado aos meses não recebidos a partir da data selecionada, inclusive em novos exercícios.</p>
+          <div className="flex justify-end gap-2"><Button variant="outline" disabled={reajusteBusy} onClick={() => setReajusteSource(null)}>Cancelar</Button><Button variant="brand" disabled={reajusteBusy || reajusteCalculated === null || reajusteCalculated <= 0} onClick={saveReajuste}>{reajusteBusy ? 'Salvando…' : 'Aplicar reajuste'}</Button></div>
         </div>
       </DialogContent>
     </Dialog>}
