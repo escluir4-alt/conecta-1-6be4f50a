@@ -74,7 +74,7 @@ function StocksPage() {
     <AppShell active="cotacoes" user={user}>
       <div className="mx-auto max-w-7xl px-4 py-6 lg:px-6">
         <div className="mb-4 flex flex-wrap items-end justify-between gap-2">
-          <h1 className="text-2xl font-extrabold tracking-tight">Bolsa de Valores</h1>
+          <div className="flex flex-wrap items-center gap-3"><h1 className="text-2xl font-extrabold tracking-tight">Bolsa de Valores</h1><a href="/moedas" className="rounded-lg border px-3 py-2 text-sm font-semibold hover:bg-accent">Moedas</a></div>
           <span className="flex items-center gap-2 text-xs text-muted-foreground">
             <span className="size-2 animate-pulse rounded-full bg-success" />Ao vivo · atualiza a cada 5 s
             {query.dataUpdatedAt ? ` · ${new Date(query.dataUpdatedAt).toLocaleTimeString("pt-BR")}` : ""}
