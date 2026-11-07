@@ -156,7 +156,7 @@ export const updateRevenueSourceAdjustment = createServerFn({ method: 'POST' }).
         user_id: context.userId, entry_id: entry.id, kind: 'correção',
         reason: `Reajuste da fonte ${source.title} a partir de ${data.start}: ${data.reason}`,
         before_data: { expected_cents: entry.expected_cents, due_date: entry.due_date },
-        after_data: { expected_cents: cents, due_date: entry.due_date, adjustment: newRules[newRules.length - 1] },
+        after_data: { expected_cents: cents, due_date: entry.due_date, adjustment: newRules.find(rule => rule.start === data.start) },
       });
       if (auditError) throw new Error('O valor foi modificado, mas a auditoria falhou. Verifique antes de repetir: ' + auditError.message);
     }
