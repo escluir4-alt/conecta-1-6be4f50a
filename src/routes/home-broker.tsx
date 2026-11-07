@@ -100,7 +100,7 @@ function HomeBroker() {
   const createRevenueFn = useServerFn(createRevenue);
   const createOneOff = async () => {
     const amount = Number(oneOffAmount.replace(",", "."));
-    if (!oneOffName.trim() || !Number.isFinite(amount) || amount <= 0 || !/^\\d{4}-\\d{2}-\\d{2}$/.test(oneOffDue)) {
+    if (!oneOffName.trim() || !Number.isFinite(amount) || amount <= 0 || !/^\d{4}-\d{2}-\d{2}$/.test(oneOffDue)) {
       toast.error("Informe nome, valor positivo e data válida."); return;
     }
     setOneOffSaving(true);
