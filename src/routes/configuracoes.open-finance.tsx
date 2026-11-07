@@ -2,13 +2,13 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { KeyRound, ShieldCheck, Eye, EyeOff, ArrowLeft, Save, Landmark } from "lucide-react";
+import { KeyRound, ShieldCheck, Eye, EyeOff, ArrowLeft, Save, Landmark, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell, useRequireUser } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { getCredentialStatus, updateCredentials, type PluggySlot } from "@/lib/pluggy.functions";
+import { getCredentialStatus, updateCredentials, createConnectToken, saveItem, type PluggySlot } from "@/lib/pluggy.functions";
 
 export const Route=createFileRoute("/configuracoes/open-finance")({
   ssr:false,
@@ -16,15 +16,34 @@ export const Route=createFileRoute("/configuracoes/open-finance")({
   component:OpenFinanceSettings,
 });
 
+declare global {
+ interface Window { PluggyConnect?: new(options:Record<string,unknown>)=>{init:()=>void}; }
+}
+function loadPluggyConnect() {
+ return new Promise<void>((resolve,reject)=>{
+  if(window.PluggyConnect){resolve();return;}
+  const existing=document.querySelector('script[data-axion-pluggy]');
+  if(existing){existing.addEventListener("load",()=>resolve(),{once:true});existing.addEventListener("error",()=>reject(new Error("Falha ao carregar Pluggy Connect")),{once:true});return;}
+  const script=document.createElement("script");
+  script.src="https://cdn.pluggy.ai/pluggy-connect/v2.8.2/pluggy-connect.js";
+  script.dataset.axionPluggy="true";
+  script.onload=()=>resolve();
+  script.onerror=()=>reject(new Error("Falha ao iniciar Pluggy Connect"));
+  document.body.appendChild(script);
+ });
+}
 function PluggyCredentials({slot}:{slot:PluggySlot}) {
  const client=useQueryClient();
  const getStatus=useServerFn(getCredentialStatus);
  const save=useServerFn(updateCredentials);
+ const getToken=useServerFn(createConnectToken);
+ const saveConnection=useServerFn(saveItem);
  const status=useQuery({queryKey:["pluggy-credential-status",slot],queryFn:()=>getStatus({data:{slot}})});
  const [clientId,setClientId]=useState("");
  const [secret,setSecret]=useState("");
  const [show,setShow]=useState(false);
  const [saving,setSaving]=useState(false);
+ const [connecting,setConnecting]=useState(false);
  useEffect(()=>{if(status.data)setClientId(status.data.clientId);},[status.data?.clientId]);
  const submit=async(e:React.FormEvent)=>{
   e.preventDefault();
@@ -37,6 +56,26 @@ function PluggyCredentials({slot}:{slot:PluggySlot}) {
    toast.success("Credenciais validadas e salvas com segurança.");
   } catch(err) {toast.error(err instanceof Error?err.message:"Não foi possível salvar.");}
   finally {setSaving(false);}
+ };
+ const connect=async()=>{
+  setConnecting(true);
+  try{
+   const [token]=await Promise.all([getToken({data:{slot}}),loadPluggyConnect()]);
+   const widget=new window.PluggyConnect!({
+    connectToken:token.connectToken,
+    includeSandbox:true,
+    onSuccess:async(data:{item:{id:string;connector?:{name?:string}}})=>{
+     try{
+      await saveConnection({data:{itemId:data.item.id,connectorName:data.item.connector?.name??"",slot}});
+      await client.invalidateQueries({queryKey:["finances"]});
+      toast.success("Banco conectado ao Meu Pluggy "+(slot==="primary"?"01":"02")+".");
+     }catch(error){toast.error(error instanceof Error?error.message:"Não foi possível salvar a conexão.");}
+    },
+    onError:()=>toast.error("Conexão bancária não concluída."),
+   });
+   widget.init();
+  }catch(error){toast.error(error instanceof Error?error.message:"Não foi possível conectar o banco.");}
+  finally{setConnecting(false);}
  };
  return <form onSubmit={e=>void submit(e)} className="space-y-5 rounded-3xl border border-border/60 bg-card p-5 shadow-soft sm:p-7">
   <div className="flex flex-wrap items-center justify-between gap-3">
@@ -60,6 +99,10 @@ function PluggyCredentials({slot}:{slot:PluggySlot}) {
   <Button variant="brand" type="submit" disabled={saving||status.isLoading||!!status.error||!secret.trim()||!clientId.trim()}>
    <Save className="size-4"/>{saving?"Validando…":"Validar e salvar credenciais"}
   </Button>
+  <div className="border-t border-border/50 pt-4">
+   <Button type="button" variant="outline" disabled={connecting||!status.data?.configured} onClick={()=>void connect()}><Plus className="size-4"/>{connecting?"Abrindo Pluggy…":"Adicionar banco ou cartão nesta conexão"}</Button>
+   {!status.data?.configured&&<p className="mt-2 text-xs text-muted-foreground">Cadastre primeiro as credenciais dessa aplicação.</p>}
+  </div>
  </form>;
 }
 function OpenFinanceSettings(){
