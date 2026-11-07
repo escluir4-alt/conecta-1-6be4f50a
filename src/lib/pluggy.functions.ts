@@ -123,7 +123,7 @@ export function isInstallmentTransaction(tx: PTx): boolean {
   return /(?:parc(?:ela)?\.?\s*\d{1,3}\s*(?:\/|de)\s*\d{1,3}|\b\d{1,3}\s*\/\s*\d{1,3}\s*(?:parc(?:ela)?)?\b|parcelamento\s+(?:de\s+)?(?:fatura|compra))/i.test(description);
 }
 async function getAllPluggyTransactions(apiKey: string, accountId: string, from?: string, to?: string): Promise<PTx[]> {
-  const query = new URLSearchParams({ accountId, pageSize: "500" });
+  const query = new URLSearchParams({ accountId });
   if (from) query.set("dateFrom", from);
   if (to) query.set("dateTo", to);
   const seenCursors = new Set<string>();
