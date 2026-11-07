@@ -19,7 +19,7 @@ const fmtDate=(s:string)=>s.split("-").reverse().join("/");
 const monthNumber=(s:string)=>Number(s.slice(5,7));
 export function FiscalWorkspace({view="notas"}:{view?:View}){
  const user=useRequireUser(),qc=useQueryClient();
- const picker=useRef<HTMLInputElement>(null),cameraPicker=useRef<HTMLInputElement>(null);
+ const picker=useRef<HTMLInputElement>(null),cameraPicker=useRef<HTMLInputElement>(null),scannerPicker=useRef<HTMLInputElement>(null);\n const [scanMode,setScanMode]=useState<"qr_code"|"ean_13">("qr_code");
  const [year,setYear]=useState(String(new Date().getFullYear()));
  const [month,setMonth]=useState("all");
  const [search,setSearch]=useState("");
@@ -53,6 +53,27 @@ export function FiscalWorkspace({view="notas"}:{view?:View}){
  useEffect(()=>{setPage(1)},[year,month,search,type,view]);
  useEffect(()=>{let cancelled=false;setPreview("");if(!selected)return;void fileUrl(original?selected.original_path:selected.pdf_path).then(u=>{if(!cancelled)setPreview(u)}).catch(e=>toast.error(e instanceof Error?e.message:"Falha ao abrir documento"));return()=>{cancelled=true}},[selected,original]);
  const choose=(f?:File)=>{if(!f)return;setFile(f);setDraft({...emptyDraft,category:view==="mercado"?"mercado":"outros"});setItems([]);setReviewed(false);setOpenForm(true)};
+ const scanImage=async(f?:File)=>{
+  if(!f)return;
+  type Detected={rawValue:string;format?:string};
+  type DetectorCtor=new (args:{formats:string[]})=>{detect:(image:ImageBitmap)=>Promise<Detected[]>};
+  const Detector=(globalThis as typeof globalThis & {BarcodeDetector?:DetectorCtor}).BarcodeDetector;
+  if(!Detector){toast.info("Leitura automática não disponível neste navegador. Importe a foto para cadastrar manualmente.");choose(f);return;}
+  try{
+   const bmp=await createImageBitmap(f);
+   const scanner=new Detector({formats:scanMode==="qr_code"?["qr_code"]:["ean_13","code_128"]});
+   const codes=await scanner.detect(bmp);bmp.close();
+   if(!codes.length){toast.info("Nenhum código legível. Revise a qualidade da foto.");choose(f);return;}
+   const value=codes[0]?.rawValue??"";
+   choose(f);
+   if(scanMode==="qr_code"){
+    const match=value.match(/(?:[?&]chNFe=|[?&]p=)(\\d{44})/)??value.match(/\\b\\d{44}\\b/);
+    const key=match?.[1]??(match?.[0]?.length===44?match[0]:"");
+    if(key)setDraft(x=>({...x,access_key:key}));
+    toast.info(key?"Chave detectada. Confira os dados e importe o documento fiscal.":"QR identificado; revise a nota. O QR não comprova autenticidade.");
+   }else toast.info("Código identificado: "+value+". Confira o documento antes de arquivar.");
+  }catch(e){toast.error(e instanceof Error?e.message:"Não foi possível ler o código");choose(f)}
+ };
  const save=async()=>{
   if(!file||!reviewed)return;
   setBusy(true);
@@ -66,10 +87,10 @@ export function FiscalWorkspace({view="notas"}:{view?:View}){
  const open=(d:FiscalDoc)=>{setOriginal(false);setSelected(d)};
  const buttons=<div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
    <input ref={cameraPicker} type="file" accept="image/*" capture="environment" className="hidden" onChange={e=>{choose(e.target.files?.[0]);e.target.value=""}}/>
-   <input ref={picker} type="file" accept="application/pdf,image/png,image/jpeg,image/webp" className="hidden" onChange={e=>{choose(e.target.files?.[0]);e.target.value=""}}/>
+   <input ref={scannerPicker} type="file" accept="image/*" capture="environment" className="hidden" onChange={e=>{void scanImage(e.target.files?.[0]);e.target.value=""}}/>\n   <input ref={picker} type="file" accept="application/pdf,image/png,image/jpeg,image/webp" className="hidden" onChange={e=>{choose(e.target.files?.[0]);e.target.value=""}}/>
    <Button className="h-14 gap-2 bg-primary text-primary-foreground shadow-soft hover:bg-primary/90" onClick={()=>cameraPicker.current?.click()}><Camera className="size-5"/>Fotografar nota</Button>
-   <Button variant="outline" className="h-14 gap-2" onClick={()=>toast.info("Use uma fotografia ou importe a nota. A leitura automática de QR Code estará disponível após integração do leitor.")}><ScanLine className="size-5"/>Ler QR Code</Button>
-   <Button variant="outline" className="h-14 gap-2" onClick={()=>toast.info("O leitor de código de barras ainda não está habilitado neste navegador.")}><ScanLine className="size-5"/>Ler código de barras</Button>
+   <Button variant="outline" className="h-14 gap-2" onClick={()=>{setScanMode("qr_code");scannerPicker.current?.click()}}><ScanLine className="size-5"/>Ler QR Code</Button>
+   <Button variant="outline" className="h-14 gap-2" onClick={()=>{setScanMode("ean_13");scannerPicker.current?.click()}}><ScanLine className="size-5"/>Ler código de barras</Button>
    <Button variant="outline" className="h-14 gap-2" onClick={()=>picker.current?.click()}><Upload className="size-5"/>Importar arquivo</Button>
  </div>;
  const metrics=<div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
