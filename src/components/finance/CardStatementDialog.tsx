@@ -98,6 +98,7 @@ export function CardStatementDialog({acc,name,brand,onClose}:{acc:FinanceAccount
       {MONTHS.map((label,i)=><button key={label} type="button" aria-pressed={month===i+1} onClick={()=>setMonth(i+1)}
        className={`min-w-12 rounded-xl px-3 py-2 text-xs font-semibold transition ${month===i+1?"bg-primary text-primary-foreground shadow-sm":"border bg-card hover:bg-muted"}`}>{label}</button>)}
      </div>
+     {statement&&!statement.historyAvailable&&<p role="status" className="mt-2 text-xs text-amber-700 dark:text-amber-300">Histórico não está sendo salvo: pendente aplicar a migração de cartões no Supabase.</p>}
      {statement?.source==="saved"&&<p role="status" className="mt-2 text-xs text-amber-700 dark:text-amber-300">Dados preservados da última sincronização, não atualizados agora.</p>}
      {q.error&&<p role="alert" className="mt-3 rounded-xl border border-destructive/30 p-3 text-sm text-destructive">{(q.error as Error).message}</p>}
      {q.isLoading&&<p className="py-8 text-center text-sm text-muted-foreground">Consultando Open Finance e histórico salvo…</p>}
