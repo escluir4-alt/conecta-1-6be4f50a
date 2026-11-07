@@ -104,14 +104,17 @@ export const getMonthExpenses = createServerFn({ method: "POST" })
     const reviewFlags: string[] = [];
 
     // Sincronização anual → contas do mês (idempotente)
-    const { data: rows } = await supabase.from("annual_expenses").select("id, creditor, due_day").eq("year", y).order("position");
+    const { data: rows, error: rowError } = await supabase.from("annual_expenses").select("id, creditor, due_day").eq("year", y).order("position");
+    if (rowError) throw new Error(rowError.message);
     const rowIds = (rows ?? []).map((r: any) => r.id);
-    const { data: monthCells } = rowIds.length
+    const { data: monthCells, error: monthError } = rowIds.length
       ? await supabase.from("annual_expense_months").select("annual_expense_id, expected_cents").in("annual_expense_id", rowIds).eq("month", m)
-      : { data: [] };
+      : { data: [], error: null };
+    if (monthError) throw new Error(monthError.message);
     const cellByRow = new Map<string, number | null>((monthCells ?? []).map((c: any) => [c.annual_expense_id as string, c.expected_cents as number | null]));
 
-    const { data: existing } = await supabase.from("finance_bills").select("*").gte("due_date", start).lt("due_date", end);
+    const { data: existing, error: billError } = await supabase.from("finance_bills").select("*").gte("due_date", start).lt("due_date", end);
+    if (billError) throw new Error(billError.message);
     const bills = (existing ?? []) as any[];
     const linkedAnnual = new Set(bills.filter((b) => b.source_annual_id).map((b) => `${b.source_annual_id}:${b.source_period}`));
     const linkedInst = new Set(bills.filter((b) => b.contract_id).map((b) => `${b.contract_id}:${b.installment_number}`));
@@ -168,13 +171,37 @@ export const getMonthExpenses = createServerFn({ method: "POST" })
     }
     if (created > 0) await audit(supabase, "ensure_month", "period", period, null, { created });
 
-    const { data: finalBills } = await supabase.from("finance_bills").select("*").gte("due_date", start).lt("due_date", end);
+    const { data: finalBills, error: finalBillError } = await supabase.from("finance_bills").select("*").gte("due_date", start).lt("due_date", end);
+    if (finalBillError) throw new Error(finalBillError.message);
     const list = ((finalBills ?? []) as any[]).sort((a, b) => a.due_date.localeCompare(b.due_date) || a.creditor.localeCompare(b.creditor));
 
+    // Inclui as parcelas desta competência sem criar cópias de finance_bills.
+    // A baixa das parcelas virtuais usa a função canônica pay_installment.
+    const { data: monthInstallments, error: installmentError } = await supabase
+      .from("installment_entries").select("contract_id,number,expected_cents,paid_date,paid_cents,due_date,note")
+      .gte("due_date", start).lt("due_date", end);
+    if (installmentError) throw new Error(installmentError.message);
+    const { data: contractRows, error: contractError } = await supabase
+      .from("installment_contracts").select("id,name");
+    if (contractError) throw new Error(contractError.message);
+    const contractNames = new Map<string, string>((contractRows ?? []).map((r: any) => [r.id, r.name]));
+    const represented = new Set(list.filter(b => b.contract_id && b.installment_number != null)
+      .map(b => `${b.contract_id}:${b.installment_number}`));
+    for (const inst of monthInstallments ?? []) {
+      const key = `${inst.contract_id}:${inst.number}`;
+      if (represented.has(key) || !contractNames.has(inst.contract_id)) continue;
+      list.push({
+        id: `installment:${key}`, kind: "installment", contract_id: inst.contract_id,
+        installment_number: inst.number, creditor: contractNames.get(inst.contract_id),
+        due_date: inst.due_date, expected_cents: inst.expected_cents,
+        paid_date: inst.paid_date, paid_cents: inst.paid_cents, paid_note: inst.note,
+      });
+    }
+    list.sort((a, b) => a.due_date.localeCompare(b.due_date) || a.creditor.localeCompare(b.creditor));
     const kpis = {
       expected: list.reduce((s, b) => s + b.expected_cents, 0),
-      paid: list.filter((b) => b.paid_date).reduce((s, b) => s + (b.paid_cents ?? 0), 0),
-      open: list.filter((b) => !b.paid_date).reduce((s, b) => s + b.expected_cents, 0),
+      paid: list.reduce((s, b) => s + (b.paid_cents ?? 0), 0),
+      open: list.reduce((s, b) => s + Math.max(0, b.expected_cents - (b.paid_cents ?? 0)), 0),
       count: list.length,
     };
     return { bills: list, kpis, reviewFlags };
