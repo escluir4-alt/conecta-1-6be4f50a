@@ -8,7 +8,7 @@ import { AppShell,useRequireUser } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog,DialogContent,DialogDescription,DialogHeader,DialogTitle } from "@/components/ui/dialog";
-import { brl,deleteFiscal,downloadFiscal,fileUrl,getDocumentItems,getDocuments,parseBRL,saveDocument,type FiscalDoc,type FiscalDraft,type FiscalItem } from "@/lib/fiscal";
+import { brl,deleteFiscal,downloadFiscal,fileUrl,getDocumentItems,getDocuments,parseBRL,saveDocument,updateFiscalMetadata,type FiscalDoc,type FiscalDraft,type FiscalItem } from "@/lib/fiscal";
 
 const MONTHS=["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
 const today=new Date().toISOString().slice(0,10);
@@ -29,7 +29,7 @@ export function FiscalWorkspace({view="notas"}:{view?:View}){
  const [original,setOriginal]=useState(false);
  const [openForm,setOpenForm]=useState(false),[file,setFile]=useState<File|null>(null);
  const [draft,setDraft]=useState<FiscalDraft>(emptyDraft),[reviewed,setReviewed]=useState(false);
- const [busy,setBusy]=useState(false),[page,setPage]=useState(1);
+ const [busy,setBusy]=useState(false),[page,setPage]=useState(1);\n const [editing,setEditing]=useState<FiscalDoc|null>(null);
  const [items,setItems]=useState<{description:string;quantity:string;unit:string;total:string}[]>([]);
  const [marketTab,setMarketTab]=useState<"resumo"|"compras"|"produtos"|"analises">("resumo");
  const [report,setReport]=useState<"mensal"|"anual"|"supermercado"|"categoria">("mensal");
@@ -52,7 +52,7 @@ export function FiscalWorkspace({view="notas"}:{view?:View}){
  const displayed=visible.slice((Math.min(page,count)-1)*pageSize,Math.min(page,count)*pageSize);
  useEffect(()=>{setPage(1)},[year,month,search,type,view]);
  useEffect(()=>{let cancelled=false;setPreview("");if(!selected)return;void fileUrl(original?selected.original_path:selected.pdf_path).then(u=>{if(!cancelled)setPreview(u)}).catch(e=>toast.error(e instanceof Error?e.message:"Falha ao abrir documento"));return()=>{cancelled=true}},[selected,original]);
- const choose=(f?:File)=>{if(!f)return;setFile(f);setDraft({...emptyDraft,category:view==="mercado"?"mercado":"outros"});setItems([]);setReviewed(false);setOpenForm(true)};
+ const choose=(f?:File)=>{if(!f)return;setEditing(null);setFile(f);setDraft({...emptyDraft,category:view==="mercado"?"mercado":"outros"});setItems([]);setReviewed(false);setOpenForm(true)};
  const scanImage=async(f?:File)=>{
   if(!f)return;
   type Detected={rawValue:string;format?:string};
@@ -75,15 +75,15 @@ export function FiscalWorkspace({view="notas"}:{view?:View}){
   }catch(e){toast.error(e instanceof Error?e.message:"Não foi possível ler o código");choose(f)}
  };
  const save=async()=>{
-  if(!file||!reviewed)return;
+  if((!file&&!editing)||!reviewed)return;
   setBusy(true);
   try{
    const rows=items.filter(x=>x.description.trim()).map(x=>({description:x.description.trim(),quantity:Number(x.quantity.replace(",",".")),unit_price_cents:parseBRL(x.unit),total_cents:parseBRL(x.total)}));
    if(rows.some(x=>!Number.isFinite(x.quantity)||x.quantity<=0))throw Error("Quantidade de produto inválida");
-   await saveDocument(file,draft,rows);await qc.invalidateQueries({queryKey:["axion-fiscal"]});setOpenForm(false);setFile(null);toast.success("Nota fiscal arquivada com sucesso");
+   if(editing){ const updated=await updateFiscalMetadata(editing.id,draft);setSelected(updated); }else if(file) await saveDocument(file,draft,rows);\n   await qc.invalidateQueries({queryKey:["axion-fiscal"]});setOpenForm(false);setFile(null);setEditing(null);toast.success(editing?"Informações atualizadas":"Nota fiscal arquivada com sucesso");
   }catch(e){toast.error(e instanceof Error?e.message:"Erro ao salvar nota")}finally{setBusy(false)}
  };
- const remove=async(d:FiscalDoc)=>{if(!window.confirm("Excluir esta nota e seus arquivos? Esta ação não pode ser desfeita."))return;try{await deleteFiscal(d);setSelected(null);await qc.invalidateQueries({queryKey:["axion-fiscal"]});toast.success("Nota excluída")}catch(e){toast.error(e instanceof Error?e.message:"Falha ao excluir")}};
+ const beginEdit=(d:FiscalDoc)=>{setEditing(d);setFile(null);setDraft({issuer:d.issuer,issued_on:d.issued_on,document_number:d.document_number??"",access_key:d.access_key??"",total:(d.total_cents/100).toFixed(2).replace(".",","),category:d.category});setReviewed(false);setOpenForm(true)};\n const remove=async(d:FiscalDoc)=>{if(!window.confirm("Excluir esta nota e seus arquivos? Esta ação não pode ser desfeita."))return;try{await deleteFiscal(d);setSelected(null);await qc.invalidateQueries({queryKey:["axion-fiscal"]});toast.success("Nota excluída")}catch(e){toast.error(e instanceof Error?e.message:"Falha ao excluir")}};
  const open=(d:FiscalDoc)=>{setOriginal(false);setSelected(d)};
  const buttons=<div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
    <input ref={cameraPicker} type="file" accept="image/*" capture="environment" className="hidden" onChange={e=>{choose(e.target.files?.[0]);e.target.value=""}}/>
@@ -116,7 +116,7 @@ export function FiscalWorkspace({view="notas"}:{view?:View}){
   <div className="grid gap-3 p-3 lg:grid-cols-[minmax(0,1fr)_190px]"><div className="min-h-[430px] rounded-lg border bg-muted/50">{preview?(original&&selected.original_path!==selected.pdf_path&&/\.(png|jpg|jpeg|webp)$/i.test(selected.original_path)?<img alt="Arquivo original da nota" src={preview} className="mx-auto max-h-[550px] object-contain"/>:<iframe title="Documento fiscal" src={preview} className="h-[540px] w-full"/>):<p className="p-4 text-sm text-muted-foreground">Carregando visualização segura...</p>}</div>
   <div className="space-y-3 rounded-xl bg-muted/40 p-3 text-sm"><h3 className="font-semibold">Informações da nota</h3><p><span className="text-xs text-muted-foreground">Fornecedor</span><br/>{selected.issuer}</p><p><span className="text-xs text-muted-foreground">Data de emissão</span><br/>{fmtDate(selected.issued_on)}</p><p><span className="text-xs text-muted-foreground">Categoria</span><br/>{selected.category==="mercado"?"Mercado":"Outros"}</p><p className="font-bold text-primary">{brl(selected.total_cents)}</p><p className="break-all text-xs text-muted-foreground">Chave: {selected.access_key||"Não informada"}</p></div></div>
   {selectedItems.length>0&&<div className="px-4 pb-3"><h3 className="font-semibold">Produtos e serviços ({selectedItems.length})</h3><div className="mt-2 divide-y text-sm">{selectedItems.map(it=><div key={it.id} className="flex justify-between gap-2 py-2"><span>{it.description} · {it.quantity} un.</span><span>{brl(it.total_cents)}</span></div>)}</div></div>}
-  <div className="flex flex-wrap gap-2 border-t p-3"><Button size="sm" onClick={()=>void downloadFiscal(selected.pdf_path,`nota-${selected.document_number||selected.id}.pdf`)}><Download className="mr-2 size-4"/>Baixar PDF</Button><Button size="sm" variant="outline" onClick={()=>void downloadFiscal(selected.original_path,selected.original_name)}>Arquivo original</Button><Button size="sm" variant="outline" onClick={()=>preview&&window.open(preview,"_blank","noopener,noreferrer")}>Ampliar</Button></div>
+  <div className="flex flex-wrap gap-2 border-t p-3"><Button size="sm" onClick={()=>void downloadFiscal(selected.pdf_path,`nota-${selected.document_number||selected.id}.pdf`)}><Download className="mr-2 size-4"/>Baixar PDF</Button><Button size="sm" variant="outline" onClick={()=>void downloadFiscal(selected.original_path,selected.original_name)}>Arquivo original</Button><Button size="sm" variant="outline" onClick={()=>beginEdit(selected)}>Editar informações</Button><Button size="sm" variant="outline" onClick={()=>preview&&window.open(preview,"_blank","noopener,noreferrer")}>Ampliar</Button></div>
  </div>:<div className={surface+" flex min-h-[340px] flex-col items-center justify-center gap-3 p-6 text-center"}><FileText className="size-12 text-primary/50"/><p className="font-semibold">Visualização da nota fiscal</p><p className="max-w-xs text-sm text-muted-foreground">Selecione uma nota na tabela para visualizar o PDF original, os produtos e os dados registrados.</p></div>;
  const marketPanel=<div className="space-y-5">
   <div className="flex flex-wrap gap-2">{(["resumo","compras","produtos","analises"] as const).map(t=><Button key={t} size="sm" variant={marketTab===t?"default":"outline"} className="capitalize" onClick={()=>setMarketTab(t)}>{t==="analises"?"Análises":t==="resumo"?"Resumo":t==="compras"?"Compras":"Produtos"}</Button>)}</div>
@@ -132,16 +132,16 @@ export function FiscalWorkspace({view="notas"}:{view?:View}){
   {view==="mercado"?<>{marketPanel}<div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(360px,.8fr)]">{details}</div></>:<div className="grid gap-4 xl:grid-cols-[minmax(0,1.4fr)_minmax(370px,1fr)]"><section className={surface+" min-w-0 overflow-hidden"}><div className="p-4"><div className="mb-3 flex flex-wrap items-center justify-between gap-2"><h2 className="text-lg font-bold">{view==="arquivo"?"Arquivo de notas fiscais":"Histórico de notas fiscais"}</h2><span className="text-xs text-muted-foreground">Ano › Mês › Dia</span></div>{filters}</div>{table}</section>{details}</div>}
   <p className="text-xs text-muted-foreground">Documentos privados vinculados à conta. O arquivo original é preservado. As notas não geram despesas automaticamente.</p>
  </div>
- <Dialog open={openForm} onOpenChange={v=>!busy&&setOpenForm(v)}><DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>Arquivar nota fiscal</DialogTitle><DialogDescription>Revise os dados da nota antes de confirmar. Nenhum documento será enviado a serviços externos de IA.</DialogDescription></DialogHeader><div className="grid gap-3 sm:grid-cols-2">
-  <p className="sm:col-span-2 rounded-lg bg-muted p-3 text-sm break-all">{file?.name}</p>
+ <Dialog open={openForm} onOpenChange={v=>!busy&&setOpenForm(v)}><DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>{editing?"Editar informações da nota":"Arquivar nota fiscal"}</DialogTitle><DialogDescription>Revise os dados da nota antes de confirmar. Nenhum documento será enviado a serviços externos de IA.</DialogDescription></DialogHeader><div className="grid gap-3 sm:grid-cols-2">
+  <p className="sm:col-span-2 rounded-lg bg-muted p-3 text-sm break-all">{editing?editing.original_name:file?.name}</p>
   <label className="space-y-1 text-sm">Fornecedor / emitente<Input value={draft.issuer} onChange={e=>setDraft({...draft,issuer:e.target.value})}/></label>
   <label className="space-y-1 text-sm">Data de emissão<Input type="date" value={draft.issued_on} onChange={e=>setDraft({...draft,issued_on:e.target.value})}/></label>
   <label className="space-y-1 text-sm">Número da nota<Input value={draft.document_number} onChange={e=>setDraft({...draft,document_number:e.target.value})}/></label>
   <label className="space-y-1 text-sm">Valor (ex.: 123,45)<Input value={draft.total} onChange={e=>setDraft({...draft,total:e.target.value})}/></label>
   <label className="space-y-1 text-sm sm:col-span-2">Chave de acesso (44 dígitos, opcional)<Input maxLength={44} value={draft.access_key} onChange={e=>setDraft({...draft,access_key:e.target.value.replace(/\D/g,"")})}/></label>
   <label className="space-y-1 text-sm">Categoria<select className="block w-full rounded-lg border bg-background p-2" value={draft.category} onChange={e=>setDraft({...draft,category:e.target.value as "mercado"|"outros"})}><option value="outros">Outros</option><option value="mercado">Supermercado</option></select></label>
-  {draft.category==="mercado"&&<div className="space-y-2 sm:col-span-2"><div className="flex items-center justify-between"><strong className="text-sm">Produtos (opcional)</strong><Button size="sm" variant="outline" onClick={()=>setItems(p=>[...p,{description:"",quantity:"1",unit:"0,00",total:"0,00"}])}>Adicionar produto</Button></div>{items.map((x,i)=><div key={i} className="grid grid-cols-[1fr_65px_90px_90px_30px] gap-1"><Input aria-label="Produto" placeholder="Produto" value={x.description} onChange={e=>setItems(p=>p.map((v,j)=>j===i?{...v,description:e.target.value}:v))}/><Input aria-label="Quantidade" value={x.quantity} onChange={e=>setItems(p=>p.map((v,j)=>j===i?{...v,quantity:e.target.value}:v))}/><Input aria-label="Unitário" value={x.unit} onChange={e=>setItems(p=>p.map((v,j)=>j===i?{...v,unit:e.target.value}:v))}/><Input aria-label="Total" value={x.total} onChange={e=>setItems(p=>p.map((v,j)=>j===i?{...v,total:e.target.value}:v))}/><Button size="icon" variant="ghost" aria-label="Remover produto" onClick={()=>setItems(p=>p.filter((_,j)=>j!==i))}><X/></Button></div>)}</div>}
+  {draft.category==="mercado"&&!editing&&<div className="space-y-2 sm:col-span-2"><div className="flex items-center justify-between"><strong className="text-sm">Produtos (opcional)</strong><Button size="sm" variant="outline" onClick={()=>setItems(p=>[...p,{description:"",quantity:"1",unit:"0,00",total:"0,00"}])}>Adicionar produto</Button></div>{items.map((x,i)=><div key={i} className="grid grid-cols-[1fr_65px_90px_90px_30px] gap-1"><Input aria-label="Produto" placeholder="Produto" value={x.description} onChange={e=>setItems(p=>p.map((v,j)=>j===i?{...v,description:e.target.value}:v))}/><Input aria-label="Quantidade" value={x.quantity} onChange={e=>setItems(p=>p.map((v,j)=>j===i?{...v,quantity:e.target.value}:v))}/><Input aria-label="Unitário" value={x.unit} onChange={e=>setItems(p=>p.map((v,j)=>j===i?{...v,unit:e.target.value}:v))}/><Input aria-label="Total" value={x.total} onChange={e=>setItems(p=>p.map((v,j)=>j===i?{...v,total:e.target.value}:v))}/><Button size="icon" variant="ghost" aria-label="Remover produto" onClick={()=>setItems(p=>p.filter((_,j)=>j!==i))}><X/></Button></div>)}</div>}
   <label className="flex items-center gap-2 text-sm sm:col-span-2"><input type="checkbox" checked={reviewed} onChange={e=>setReviewed(e.target.checked)}/>Conferi os dados acima e autorizo o arquivamento.</label>
- </div><div className="flex justify-end gap-2"><Button variant="outline" disabled={busy} onClick={()=>setOpenForm(false)}>Cancelar</Button><Button disabled={!reviewed||busy} onClick={()=>void save()}>{busy?"Salvando...":"Salvar nota fiscal"}</Button></div></DialogContent></Dialog>
+ </div><div className="flex justify-end gap-2"><Button variant="outline" disabled={busy} onClick={()=>setOpenForm(false)}>Cancelar</Button><Button disabled={!reviewed||busy} onClick={()=>void save()}>{busy?"Salvando...":editing?"Salvar alterações":"Salvar nota fiscal"}</Button></div></DialogContent></Dialog>
  </AppShell>
 }
