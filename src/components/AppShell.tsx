@@ -117,12 +117,14 @@ function NavLink({
     <Link
       to={to}
       onClick={onNavigate}
-      className={`flex items-center gap-3 rounded-xl px-3 py-2.5 transition-all duration-200 ${
+      data-active={active}
+      aria-current={active ? "page" : undefined}
+      className={`axion-nav-link flex items-center gap-3 px-3 py-2.5 ${
         indent ? "text-[13px]" : "text-sm"
       } ${
         active
-          ? "bg-primary/10 text-primary shadow-sm ring-1 ring-primary/15"
-          : "text-muted-foreground hover:bg-accent/80 hover:text-foreground"
+          ? "font-semibold"
+          : "text-muted-foreground hover:bg-accent/70 hover:text-foreground"
       }`}
     >
       <Icon className="size-4 shrink-0" />
@@ -175,16 +177,16 @@ export function AppShell({
   );
 
   return (
-    <div className="flex min-h-screen bg-background">
-      <aside className="no-print hidden w-72 shrink-0 flex-col border-r border-border/80 bg-sidebar/90 p-5 shadow-[0_0_0_1px_rgba(15,23,42,0.02)] backdrop-blur-md md:flex">
-        <Logo />
-        <nav aria-label="Menu principal" className="mt-8 space-y-1.5">
+    <div className="axion-app-shell flex min-h-screen bg-background">
+      <aside className="axion-sidebar no-print hidden w-72 shrink-0 flex-col p-5 md:sticky md:top-0 md:flex md:h-screen">
+        <Logo tone="light" />
+        <nav aria-label="Menu principal" className="mt-8 min-h-0 flex-1 space-y-1 overflow-y-auto pr-1">
           {nav(false)}
         </nav>
         <Button
           variant="ghost"
           onClick={signOut}
-          className="mt-auto flex items-center justify-start gap-3 rounded-xl px-3 py-2.5 text-sm text-muted-foreground hover:bg-accent"
+          className="axion-sidebar-signout mt-auto flex items-center justify-start gap-3 rounded-xl px-3 py-2.5 text-sm"
         >
           <LogOut className="size-4" />
           Sair
@@ -192,7 +194,7 @@ export function AppShell({
       </aside>
 
       <main className="min-w-0 flex-1 overflow-x-hidden">
-        <header className="no-print flex flex-wrap items-center justify-between gap-3 border-b border-border/80 bg-card/80 px-4 py-3 backdrop-blur-md md:justify-end md:px-6">
+        <header className="axion-topbar no-print sticky top-0 z-20 flex flex-wrap items-center justify-between gap-3 px-4 py-3 md:justify-end md:px-6">
           <div className="flex min-w-0 items-center gap-2 md:hidden">
             <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
               <SheetTrigger asChild>
@@ -203,14 +205,14 @@ export function AppShell({
               <SheetContent
                 side="left"
                 aria-describedby={undefined}
-                className="flex w-[min(20rem,90vw)] flex-col overflow-y-auto bg-sidebar p-5"
+                className="axion-sidebar flex w-[min(20rem,90vw)] flex-col overflow-y-auto border-r-0 p-5"
               >
                 <SheetTitle className="sr-only">Menu principal</SheetTitle>
-                <Logo />
-                <nav aria-label="Menu principal" className="mt-6 space-y-1.5">
+                <Logo tone="light" />
+                <nav aria-label="Menu principal" className="mt-6 space-y-1.5 axion-mobile-menu">
                   {nav(false, () => setMenuOpen(false))}
                 </nav>
-                <Button variant="ghost" onClick={signOut} className="mt-auto justify-start gap-3 text-muted-foreground">
+                <Button variant="ghost" onClick={signOut} className="axion-sidebar-signout mt-auto justify-start gap-3">
                   <LogOut />
                   Sair
                 </Button>
@@ -222,8 +224,8 @@ export function AppShell({
           <div className="flex min-w-0 flex-1 items-center justify-end gap-3">
             {headerActions}
             <details className="relative no-print">
-              <summary className="flex cursor-pointer list-none items-center gap-1 rounded-lg border px-3 py-2 text-xs font-semibold text-muted-foreground" aria-label="Outros recursos do Conecta"><Settings2 className="size-4" /><span className="hidden lg:inline">Outros recursos</span></summary>
-              <div className="absolute right-0 z-50 mt-2 flex w-56 flex-col gap-1 rounded-xl border bg-card p-2 shadow-lg">
+              <summary className="flex cursor-pointer list-none items-center gap-2 rounded-xl border border-border bg-white px-3 py-2.5 text-xs font-semibold text-muted-foreground transition-colors hover:border-primary/20 hover:bg-accent/50" aria-label="Outros recursos do Axion"><Settings2 className="size-4" /><span className="hidden lg:inline">Outros recursos</span></summary>
+              <div className="absolute right-0 z-50 mt-2 flex w-56 flex-col gap-1 rounded-2xl border bg-card p-2 shadow-soft">
                 <Link to="/notas" className="rounded-md p-2 text-sm hover:bg-accent">Anotações</Link>
                 <Link to="/nuvem" className="rounded-md p-2 text-sm hover:bg-accent">Nuvem</Link>
                 <Link to="/perfil" className="rounded-md p-2 text-sm hover:bg-accent">Perfil</Link>
@@ -236,10 +238,16 @@ export function AppShell({
             </div>
           </div>
         </header>
-        {children}
+        <div className="axion-page-content pb-20 md:pb-0">{children}</div>
       </main>
+      <nav className="axion-mobile-bottom no-print md:hidden" aria-label="Navegação rápida">
+        <Link to="/home-broker" className={active === "home-broker" ? "axion-bottom-current" : ""}><LayoutDashboard className="size-5" /><span>Painel</span></Link>
+        <Link to="/receitas" className={["receitas", "contas-a-receber", "historico-receitas", "crediario"].includes(active) ? "axion-bottom-current" : ""}><TrendingUp className="size-5" /><span>Receitas</span></Link>
+        <Link to="/despesas/anuais" className={despesasActive ? "axion-bottom-current" : ""}><TrendingDown className="size-5" /><span>Despesas</span></Link>
+        <Link to="/agenda" className={active === "agenda" ? "axion-bottom-current" : ""}><CalendarDays className="size-5" /><span>Agenda</span></Link>
+      </nav>
       {user && axionAccess.data?.owner && (
-        <Link to="/assistente" className="no-print fixed bottom-[max(1rem,env(safe-area-inset-bottom))] right-4 z-30 flex items-center gap-2 rounded-full bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground shadow-lg focus-visible:outline-2">
+        <Link to="/assistente" className="axion-ai-fab no-print fixed bottom-[calc(5.25rem+env(safe-area-inset-bottom))] right-4 z-30 md:bottom-4 flex items-center gap-2 rounded-full px-4 py-3 text-sm font-semibold text-primary-foreground focus-visible:outline-2">
           <MessageCircle size={18} aria-hidden="true" /> Axion IA
         </Link>
       )}

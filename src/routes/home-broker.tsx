@@ -24,9 +24,9 @@ export const Route = createFileRoute("/home-broker")({
 const MONTHS = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
 
 function Kpi({ label, value, emphasis }: { label: string; value: string; emphasis?: boolean }) {
-  return <div className={`rounded-2xl border p-4 ${emphasis ? "bg-primary text-primary-foreground" : "bg-card"}`}>
+  return <div className={`axion-kpi rounded-2xl border p-5 ${emphasis ? "axion-kpi-featured bg-primary text-primary-foreground" : "bg-card"}`}>
     <p className="text-xs font-semibold uppercase tracking-wide opacity-70">{label}</p>
-    <p className="mt-2 text-xl font-extrabold">{value}</p>
+    <p className="mt-3 text-xl font-extrabold tracking-tight md:text-2xl">{value}</p>
   </div>;
 }
 
@@ -154,9 +154,9 @@ function HomeBroker() {
     void client.invalidateQueries({ queryKey: ["global-debt-totals"] });
   };
   return <AppShell active="home-broker" user={user}>
-    <div className="space-y-6 p-5 lg:p-8">
+    <div className="mx-auto max-w-[1600px] space-y-6 p-4 sm:p-6 lg:p-8">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div><h1 className="text-3xl font-extrabold">Painel Financeiro</h1>
+        <div><h1 className="text-3xl font-extrabold tracking-tight">Painel Financeiro</h1>
           <p className="text-sm text-muted-foreground">Visão consolidada do Axion, sem importar ou substituir cadastros.</p>
           <p className="mt-1 text-xs text-muted-foreground" data-release="github-sync-20261107-3">Versão GitHub: 2026.11.07.3</p>
         </div>
@@ -166,7 +166,7 @@ function HomeBroker() {
           <Button variant="outline" onClick={() => { refresh(); void client.invalidateQueries({ queryKey: ["finances"] }); }}><RefreshCw className="size-4" /> Atualizar</Button>
         </div>
       </div>
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Kpi label="Dívidas + cartões (sem abatimentos)" value={financialReady ? formatBRL(debtTotal) : "—"} emphasis />
         <Kpi label="Total já pago" value={financialReady ? formatBRL(debtPaid) : "—"} />
         <Kpi label="Saldo devedor estimado" value={financialReady ? formatBRL(debtOpen) : "—"} />
