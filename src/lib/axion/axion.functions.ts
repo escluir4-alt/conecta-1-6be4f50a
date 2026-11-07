@@ -5,6 +5,8 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { occursOn, type PersonalRecord } from "@/lib/finance/agenda-personal";
 import { askSchema, conversationSchema, modelHistory, outstanding, periodBounds, preferencesSchema, sourceSchema, type Message } from "./contracts";
 
+import { FREE_MODEL, brl, dateOffset, geminiPayload, internalIntent } from "./free-mode";
+
 type Context = { supabase: unknown; userId: string };
 const dbFor = (ctx: Context) => ctx.supabase as SupabaseClient;
 async function isOwner(ctx: Context) {
@@ -48,14 +50,18 @@ export const axionStatus = createServerFn({ method: "POST" }).middleware([requir
   .handler(async ({ context }) => {
     if (!(await isOwner(context))) {
       const pending = await dbFor(context).rpc("axion_transfer_pending");
-      return { owner: false, incoming: pending.data === true, configured: false, web: false, setup: false, provider: null };
+      return { owner: false, incoming: pending.data === true, configured: false, web: false, setup: false, geminiSetup: false, geminiConfigured: false, provider: null };
     }
-    const r = await dbFor(context).rpc("axion_provider_status").maybeSingle();
+    const [r, g] = await Promise.all([
+      dbFor(context).rpc("axion_provider_status").maybeSingle(),
+      dbFor(context).rpc("axion_gemini_configured"),
+    ]);
+    const geminiSetup = !g.error && !!process.env["SUPABASE_SERVICE_ROLE_KEY"];
     const setup = !r.error && !!process.env["SUPABASE_SERVICE_ROLE_KEY"];
     const parsed = providerStatusSchema.safeParse(r.data);
     const provider = setup && parsed.success ? parsed.data : null;
     const env = environmentProvider();
-    return { owner: true, incoming: false, configured: !!(provider || env), web: provider?.web ?? env?.web ?? false, setup, provider };
+    return { owner: true, incoming: false, configured: !!(provider || env), web: provider?.web ?? env?.web ?? false, setup, provider, geminiSetup, geminiConfigured: geminiSetup && g.data === true };
   });
 
 export const axionSaveProvider = createServerFn({ method: "POST" }).middleware([requireSupabaseAuth])
@@ -68,6 +74,15 @@ export const axionSaveProvider = createServerFn({ method: "POST" }).middleware([
     });
     if (r.error) throw new Error("Não foi possível salvar. Na primeira configuração, informe a chave da API.");
     return { ok: true };
+  });
+
+export const axionSaveGemini = createServerFn({ method: "POST" }).middleware([requireSupabaseAuth])
+  .inputValidator(z.object({ key: z.string().trim().regex(/^[A-Za-z0-9_-]{20,200}$/), unbilled: z.literal(true) }))
+  .handler(async ({ context, data }) => {
+    await owner(context);
+    const r = await (await adminDb()).rpc("axion_save_gemini", { p_owner: context.userId, p_key: data.key });
+    if (r.error) throw new Error("Não foi possível salvar a chave Gemini.");
+    return true;
   });
 
 export const axionRequestTransfer = createServerFn({ method: "POST" }).middleware([requireSupabaseAuth])
@@ -185,10 +200,74 @@ async function privateContext(db: SupabaseClient, userId: string) {
   };
 }
 
+async function internalAnswer(db: SupabaseClient, userId: string, question: string) {
+  const intent = internalIntent(question);
+  if (!intent) return "Neste modo posso consultar contas abertas do mês, vencimentos dos próximos 7 dias, receitas previstas e próximos compromissos.";
+  const { today, start, end } = periodBounds(new Date());
+  const next = dateOffset(today, 7);
+  if (intent === "agenda") {
+    const r = await db.from("agenda_records").select("title,start_date,time,recurrence")
+      .eq("user_id", userId).lt("start_date", next).order("start_date").limit(501);
+    if (r.error) throw new Error("Não foi possível consultar a agenda.");
+    if (r.data.length > 500) return "O volume de registros excedeu o limite desta consulta. Confira a agenda completa no Conecta.";
+    const rows: string[] = [];
+    for (let i = 0; i < 7; i++) {
+      const day = dateOffset(today, i);
+      for (const record of r.data)
+        if (occursOn(record as PersonalRecord, day)) rows.push(`${day} ${record["time"] ?? ""} — ${String(record["title"]).slice(0, 120)}`);
+    }
+    return "Agenda dos próximos 7 dias:\n" + (rows.slice(0, 20).join("\n") || "Nenhum compromisso registrado.") +
+      (rows.length > 20 ? `\nExibindo 20 de ${rows.length} ocorrências.` : "");
+  }
+  if (intent === "revenue") {
+    const r = await db.from("revenue_entries").select("expected_cents").eq("user_id", userId)
+      .gte("due_date", start).lt("due_date", end).limit(501);
+    if (r.error) throw new Error("Não foi possível consultar as receitas.");
+    if (r.data.length > 500) return "O volume de receitas excedeu o limite desta consulta. Confira a tela de receitas.";
+    return `Receitas previstas nos registros do mês ${start.slice(0,7)}: ${brl(r.data.reduce((sum, row) => sum + Number(row["expected_cents"]), 0))}. Isso não é saldo bancário nem confirmação de recebimento.`;
+  }
+  const weekly = intent === "weekly";
+  const r = await db.from("finance_bills").select("creditor,due_date,expected_cents,paid_cents").eq("user_id", userId)
+    .gte("due_date", weekly ? today : start).lt("due_date", weekly ? next : end).order("due_date").limit(501);
+  if (r.error) throw new Error("Não foi possível consultar as despesas.");
+  if (r.data.length > 500) return "O volume de despesas excedeu o limite desta consulta. Confira a tela de despesas.";
+  const open = r.data.map(row => ({ row, cents: Math.max(0, Number(row["expected_cents"]) - Number(row["paid_cents"] ?? 0)) })).filter(x => x.cents > 0);
+  const total = brl(open.reduce((sum, x) => sum + x.cents, 0));
+  const heading = weekly ? `Em aberto com vencimento de ${today} até ${dateOffset(today,6)}` : `Em aberto nos registros do mês ${start.slice(0,7)}`;
+  return `${heading}: ${total} (${open.length} contas).\n` +
+    open.slice(0, 15).map(({ row, cents }) => `${row["due_date"]} — ${String(row["creditor"]).slice(0, 120)}: ${brl(cents)}`).join("\n") +
+    (open.length > 15 ? "\nExibindo as primeiras 15 contas." : "");
+}
+
+async function freeAnswer(ctx: Context, question: string, tone: string, deep: boolean) {
+  const key = await (await adminDb()).rpc("axion_read_gemini", { p_owner: ctx.userId });
+  if (key.error || typeof key.data !== "string") throw new Error("Cadastre a chave Gemini em Configuração. Nenhuma chamada paga foi feita.");
+  let response: Response;
+  try {
+    response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${FREE_MODEL}:generateContent`, {
+      method: "POST", redirect: "error", signal: AbortSignal.timeout(40_000),
+      headers: { "x-goog-api-key": key.data, "Content-Type": "application/json" },
+      body: JSON.stringify(geminiPayload(question, tone, deep)),
+    });
+  } catch { throw new Error("Gemini indisponível. As consultas internas continuam disponíveis."); }
+  if (response.status === 429) throw new Error("Cota ou limite do Gemini atingido. Aguarde e tente novamente ou use consultas internas.");
+  if (!response.ok) throw new Error(`Gemini não aceitou a chamada (${response.status}). Confira a chave e o acesso à faixa gratuita.`);
+  const result = z.object({ candidates: z.array(z.object({
+    content: z.object({ parts: z.array(z.object({ text: z.string().optional(), thought: z.boolean().optional() })) }).optional(),
+  })).optional() }).safeParse(await response.json());
+  const answer = result.success ? result.data.candidates?.[0]?.content?.parts.filter(p => !p.thought).map(p => p.text ?? "").join("\n").trim() : "";
+  if (!answer) throw new Error("Gemini não retornou texto. Reformule a mensagem ou use as consultas internas.");
+  return answer.slice(0, 8000);
+}
+
 export const axionAsk = createServerFn({ method: "POST" }).middleware([requireSupabaseAuth])
   .inputValidator(askSchema)
   .handler(async ({ context, data }): Promise<Message> => {
     const db = await owner(context);
+    if (data.scope === "internal")
+      return { role: "assistant", scope: data.scope, text: await internalAnswer(db, context.userId, data.question) };
+    if (data.scope === "free")
+      return { role: "assistant", scope: data.scope, text: await freeAnswer(context, data.question, data.tone, data.deep) };
     const config = await providerConfig(context);
     if (!config) throw new Error("Configure o modelo e o custo máximo no servidor antes de conversar.");
     if (data.scope === "web" && !config.web) throw new Error("Pesquisa web ainda desativada.");

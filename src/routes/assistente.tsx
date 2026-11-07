@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useRequireUser } from "@/components/AppShell";
-import { axionAcceptTransfer, axionCancelTransfer, axionRequestTransfer, axionAsk, axionDelete, axionList, axionLoad, axionPreferences, axionSave, axionSavePreferences, axionSaveProvider, axionStatus } from "@/lib/axion/axion.functions";
+import { axionAcceptTransfer, axionCancelTransfer, axionRequestTransfer, axionAsk, axionDelete, axionList, axionLoad, axionPreferences, axionSave, axionSavePreferences, axionSaveProvider, axionSaveGemini, axionStatus } from "@/lib/axion/axion.functions";
 import type { Conversation, Message, Scope } from "@/lib/axion/contracts";
 
 export const Route = createFileRoute("/assistente")({
@@ -22,7 +22,13 @@ type Dictation = {
   start(): void;
   stop(): void;
 };
-const names: Record<Scope, string> = { general: "Conversa geral", private: "Consultar meus registros", web: "Pesquisar na web" };
+const names: Record<Scope, string> = {
+  internal: "Consultas internas — sem IA externa",
+  free: "Conversa geral — Gemini gratuito",
+  general: "Conversa geral — OpenAI (pode cobrar)",
+  private: "Consultar registros — OpenAI (pode cobrar)",
+  web: "Pesquisar na web — OpenAI (pode cobrar)",
+};
 
 function Page() {
   const user = useRequireUser();
@@ -58,7 +64,7 @@ function fresh(): Conversation {
 }
 
 type Preferences = { tone: "direto" | "detalhado"; deep: boolean; memory: string };
-type Access = { configured: boolean; web: boolean; setup: boolean; provider: { model: string; max_request_cents: number; web: boolean } | null };
+type Access = { geminiSetup: boolean; geminiConfigured: boolean; configured: boolean; web: boolean; setup: boolean; provider: { model: string; max_request_cents: number; web: boolean } | null };
 type ConfiguredProps = { email: string; access: Access; onConfigured: () => Promise<void> };
 function ConfiguredChat({ email, access, onConfigured }: ConfiguredProps) {
   const getPreferences = useServerFn(axionPreferences);
@@ -70,6 +76,10 @@ function ConfiguredChat({ email, access, onConfigured }: ConfiguredProps) {
 function Chat({ access, email, onConfigured, initial }: ConfiguredProps & { initial: Preferences }) {
   const { configured, web, setup, provider } = access;
   const saveProvider = useServerFn(axionSaveProvider);
+  const saveGemini = useServerFn(axionSaveGemini);
+  const [geminiKey, setGeminiKey] = useState("");
+  const [unbilled, setUnbilled] = useState(false);
+  const [geminiNotice, setGeminiNotice] = useState("");
   const requestTransfer = useServerFn(axionRequestTransfer);
   const cancelTransfer = useServerFn(axionCancelTransfer);
   const [targetEmail, setTargetEmail] = useState("");
@@ -85,7 +95,7 @@ function Chat({ access, email, onConfigured, initial }: ConfiguredProps & { init
   const [branch, setBranch] = useState(0);
   const [question, setQuestion] = useState("");
   const [image, setImage] = useState<string>();
-  const [scope, setScope] = useState<Scope>("general");
+  const [scope, setScope] = useState<Scope>(access.geminiConfigured ? "free" : "internal");
   const savePreferences = useServerFn(axionSavePreferences);
   const [saved, setSaved] = useState(initial);
   const [tone, setTone] = useState(initial.tone);
@@ -98,11 +108,14 @@ function Chat({ access, email, onConfigured, initial }: ConfiguredProps & { init
   const [error, setError] = useState("");
   const [panel, setPanel] = useState<"history" | "settings" | null>(null);
   const [filter, setFilter] = useState("");
+  const isPaid = scope === "general" || scope === "private" || scope === "web";
+  const allowsMedia = scope === "general" || scope === "private";
+  const ready = scope === "internal" || (scope === "free" ? access.geminiConfigured : configured && (scope !== "web" || web));
   const messages = conversation?.branches[branch] ?? [];
   const history = useQuery({ queryKey: ["axion-history", email], queryFn: () => list(), enabled: panel === "history", staleTime: 0 });
   function reset(next: Conversation | null) {
     setConversation(next); setBranch(Math.max(0, (next?.branches.length ?? 1) - 1)); setEdit(null);
-    setQuestion(""); setImage(undefined); setScope("general"); setIncludeMemory(false); setError("");
+    setQuestion(""); setImage(undefined); setScope(access.geminiConfigured ? "free" : "internal"); setIncludeMemory(false); setError("");
   }
   function messageError(e: unknown) { setError(e instanceof Error ? e.message : "A operação não foi concluída."); }
   async function persist(next: Conversation) {
@@ -113,15 +126,16 @@ function Chat({ access, email, onConfigured, initial }: ConfiguredProps & { init
   }
   async function submit(e: FormEvent) {
     e.preventDefault();
-    if (busy || !configured || !question.trim()) return;
+    if (busy || !ready || !question.trim()) return;
+    if (isPaid && !window.confirm("Este modo usa OpenAI e pode gerar cobrança. Continuar?")) return;
     const c = conversation ?? fresh();
     if (edit !== null && c.branches.length >= 12) { setError("Limite de versões. Exporte e comece outra conversa."); return; }
     const prior = edit === null ? messages : messages.slice(0, edit);
     if (prior.length > 38) { setError("Esta versão atingiu o limite de mensagens. Comece outra conversa."); return; }
     setBusy(true); setError("");
     try {
-      const answer = await ask({ data: { question, scope, tone: saved.tone, deep: saved.deep, includeMemory: scope !== "web" && includeMemory, history: prior, ...(image ? { image } : {}) } });
-      const next: Message[] = [...prior, { role: "user", scope, usesMemory: scope !== "web" && includeMemory, text: question.trim() + (image ? "\n[Imagem analisada; original não guardado]" : "") }, answer];
+      const answer = await ask({ data: { question, scope, tone: saved.tone, deep: saved.deep, includeMemory: allowsMedia && includeMemory, history: prior, ...(allowsMedia && image ? { image } : {}) } });
+      const next: Message[] = [...prior, { role: "user", scope, usesMemory: allowsMedia && includeMemory, text: question.trim() + (image ? "\n[Imagem analisada; original não guardado]" : "") }, answer];
       const branches = edit === null ? c.branches.map((b, i) => i === branch ? next : b) : [...c.branches, next];
       if (edit !== null) setBranch(branches.length - 1);
       setQuestion(""); setImage(undefined); setEdit(null);
@@ -170,22 +184,41 @@ function Chat({ access, email, onConfigured, initial }: ConfiguredProps & { init
       <div className="flex flex-wrap gap-1">
         <Button variant="ghost" disabled={busy} onClick={() => reset(null)}>Nova conversa</Button>
         <Button variant="ghost" aria-expanded={panel === "history"} onClick={() => setPanel(panel === "history" ? null : "history")}><History size={16} /> Histórico</Button>
-        <Button variant="ghost" aria-expanded={panel === "settings"} onClick={() => { setProviderKey(""); setPanel(panel === "settings" ? null : "settings"); }}><Settings size={16} /> Configuração</Button>
+        <Button variant="ghost" aria-expanded={panel === "settings"} onClick={() => { setProviderKey(""); setGeminiKey(""); setUnbilled(false); setPanel(panel === "settings" ? null : "settings"); }}><Settings size={16} /> Configuração</Button>
       </div>
     </header>
     {panel === "settings" && <section aria-label="Configuração" className="grid gap-3 rounded-xl border p-4 text-sm">
-      <label>Contexto <select className="ml-2 rounded border bg-background p-1" value={scope} disabled={busy} onChange={e => { setScope(e.target.value as Scope); setImage(undefined); }}>
-        {Object.entries(names).map(([id, label]) => <option key={id} value={id} disabled={id === "web" && !web}>{label}</option>)}
+      <label>Contexto <select className="ml-2 rounded border bg-background p-1" value={scope} disabled={busy} onChange={e => { setScope(e.target.value as Scope); setImage(undefined); setIncludeMemory(false); }}>
+        {Object.entries(names).map(([id, label]) => <option key={id} value={id} disabled={id === "free" ? !access.geminiConfigured : id !== "internal" && (!configured || (id === "web" && !web))}>{label}</option>)}
       </select></label>
-      <p>Na consulta privada, resumos de despesas, receitas e agenda são enviados à OpenAI. A pesquisa web recebe apenas a pergunta atual. Não inclua segredos no chat.</p>
+      <p>Consultas internas não chamam modelos externos. O Gemini recebe apenas o texto da pergunta atual; não digite dados privados nesse modo. Modos OpenAI são opcionais e podem cobrar.</p>
       <label>Tom <select className="ml-2 rounded border bg-background p-1" value={tone} onChange={e => setTone(e.target.value as typeof tone)}><option value="direto">Direto</option><option value="detalhado">Detalhado</option></select></label>
       <label><input type="checkbox" checked={deep} onChange={e => setDeep(e.target.checked)} /> Análise aprofundada</label>
       <label>Memória pessoal (editável)
         <Textarea value={memory} maxLength={2000} onChange={e => setMemory(e.target.value)} placeholder="Registre apenas fatos que deseja lembrar." />
       </label>
-      <label><input type="checkbox" checked={includeMemory && scope !== "web"} disabled={scope === "web" || !saved.memory} onChange={e => setIncludeMemory(e.target.checked)} /> Enviar memória salva ao modelo nesta conversa</label>
+      <label><input type="checkbox" checked={includeMemory && allowsMedia} disabled={!allowsMedia || !saved.memory} onChange={e => setIncludeMemory(e.target.checked)} /> Enviar memória salva ao modelo nesta conversa</label>
       <Button variant="outline" disabled={busy} onClick={() => void action(async () => { setSaved(await savePreferences({ data: { tone, deep, memory } })); })}>Salvar configuração</Button>
-      <h2 className="border-t pt-3 font-semibold">Provedor OpenAI</h2>
+      <h2 className="border-t pt-3 font-semibold">Gemini gratuito</h2>
+      {access.geminiSetup ? <>
+        <p>Crie a chave no <a className="underline" href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer">Google AI Studio</a>, em um projeto sem faturamento. A Axion não consegue verificar se o projeto tem cobrança ativa.</p>
+        {access.geminiConfigured && <p>Chave Gemini cadastrada. Preencha abaixo somente se quiser trocá-la.</p>}
+        <label>Chave Gemini<Input type="password" autoComplete="off" spellCheck={false} maxLength={200} value={geminiKey} onChange={e => setGeminiKey(e.target.value)} /></label>
+        <label><input type="checkbox" checked={unbilled} onChange={e => setUnbilled(e.target.checked)} /> Confirmei que o projeto desta chave está sem faturamento.</label>
+        <Button type="button" disabled={busy || !unbilled || !geminiKey.trim()} onClick={() => {
+          const key = geminiKey.trim();
+          setGeminiKey("");
+          setGeminiNotice("");
+          void action(async () => {
+            await saveGemini({ data: { key, unbilled: true } });
+            await onConfigured();
+            setScope("free"); setImage(undefined); setIncludeMemory(false);
+            setGeminiNotice("Chave salva. Envie uma pergunta de conversa geral para testar.");
+          });
+        }}>Salvar Gemini</Button>
+        {geminiNotice && <p role="status">{geminiNotice}</p>}
+      </> : <p>O cadastro de chave Gemini está indisponível neste ambiente.</p>}
+      <h2 className="border-t pt-3 font-semibold">Provedor OpenAI (opcional, pode cobrar)</h2>
       {setup ? <>
         <p>A chave fica no cofre do servidor e não volta à tela. {provider ? "Chave cadastrada: deixe em branco para mantê-la." : "Informe uma chave de API da sua conta OpenAI."}</p>
         <label>Chave da API<Input type="password" autoComplete="off" spellCheck={false} maxLength={512} value={providerKey} onChange={e => setProviderKey(e.target.value)} /></label>
@@ -247,7 +280,16 @@ function Chat({ access, email, onConfigured, initial }: ConfiguredProps & { init
         }}>Excluir</Button>
       </div>}
     </section>}
-    {!configured && <p role="status" className="rounded-xl border p-3 text-sm">Abra Configuração → Provedor OpenAI para habilitar as respostas.</p>}
+    {!access.geminiConfigured && <p role="status" className="rounded-xl border p-3 text-sm">As consultas internas já estão disponíveis. Para conversa geral, cadastre sua chave em Configuração → Gemini gratuito.</p>}
+    <div className="flex flex-wrap gap-2" aria-label="Consultas gratuitas do Conecta">
+      {["Quanto falta pagar neste mês?", "O que vence nos próximos 7 dias?", "Quais são meus próximos compromissos?", "Quais as receitas previstas?"].map(q =>
+        <Button key={q} type="button" variant="outline" size="sm" disabled={busy} onClick={() => {
+          setScope("internal"); setImage(undefined); setIncludeMemory(false); setEdit(null); setQuestion(q);
+        }}>{q}</Button>)}
+      {access.geminiConfigured && <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => {
+        setScope("free"); setImage(undefined); setIncludeMemory(false); setEdit(null);
+      }}>Conversar com Gemini</Button>}
+    </div>
     {(conversation?.branches.length ?? 0) > 1 && <label className="text-sm">Versão <select disabled={busy} value={branch} onChange={e => { setBranch(Number(e.target.value)); setEdit(null); setQuestion(""); }} className="ml-2 rounded border bg-background p-1">
       {conversation?.branches.map((_, i) => <option key={i} value={i}>Versão {i + 1}</option>)}
     </select></label>}
@@ -257,7 +299,7 @@ function Chat({ access, email, onConfigured, initial }: ConfiguredProps & { init
         <div className="text-xs text-muted-foreground">{m.role === "user" ? "Você" : "Axion IA"} · {names[m.scope]}</div>
         <p className="mt-1 whitespace-pre-wrap break-words">{m.text}</p>
         {m.sources?.map(s => <a key={s.url} href={s.url} rel="noopener noreferrer" target="_blank" className="mr-2 inline-block max-w-full break-all text-sm underline">{s.title}</a>)}
-        {m.role === "user" ? <Button variant="ghost" size="sm" disabled={busy} onClick={() => { setEdit(i); setQuestion(m.text.slice(0, 4000)); setScope(m.scope); setImage(undefined); }}>Editar e criar versão</Button> :
+        {m.role === "user" ? <Button variant="ghost" size="sm" disabled={busy} onClick={() => { setEdit(i); setQuestion(m.text.slice(0, 4000)); setScope(m.scope === "internal" ? "internal" : access.geminiConfigured ? "free" : "internal"); setImage(undefined); setIncludeMemory(false); }}>Editar e criar versão</Button> :
           <Button variant="ghost" size="sm" aria-label="Ler em voz alta" onClick={() => {
             if (!("speechSynthesis" in window)) { setError("Leitura em voz alta indisponível neste navegador."); return; }
             window.speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(m.text); u.lang = "pt-BR"; window.speechSynthesis.speak(u);
@@ -272,12 +314,12 @@ function Chat({ access, email, onConfigured, initial }: ConfiguredProps & { init
       <div className="flex flex-wrap items-center gap-2">
         <label title="Anexar imagem" className="flex cursor-pointer items-center rounded border p-2">
           <Paperclip size={16} /><span className="sr-only">Anexar imagem</span>
-          <input className="sr-only" type="file" accept="image/png,image/jpeg,image/webp" disabled={busy || scope === "web"} onChange={e => { attach(e.target.files?.[0]); e.target.value = ""; }} />
+          <input className="sr-only" type="file" accept="image/png,image/jpeg,image/webp" disabled={busy || !allowsMedia} onChange={e => { attach(e.target.files?.[0]); e.target.value = ""; }} />
         </label>
         <Button type="button" size="icon" variant="outline" disabled={busy} aria-label={dictation ? "Parar ditado" : "Ditar mensagem"} onClick={dictate}><Mic size={16} /></Button>
         {image && <Button type="button" variant="ghost" disabled={busy} onClick={() => setImage(undefined)}>Remover imagem</Button>}
         <span className="mr-auto text-xs text-muted-foreground">{names[scope]}</span>
-        <Button type="submit" disabled={busy || !!dictation || !configured || !question.trim()}><Send size={16} /> Enviar</Button>
+        <Button type="submit" disabled={busy || !!dictation || !ready || !question.trim()}><Send size={16} /> Enviar</Button>
       </div>
     </form>
   </main>;

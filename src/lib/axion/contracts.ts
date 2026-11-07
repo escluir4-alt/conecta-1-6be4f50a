@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const scopeSchema = z.enum(["general", "private", "web"]);
+export const scopeSchema = z.enum(["general", "private", "web", "free", "internal"]);
 export type Scope = z.infer<typeof scopeSchema>;
 export const sourceSchema = z.object({ url: z.string().url().regex(/^https:\/\//i).max(1600), title: z.string().max(200) });
 export const messageSchema = z.object({
@@ -33,7 +33,7 @@ export const askSchema = z.object({
   deep: z.boolean(),
   includeMemory: z.boolean().default(false),
   image: z.string().max(1_400_050).regex(/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/).optional(),
-}).refine((v) => v.scope !== "web" || (!v.image && !v.includeMemory), "Imagens não são enviadas à pesquisa web.");
+}).refine((v) => !["web", "free", "internal"].includes(v.scope) || (!v.image && !v.includeMemory), "Este modo não aceita imagens ou memória.");
 export function modelHistory(history: Message[], scope: Scope, includeMemory = false) {
   return scope === "web" ? [] : history.filter(m => m.scope === scope && (includeMemory || !m.usesMemory)).slice(-6)
     .map(m => ({ role: m.role, content: m.text.slice(0, 1800) }));
