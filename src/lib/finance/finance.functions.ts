@@ -138,24 +138,8 @@ export const getMonthExpenses = createServerFn({ method: "POST" })
         if (candidates.length === 1) inst = candidates[0];
       }
 
-      // Lançamento manual compatível e único → vincular em vez de duplicar
-      const manual = bills.filter(
-        (b) => !b.source_annual_id && !b.contract_id &&
-          b.creditor.toLowerCase() === row.creditor.toLowerCase() &&
-          (b.expected_cents === expected || b.due_date === dueDate),
-      );
-      if (manual.length === 1) {
-        await supabase.from("finance_bills").update({
-          source_annual_id: row.id, source_period: period,
-          ...(inst ? { contract_id: contractId, installment_number: inst.number } : {}),
-        }).eq("id", manual[0].id);
-        if (inst) linkedInst.add(`${contractId}:${inst.number}`);
-        continue;
-      }
-      if (manual.length > 1) {
-        reviewFlags.push(`Revise manualmente: ${row.creditor} tem ${manual.length} lançamentos compatíveis em ${period}.`);
-        continue;
-      }
+      // Lançamentos manuais são independentes. Nunca presumir vínculo por credor, valor ou data.
+      // A idempotência depende apenas de IDs de origem explícitos (source_annual_id/source_period).
 
       const { error } = await supabase.from("finance_bills").insert({
         id: `${row.id}:${period}`, user_id: userId, creditor: row.creditor,
@@ -852,5 +836,58 @@ export const setCardDebtLink = createServerFn({ method: "POST" })
       if (error) throw new Error(error.message);
     }
     await audit(supabase, "reconcile_card_debt", "card_debt_link", data.key, null, { cardLinked: Boolean(data.cardId) });
+    return { ok: true };
+  });
+
+
+/** Limites manuais são uma sobreposição visível, nunca uma edição na origem Open Finance. */
+export const getCardLimitOverrides = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { supabase, userId } = context as Ctx;
+    const { data, error } = await supabase.from("finance_card_limit_overrides")
+      .select("account_id,limit_cents,used_cents,updated_at").eq("user_id", userId);
+    if (error) throw new Error(error.message);
+    return (data ?? []) as Array<{ account_id: string; limit_cents: number; used_cents: number; updated_at: string }>;
+  });
+
+export const saveCardLimitOverride = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) => z.object({
+    accountId: z.string().min(1).max(200),
+    limitCents: z.number().int().min(0).max(999999999999),
+    usedCents: z.number().int().min(0).max(999999999999),
+  }).refine(v => v.usedCents <= v.limitCents, "Utilizado não pode ultrapassar o limite.").parse(input))
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context as Ctx;
+    // Somente contas de cartão do usuário, validadas também no cliente.
+    // Não remover lançamentos financeiros ao alterar exibição dos limites.
+    const { data: previous, error: readError } = await supabase.from("finance_card_limit_overrides")
+      .select("limit_cents,used_cents").eq("user_id", userId).eq("account_id", data.accountId).maybeSingle();
+    if (readError) throw new Error(readError.message);
+    const { error } = await supabase.from("finance_card_limit_overrides").upsert({
+      user_id: userId, account_id: data.accountId,
+      limit_cents: data.limitCents, used_cents: data.usedCents,
+      updated_at: new Date().toISOString()
+    }, { onConflict: "user_id,account_id" });
+    if (error) throw new Error(error.message);
+    await audit(supabase, "manual_card_limit_override", "finance_card_limit_override", data.accountId, previous ?? null, {
+      limit_cents: data.limitCents, used_cents: data.usedCents,
+    });
+    return { ok: true };
+  });
+
+export const clearCardLimitOverride = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) => z.object({ accountId: z.string().min(1).max(200) }).parse(input))
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context as Ctx;
+    const { data: previous, error: readError } = await supabase.from("finance_card_limit_overrides")
+      .select("limit_cents,used_cents").eq("user_id", userId).eq("account_id", data.accountId).maybeSingle();
+    if (readError) throw new Error(readError.message);
+    const { error } = await supabase.from("finance_card_limit_overrides").delete()
+      .eq("user_id", userId).eq("account_id", data.accountId);
+    if (error) throw new Error(error.message);
+    await audit(supabase, "clear_card_limit_override", "finance_card_limit_override", data.accountId, previous ?? null, null);
     return { ok: true };
   });

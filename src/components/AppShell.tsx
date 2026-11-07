@@ -158,7 +158,7 @@ export function AppShell({
   const nav = (indent: boolean, onNavigate?: () => void) => (
     <>
       <div className="px-3 pt-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Controle financeiro</div>
-      <NavLink to="/home-broker" icon={LayoutDashboard} label="Home Broker" active={active === "home-broker"} indent={indent} onNavigate={onNavigate} />
+      <NavLink to="/home-broker" icon={LayoutDashboard} label="Painel Financeiro" active={active === "home-broker"} indent={indent} onNavigate={onNavigate} />
       <NavLink to="/receitas" icon={TrendingUp} label="Receitas" active={["receitas", "contas-a-receber", "historico-receitas", "crediario"].includes(active)} indent={indent} onNavigate={onNavigate} />
       <NavLink to="/despesas/anuais" icon={TrendingDown} label="Despesas" active={despesasActive} indent={indent} onNavigate={onNavigate} />
       <NavLink to="/painel" icon={Wallet} label="Carteira" active={active === "carteira"} indent={indent} onNavigate={onNavigate} />

@@ -39,7 +39,12 @@ export function RevenueWorkspace({ mode = 'registration', detailContractId }: { 
   const registeredSources = q.data?.sources ?? [];
   const entries = q.data?.entries ?? []; const contracts = q.data?.contracts ?? []; const files = q.data?.files ?? []; const events = q.data?.events ?? [];
   const years = [...new Set([today.slice(0, 4), year, ...entries.map(e => e.due_date.slice(0, 4))])].sort().reverse();
-  const annual = annualRevenue(entries, year); const annualSummary = revenueSummary(annual, today);
+  // Recebimentos avulsos permanecem no histórico, mas não compõem a matriz anual.
+  const annual = annualRevenue(entries, year).filter(entry => {
+    const registered = registeredSources.find(source => source.id === entry.source_id);
+    return (registered?.details as Record<string, unknown> | null)?.['axion_one_off'] !== 'true';
+  });
+  const annualSummary = revenueSummary(annual, today);
   const currentSource = (entry: RevenueEntry): RevenueEntry => {
     const source = registeredSources.find(s => s.id === entry.source_id);
     return source ? { ...entry, title: source.title, category: source.category } : entry;
