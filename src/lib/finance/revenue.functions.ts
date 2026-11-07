@@ -23,6 +23,19 @@ export const getRevenue = createServerFn({ method: 'POST' }).middleware([require
     context.supabase.from('revenue_sources').select('*').order('first_due'),
   ]);
   for (const r of [entries, contracts, events, files, sources]) if (r.error) throw new Error(r.error.message);
+  // Reaplica regras permanentes aos lançamentos que o sincronizador gerar futuramente.
+  for (const source of sources.data ?? []) {
+    const rules = adjustmentRules(source.details);
+    if (!rules.length) continue;
+    for (const entry of (entries.data ?? []).filter(e => e.source_id === source.id && !e.received_date && !e.contract_id)) {
+      const expected = expectedForMonth(source, entry.due_date);
+      if (entry.expected_cents === expected) continue;
+      const { error: adjusted } = await context.supabase.from('revenue_entries')
+        .update({ expected_cents: expected }).eq('id', entry.id).eq('user_id', context.userId).is('received_date', null);
+      if (adjusted) throw new Error(adjusted.message);
+      entry.expected_cents = expected;
+    }
+  }
   return { entries: entries.data ?? [], contracts: contracts.data ?? [], events: events.data ?? [], files: files.data ?? [], sources: sources.data ?? [] };
 });
 export const editRevenue = createServerFn({ method: 'POST' }).middleware([requireSupabaseAuth]).inputValidator((v: unknown) => z.object({ id: z.string().uuid(), title: z.string().trim().min(1).max(200), category: z.enum(REVENUE_CATEGORIES), expected_cents: money, first_due: date, recurring: z.boolean(), details: z.record(z.string().max(1000)) }).parse(v)).handler(async ({ data, context }) => {
@@ -90,34 +103,62 @@ export const openRevenueFile = createServerFn({ method:'POST' }).middleware([req
   if (error || !link) throw new Error('Não foi possível abrir o arquivo');
   return { url:link.signedUrl };
 });
-/** Ajusta apenas a previsão de um mês, sem alterar a fonte recorrente ou valores recebidos. */
-export const updateRevenueForecast = createServerFn({ method: 'POST' }).middleware([requireSupabaseAuth])
+
+type SourceAdjustmentRule = { start: string; cents: number; baseCents: number; mode: 'percentage' | 'amount'; value: number; reason: string };
+function adjustmentRules(details: unknown): SourceAdjustmentRule[] {
+  const value = details && typeof details === 'object' && !Array.isArray(details) ? (details as Record<string, unknown>).axion_reajustes : null;
+  if (!Array.isArray(value)) return [];
+  return value.filter((x): x is SourceAdjustmentRule => x !== null && typeof x === 'object' &&
+    typeof x.start === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(x.start) &&
+    Number.isSafeInteger(x.cents) && x.cents > 0).sort((a,b) => a.start.localeCompare(b.start));
+}
+function expectedForMonth(source: { expected_cents: number; details: unknown }, due: string): number {
+  let value = source.expected_cents;
+  for (const rule of adjustmentRules(source.details)) if (rule.start <= due.slice(0, 7)) value = rule.cents;
+  return value;
+}
+
+export const updateRevenueSourceAdjustment = createServerFn({ method: 'POST' }).middleware([requireSupabaseAuth])
   .inputValidator((v: unknown) => z.object({
-    id: z.string().uuid(), cents: money, previousCents: money,
-    reason: z.string().trim().min(3).max(1000),
-  }).parse(v))
-  .handler(async ({ data, context }) => {
-    const { data: entry, error: readError } = await context.supabase.from('revenue_entries')
-      .select('*').eq('id', data.id).eq('user_id', context.userId).single();
-    if (readError || !entry) throw new Error('Receita não encontrada.');
-    if (entry.contract_id || !entry.source_id) throw new Error('Use o módulo de contratos para modificar parcelas.');
-    if (entry.received_date) throw new Error('Não é possível alterar a previsão de uma receita já recebida.');
-    if (entry.expected_cents !== data.previousCents) throw new Error('O valor foi alterado por outra operação. Recarregue a página.');
-    if (entry.expected_cents === data.cents) return { ok: true };
-    const { data: updated, error: updateError } = await context.supabase.from('revenue_entries')
-      .update({ expected_cents: data.cents }).eq('id', data.id).eq('user_id', context.userId)
-      .eq('expected_cents', data.previousCents).is('received_date', null).select('id').maybeSingle();
-    if (updateError || !updated) throw new Error(updateError?.message ?? 'Não foi possível atualizar a receita.');
-    const { error: eventError } = await context.supabase.from('revenue_events').insert({
-      entry_id: data.id, user_id: context.userId, kind: 'correção', reason: data.reason,
-      before_data: { expected_cents: entry.expected_cents, due_date: entry.due_date },
-      after_data: { expected_cents: data.cents, due_date: entry.due_date },
-    });
-    if (eventError) {
-      await context.supabase.from('revenue_entries')
-        .update({ expected_cents: entry.expected_cents }).eq('id', data.id).eq('user_id', context.userId)
-        .eq('expected_cents', data.cents).is('received_date', null);
-      throw new Error('Não foi possível registrar a auditoria do reajuste. Verifique e tente novamente.');
+    sourceId: z.string().uuid(), start: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
+    mode: z.enum(['percentage', 'amount']), value: z.number().finite().min(-99).max(999999999999),
+    baseCents: money, newCents: money, reason: z.string().trim().min(3).max(1000),
+  }).parse(v)).handler(async ({ data, context }) => {
+    const { data: source, error } = await context.supabase.from('revenue_sources')
+      .select('*').eq('id', data.sourceId).eq('user_id', context.userId).single();
+    if (error || !source) throw new Error('Fonte pagadora não encontrada.');
+    if (!source.recurring) throw new Error('O reajuste automático requer uma fonte recorrente.');
+    const rules = adjustmentRules(source.details);
+    const base = rules.filter(rule => rule.start < data.start).at(-1)?.cents ?? source.expected_cents;
+    if (data.baseCents !== base) throw new Error('O valor de referência mudou. Atualize a página.');
+    const computed = data.mode === 'percentage' ? Math.round(base * (1 + data.value / 100)) : data.value;
+    if (computed !== data.newCents || computed <= 0) throw new Error('O cálculo do reajuste não corresponde ao valor informado.');
+    const newRules = [...rules.filter(rule => rule.start !== data.start), {
+      start: data.start, cents: data.newCents, baseCents: base, mode: data.mode, value: data.value, reason: data.reason,
+    }].sort((a,b) => a.start.localeCompare(b.start));
+    const oldDetails = source.details && typeof source.details === 'object' && !Array.isArray(source.details)
+      ? source.details as Record<string, unknown> : {};
+    const { error: saved } = await context.supabase.from('revenue_sources')
+      .update({ details: { ...oldDetails, axion_reajustes: newRules } }).eq('id', source.id).eq('user_id', context.userId);
+    if (saved) throw new Error(saved.message);
+    const { data: existing, error: listing } = await context.supabase.from('revenue_entries')
+      .select('*').eq('source_id', source.id).eq('user_id', context.userId).gte('due_date', `${data.start}-01`).order('due_date');
+    if (listing) throw new Error(listing.message);
+    const sourceWithRules = { ...source, details: { ...oldDetails, axion_reajustes: newRules } };
+    for (const entry of existing ?? []) {
+      if (entry.received_date || entry.contract_id) continue;
+      const cents = expectedForMonth(sourceWithRules, entry.due_date);
+      if (entry.expected_cents === cents) continue;
+      const { error: updateError } = await context.supabase.from('revenue_entries')
+        .update({ expected_cents: cents }).eq('id', entry.id).eq('user_id', context.userId).is('received_date', null);
+      if (updateError) throw new Error(updateError.message);
+      const { error: auditError } = await context.supabase.from('revenue_events').insert({
+        user_id: context.userId, entry_id: entry.id, kind: 'correção',
+        reason: `Reajuste da fonte ${source.title} a partir de ${data.start}: ${data.reason}`,
+        before_data: { expected_cents: entry.expected_cents, due_date: entry.due_date },
+        after_data: { expected_cents: cents, due_date: entry.due_date, adjustment: newRules[newRules.length - 1] },
+      });
+      if (auditError) throw new Error('O valor foi modificado, mas a auditoria falhou. Verifique antes de repetir: ' + auditError.message);
     }
     return { ok: true };
   });
