@@ -138,24 +138,8 @@ export const getMonthExpenses = createServerFn({ method: "POST" })
         if (candidates.length === 1) inst = candidates[0];
       }
 
-      // Lançamento manual compatível e único → vincular em vez de duplicar
-      const manual = bills.filter(
-        (b) => !b.source_annual_id && !b.contract_id &&
-          b.creditor.toLowerCase() === row.creditor.toLowerCase() &&
-          (b.expected_cents === expected || b.due_date === dueDate),
-      );
-      if (manual.length === 1) {
-        await supabase.from("finance_bills").update({
-          source_annual_id: row.id, source_period: period,
-          ...(inst ? { contract_id: contractId, installment_number: inst.number } : {}),
-        }).eq("id", manual[0].id);
-        if (inst) linkedInst.add(`${contractId}:${inst.number}`);
-        continue;
-      }
-      if (manual.length > 1) {
-        reviewFlags.push(`Revise manualmente: ${row.creditor} tem ${manual.length} lançamentos compatíveis em ${period}.`);
-        continue;
-      }
+      // Lançamentos manuais são independentes. Nunca presumir vínculo por credor, valor ou data.
+      // A idempotência depende apenas de IDs de origem explícitos (source_annual_id/source_period).
 
       const { error } = await supabase.from("finance_bills").insert({
         id: `${row.id}:${period}`, user_id: userId, creditor: row.creditor,
