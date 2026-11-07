@@ -210,6 +210,150 @@ export type Database = {
         }
         Relationships: []
       }
+      axion_conversations: {
+        Row: {
+          archived: boolean
+          branches: Json
+          id: string
+          revision: number
+          title: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          archived?: boolean
+          branches: Json
+          id: string
+          revision?: number
+          title: string
+          updated_at?: string
+          user_id?: string
+        }
+        Update: {
+          archived?: boolean
+          branches?: Json
+          id?: string
+          revision?: number
+          title?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      axion_gemini: {
+        Row: {
+          secret_id: string
+          user_id: string
+        }
+        Insert: {
+          secret_id: string
+          user_id: string
+        }
+        Update: {
+          secret_id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      axion_monthly_reservations: {
+        Row: {
+          month: string
+          reserved_cents: number
+        }
+        Insert: {
+          month: string
+          reserved_cents: number
+        }
+        Update: {
+          month?: string
+          reserved_cents?: number
+        }
+        Relationships: []
+      }
+      axion_owner: {
+        Row: {
+          singleton: boolean
+          user_id: string
+        }
+        Insert: {
+          singleton?: boolean
+          user_id: string
+        }
+        Update: {
+          singleton?: boolean
+          user_id?: string
+        }
+        Relationships: []
+      }
+      axion_preferences: {
+        Row: {
+          deep: boolean
+          memory: string
+          tone: string
+          user_id: string
+        }
+        Insert: {
+          deep?: boolean
+          memory?: string
+          tone: string
+          user_id?: string
+        }
+        Update: {
+          deep?: boolean
+          memory?: string
+          tone?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      axion_provider: {
+        Row: {
+          max_request_cents: number
+          model: string
+          secret_id: string
+          singleton: boolean
+          user_id: string
+          web: boolean
+        }
+        Insert: {
+          max_request_cents: number
+          model: string
+          secret_id: string
+          singleton?: boolean
+          user_id: string
+          web?: boolean
+        }
+        Update: {
+          max_request_cents?: number
+          model?: string
+          secret_id?: string
+          singleton?: boolean
+          user_id?: string
+          web?: boolean
+        }
+        Relationships: []
+      }
+      axion_transfer: {
+        Row: {
+          expires_at: string
+          from_user: string
+          singleton: boolean
+          to_user: string
+        }
+        Insert: {
+          expires_at: string
+          from_user: string
+          singleton?: boolean
+          to_user: string
+        }
+        Update: {
+          expires_at?: string
+          from_user?: string
+          singleton?: boolean
+          to_user?: string
+        }
+        Relationships: []
+      }
       finance_adjustment_proposals: {
         Row: {
           created_at: string
@@ -805,6 +949,45 @@ export type Database = {
         }
         Returns: undefined
       }
+      axion_accept_transfer: { Args: never; Returns: undefined }
+      axion_cancel_transfer: { Args: never; Returns: undefined }
+      axion_gemini_configured: { Args: never; Returns: boolean }
+      axion_is_owner: { Args: never; Returns: boolean }
+      axion_provider_status: {
+        Args: never
+        Returns: {
+          max_request_cents: number
+          model: string
+          web: boolean
+        }[]
+      }
+      axion_read_gemini: { Args: { p_owner: string }; Returns: string }
+      axion_read_provider: {
+        Args: { p_owner: string }
+        Returns: {
+          api_key: string
+          max_request_cents: number
+          model: string
+          web: boolean
+        }[]
+      }
+      axion_request_transfer: { Args: { p_email: string }; Returns: undefined }
+      axion_reserve: { Args: { p_cents: number }; Returns: number }
+      axion_save_gemini: {
+        Args: { p_key: string; p_owner: string }
+        Returns: undefined
+      }
+      axion_save_provider: {
+        Args: {
+          p_cents: number
+          p_key: string
+          p_model: string
+          p_owner: string
+          p_web: boolean
+        }
+        Returns: undefined
+      }
+      axion_transfer_pending: { Args: never; Returns: boolean }
       pay_bill: {
         Args: {
           p_bill_id: string
