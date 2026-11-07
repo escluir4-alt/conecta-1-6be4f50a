@@ -19,7 +19,8 @@ import {
   createConnectToken, getCredentialStatus, getFinances, getStatement, removeItem, saveItem, updateCredentials,
   type FinanceAccount,
 } from "@/lib/pluggy.functions";
-import { getFinanceAccountProfiles, saveFinanceAccountProfile } from "@/lib/finance/card-profile.functions";
+import { getFinanceAccountProfiles, saveFinanceAccountProfile, recordClosedCardInvoice } from "@/lib/finance/card-profile.functions";
+import { getAnnualYear } from "@/lib/finance/finance.functions";
 
 export const Route = createFileRoute("/painel")({
   ssr: false,
@@ -65,19 +66,27 @@ function Painel() {
   const [editAcc, setEditAcc] = useState<FinanceAccount | null>(null);
   const [alias, setAlias] = useState("");
   const [brand, setBrand] = useState("");
+  const [annualId, setAnnualId] = useState("");
+  const [invoicePeriod, setInvoicePeriod] = useState("2026-11");
+  const [invoiceAmount, setInvoiceAmount] = useState("");
+  const [closedAt, setClosedAt] = useState("");
+  const [invoiceDue, setInvoiceDue] = useState("");
+  const getAnnual = useServerFn(getAnnualYear);
+  const recordInvoice = useServerFn(recordClosedCardInvoice);
+  const annualQuery = useQuery({ queryKey: ["annual", Number(invoicePeriod.slice(0,4))], queryFn: () => getAnnual({ data: { year: Number(invoicePeriod.slice(0,4)) } }), enabled: !!user && !!editAcc && editAcc.type === "CREDIT" });
   const getProfiles = useServerFn(getFinanceAccountProfiles);
   const saveProfile = useServerFn(saveFinanceAccountProfile);
   const profilesQuery = useQuery({ queryKey: ["finance-profiles"], queryFn: () => getProfiles(), enabled: !!user });
   const profileFor = (id: string) => (profilesQuery.data ?? []).find(p => p.account_id === id);
   const titleFor = (acc: FinanceAccount) => profileFor(acc.id)?.display_name || acc.name;
   const brandFor = (acc: FinanceAccount) => profileFor(acc.id)?.card_brand || acc.brand || "";
-  const edit = (acc: FinanceAccount) => { setEditAcc(acc); setAlias(titleFor(acc)); setBrand(brandFor(acc).toUpperCase()); };
+  const edit = (acc: FinanceAccount) => { setEditAcc(acc); setAlias(titleFor(acc)); setBrand(brandFor(acc).toUpperCase()); setAnnualId(profileFor(acc.id)?.annual_expense_id ?? ""); };
   const saveEdit = async () => {
     if (!editAcc) return;
     try {
       await saveProfile({ data: { accountId: editAcc.id, displayName: alias.trim() || null,
-        cardBrand: (["VISA","MASTERCARD","ELO","AMEX","HIPERCARD","OTHER"].includes(brand) ? brand : null) as "VISA" | "MASTERCARD" | "ELO" | "AMEX" | "HIPERCARD" | "OTHER" | null,
-        annualExpenseId: profileFor(editAcc.id)?.annual_expense_id ?? null } });
+        cardBrand: editAcc.type === "BANK" ? null : (["VISA","MASTERCARD","ELO","AMEX","HIPERCARD","OTHER"].includes(brand) ? brand : null) as "VISA" | "MASTERCARD" | "ELO" | "AMEX" | "HIPERCARD" | "OTHER" | null,
+        annualExpenseId: editAcc.type === "CREDIT" ? annualId || null : null } });
       await qc.invalidateQueries({ queryKey: ["finance-profiles"] });
       setEditAcc(null); toast.success("Cartão personalizado.");
     } catch (e) { toast.error((e as Error).message); }
@@ -113,6 +122,21 @@ function Painel() {
     const fatura = cards.reduce((s, a) => s + a.balance, 0);
     return { saldo, limite, usado, fatura, pct: limite ? Math.round((usado / limite) * 100) : 0 };
   }, [banks, cards]);
+
+  async function registerClosedInvoice() {
+    if (!editAcc || !annualId || profileFor(editAcc.id)?.annual_expense_id !== annualId)
+      return toast.error("Salve primeiro o vínculo com o credor anual.");
+    const amount = Number(invoiceAmount.replace(/\./g, "").replace(",", "."));
+    if (!Number.isFinite(amount) || amount < 0 || !closedAt || !invoiceDue)
+      return toast.error("Informe valor, data de fechamento e vencimento.");
+    try {
+      await recordInvoice({ data: { accountId: editAcc.id, period: invoicePeriod, amountCents: Math.round(amount * 100), closedAt, dueDate: invoiceDue } });
+      await qc.invalidateQueries({ queryKey: ["annual"] });
+      await qc.invalidateQueries({ queryKey: ["month-expenses"] });
+      toast.success("Fatura fechada registrada na competência e no credor vinculados.");
+      setEditAcc(null);
+    } catch (e) { toast.error((e as Error).message); }
+  }
 
   async function connect() {
     try {
@@ -216,7 +240,7 @@ function Painel() {
               <Panel title="Contas cadastradas">
                 {banks.length === 0 && <Empty text="Nenhuma conta corrente." />}
                 {banks.map((a) => (
-                  <Row key={a.id} acc={a} title={a.institution} sub={`Open Finance • ${/poupan/i.test(a.name) ? "Poupança" : "Conta corrente"}`} right={<span className={`font-bold ${a.balance >= 0 ? "text-success" : "text-destructive"}`}>{brl(a.balance)}</span>} onClick={() => setStatementAcc(a)} onRemove={() => disconnect(a.id)} />
+                  <Row key={a.id} acc={a} title={titleFor(a)} sub={`Open Finance • ${/poupan/i.test(a.name) ? "Poupança" : "Conta corrente"}`} right={<span className={`font-bold ${a.balance >= 0 ? "text-success" : "text-destructive"}`}>{brl(a.balance)}</span>} onClick={() => setStatementAcc(a)} onRemove={() => edit(a)} />
                 ))}
               </Panel>
 
@@ -277,12 +301,26 @@ function Painel() {
         </div>
       <Dialog open={!!editAcc} onOpenChange={open => !open && setEditAcc(null)}>
         <DialogContent className="max-w-sm">
-          <DialogHeader><DialogTitle>Editar cartão</DialogTitle><DialogDescription>Nome e bandeira personalizados, sem alterar a instituição bancária.</DialogDescription></DialogHeader>
+          <DialogHeader><DialogTitle>Personalizar conta ou cartão</DialogTitle><DialogDescription>Identificação local sem alterar os dados do banco.</DialogDescription></DialogHeader>
           <div className="space-y-3">
             <div><Label>Nome do cartão</Label><Input value={alias} maxLength={100} onChange={e => setAlias(e.target.value)} /></div>
-            <div><Label>Bandeira</Label><select className="h-10 w-full rounded-lg border bg-background px-3" value={brand} onChange={e => setBrand(e.target.value)}>
+            {editAcc?.type === "CREDIT" && <><div><Label>Bandeira</Label><select className="h-10 w-full rounded-lg border bg-background px-3" value={brand} onChange={e => setBrand(e.target.value)}>
               <option value="">Não identificada</option>{["VISA","MASTERCARD","ELO","AMEX","HIPERCARD","OTHER"].map(b => <option key={b} value={b}>{b}</option>)}
             </select></div>
+            <div><Label>Credor nas Despesas Anuais ({invoicePeriod.slice(0, 4)})</Label><select value={annualId} onChange={e => setAnnualId(e.target.value)} className="h-10 w-full rounded-lg border bg-background px-3">
+              <option value="">Não associado</option>{(annualQuery.data?.rows ?? []).map((r: {id: string; creditor: string}) => <option key={r.id} value={r.id}>{r.creditor}</option>)}
+            </select><p className="mt-1 text-xs text-muted-foreground">Vínculo explícito e exclusivo para evitar duplicações. Salve antes de conciliar.</p></div>
+            <div className="space-y-2 rounded-xl border p-3">
+              <p className="text-sm font-semibold">Registrar fatura fechada</p>
+              <p className="text-xs text-muted-foreground">O saldo atual do cartão não prova o fechamento. Informe os dados da fatura oficial.</p>
+              <div className="grid grid-cols-2 gap-2">
+                <div><Label>Competência</Label><Input type="month" value={invoicePeriod} onChange={e => { setInvoicePeriod(e.target.value); setAnnualId(""); }} /></div>
+                <div><Label>Valor R$</Label><Input value={invoiceAmount} placeholder="0,00" onChange={e => setInvoiceAmount(e.target.value)} /></div>
+                <div><Label>Fechamento</Label><Input type="date" value={closedAt} onChange={e => setClosedAt(e.target.value)} /></div>
+                <div><Label>Vencimento</Label><Input type="date" value={invoiceDue} onChange={e => setInvoiceDue(e.target.value)} /></div>
+              </div>
+              <Button variant="outline" className="w-full" disabled={!annualId} onClick={registerClosedInvoice}>Conciliar fatura</Button>
+            </div></>}
             <DialogFooter><Button variant="outline" onClick={() => setEditAcc(null)}>Cancelar</Button><Button variant="brand" onClick={saveEdit}>Salvar</Button></DialogFooter>
           </div>
         </DialogContent>
