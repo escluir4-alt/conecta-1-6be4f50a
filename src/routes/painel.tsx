@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import {
-  CreditCard, Wallet, Gauge, Receipt, Plus, LayoutGrid, LogOut, KeyRound, MoreVertical, RefreshCw, Landmark, Pencil, Save,
+  CreditCard, Wallet, Gauge, Receipt, Plus, LogOut, KeyRound, MoreVertical, RefreshCw, Landmark, Pencil, Save,
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -16,8 +16,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { AppShell } from "@/components/AppShell";
 import {
-  createConnectToken, getFinances, removeItem, saveItem,
-  type FinanceAccount, type PluggySlot,
+  getFinances, type FinanceAccount,
 } from "@/lib/pluggy.functions";
 import { getFinanceAccountProfiles, saveFinanceAccountProfile, recordClosedCardInvoice, syncProviderClosedCardInvoices } from "@/lib/finance/card-profile.functions";
 import { getAnnualYear } from "@/lib/finance/finance.functions";
@@ -42,33 +41,12 @@ export const Route = createFileRoute("/painel")({
 
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
-declare global {
-  interface Window {
-    PluggyConnect?: new (opts: Record<string, unknown>) => { init: () => void };
-  }
-}
-
-function loadPluggyScript() {
-  return new Promise<void>((resolve, reject) => {
-    if (window.PluggyConnect) return resolve();
-    const s = document.createElement("script");
-    s.src = "https://cdn.pluggy.ai/pluggy-connect/v2.8.2/pluggy-connect.js";
-    s.onload = () => resolve();
-    s.onerror = () => reject(new Error("Falha ao carregar o Pluggy Connect"));
-    document.body.appendChild(s);
-  });
-}
-
 function Painel() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [user, setUser] = useState<{ email: string; name: string } | null>(null);
-  const [pluggySlot, setPluggySlot] = useState<PluggySlot>("primary");
-  const [originFilter,setOriginFilter] = useState<"all"|PluggySlot>("all");
   const [statementAcc, setStatementAcc] = useState<FinanceAccount | null>(null);
-  const [historyAccountId, setHistoryAccountId] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
-  const openHistory = (id: string) => { setHistoryAccountId(id); setHistoryOpen(true); };
   const [editAcc, setEditAcc] = useState<FinanceAccount | null>(null);
   const [alias, setAlias] = useState("");
   const [brand, setBrand] = useState("");
@@ -113,9 +91,6 @@ function Painel() {
   }, [navigate]);
 
   const fetchFin = useServerFn(getFinances);
-  const tokenFn = useServerFn(createConnectToken);
-  const saveFn = useServerFn(saveItem);
-  const removeFn = useServerFn(removeItem);
 
   const q = useQuery({ queryKey: ["finances"], queryFn: () => fetchFin(), enabled: !!user });
   useEffect(() => {
@@ -136,9 +111,8 @@ function Painel() {
     }).catch(() => setSyncMessage("Sincronização de faturas indisponível; dados anteriores preservados."));
     return undefined;
   }, [user, q.data, q.dataUpdatedAt, profilesQuery.data, profilesQuery.dataUpdatedAt, syncProvider, qc]);
-  const allAccounts = q.data?.accounts ?? [];
-  const accounts = originFilter === "all" ? allAccounts : allAccounts.filter(a=>a.connectionSlot===originFilter);
-  const txs = originFilter === "all" ? (q.data?.transactions ?? []) : (q.data?.transactions ?? []).filter(t=>t.connectionSlot===originFilter);
+  const accounts = q.data?.accounts ?? [];
+  const txs = q.data?.transactions ?? [];
   const banks = accounts.filter((a) => a.type === "BANK");
   const cards = accounts.filter((a) => a.type === "CREDIT");
 
@@ -167,31 +141,6 @@ function Painel() {
     } catch (e) { toast.error((e as Error).message); }
   }
 
-  async function connect(slot: PluggySlot = pluggySlot) {
-    try {
-      const [{ connectToken }] = await Promise.all([tokenFn({data:{slot}}), loadPluggyScript()]);
-      const widget = new window.PluggyConnect!({
-        connectToken,
-        includeSandbox: true,
-        onSuccess: async (data: { item: { id: string; connector?: { name?: string } } }) => {
-          await saveFn({ data: { itemId: data.item.id, connectorName: data.item.connector?.name ?? "", slot } });
-          toast.success("Banco conectado! Sincronizando seus dados…");
-          qc.invalidateQueries({ queryKey: ["finances"] });
-        },
-        onError: () => toast.error("A conexão com o banco não foi concluída."),
-      });
-      widget.init();
-    } catch (e) {
-      toast.error((e as Error).message);
-    }
-  }
-
-  async function disconnect(itemId: string, slot: PluggySlot) {
-    await removeFn({ data: { itemId, slot } });
-    toast.success("Conexão removida.");
-    qc.invalidateQueries({ queryKey: ["finances"] });
-  }
-
   async function signOut() {
     await qc.cancelQueries();
     qc.clear();
@@ -210,8 +159,6 @@ function Painel() {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-60">
               <DropdownMenuLabel>Ações</DropdownMenuLabel>
-              <DropdownMenuItem onClick={() => void connect("primary")}><Plus />Conectar pelo Meu Pluggy 01</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => void connect("secondary")}><Plus />Conectar pelo Meu Pluggy 02</DropdownMenuItem>
               <DropdownMenuItem onClick={() => qc.invalidateQueries({ queryKey: ["finances"] })}><RefreshCw />Atualizar dados</DropdownMenuItem>
               <DropdownMenuItem onClick={() => navigate({to:"/configuracoes/open-finance"})}><KeyRound />Configurar credenciais Pluggy</DropdownMenuItem>
               <DropdownMenuSeparator />
@@ -229,12 +176,7 @@ function Painel() {
               <h1 className="text-3xl font-extrabold">Contas e Cartões</h1>
               <p className="text-sm text-muted-foreground">Suas contas, cartões e movimentações financeiras em um só lugar.</p>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <select aria-label="Selecionar aplicação Pluggy" className="h-11 rounded-xl border bg-card px-3 text-sm" value={pluggySlot} onChange={e=>setPluggySlot(e.target.value as PluggySlot)}>
-                <option value="primary">Meu Pluggy 01</option><option value="secondary">Meu Pluggy 02</option>
-              </select>
-              <Button variant="brand" className="h-11" onClick={() => void connect()}><Plus />Adicionar conta ou cartão</Button>
-            </div>
+            <Button variant="brand" className="h-11" onClick={() => navigate({to:"/configuracoes/open-finance"})}><Plus />Adicionar conta ou cartão</Button>
           </div>
 
           {syncMessage && <p role="status" className="mt-3 text-xs text-muted-foreground">{syncMessage}</p>}
@@ -245,14 +187,6 @@ function Painel() {
             </div>
           )}
 
-          <div className="mt-5 flex items-center gap-2">
-            <label htmlFor="wallet-origin" className="text-xs font-medium text-muted-foreground">Origem</label>
-            <select id="wallet-origin" className="rounded-xl border bg-card px-3 py-2 text-xs" value={originFilter} onChange={e=>setOriginFilter(e.target.value as "all"|PluggySlot)}>
-              <option value="all">Todas as conexões</option>
-              <option value="primary">Meu Pluggy 01</option>
-              <option value="secondary">Meu Pluggy 02</option>
-            </select>
-          </div>
           <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <Kpi icon={Wallet} label="Saldo total" value={brl(stats.saldo)} sub={`em ${banks.length} contas`} />
             <Kpi icon={CreditCard} label="Limite total (cartões)" value={brl(stats.limite)} sub={`em ${cards.length} cartões`} />
@@ -277,23 +211,24 @@ function Painel() {
               <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
                 Pelo Open Finance você autoriza o acesso com segurança e vê saldos, cartões e movimentações aqui.
               </p>
-              <Button variant="brand" className="mt-6 h-11" onClick={() => void connect()}><Plus />Conectar banco</Button>
+              <Button variant="brand" className="mt-6 h-11" onClick={() => navigate({to:"/configuracoes/open-finance"})}><Plus />Conectar banco</Button>
             </div>
           ) : (
             <div className="mt-6 grid gap-6 xl:grid-cols-3">
               <Panel title="Contas cadastradas">
                 {banks.length === 0 && <Empty text="Nenhuma conta corrente." />}
                 {banks.map((a) => (
-                  <Row key={a.id} acc={a} title={titleFor(a)} sub={`Open Finance • ${/poupan/i.test(a.name) ? "Poupança" : "Conta corrente"}`} right={<span className={`font-bold ${a.balance >= 0 ? "text-success" : "text-destructive"}`}>{brl(a.balance)}</span>} onClick={() => setStatementAcc(a)} onRemove={() => edit(a)} onHistory={() => openHistory(a.id)} />
+                  <Row key={a.id} acc={a} title={titleFor(a)} sub={`Open Finance • ${/poupan/i.test(a.name) ? "Poupança" : "Conta corrente"}`} right={<span className={`font-bold ${a.balance >= 0 ? "text-success" : "text-destructive"}`}>{brl(a.balance)}</span>} onClick={() => setStatementAcc(a)} onRemove={() => edit(a)} />
                 ))}
               </Panel>
 
               <Panel title="Cartões cadastrados">
-                <CardWallet cards={cards} displayName={titleFor} displayBrand={brandFor} onEdit={edit} onOpen={setStatementAcc} onHistory={(card) => openHistory(card.id)} />
+                <CardWallet cards={cards} displayName={titleFor} displayBrand={brandFor} onEdit={edit} onOpen={setStatementAcc} />
               </Panel>
 
-              <Panel title="Últimas movimentações de contas e cartões">
-                <p className="mb-3 text-xs text-muted-foreground">Movimentações recebidas pela Pluggy, sem parcelas. Use o disquete ao lado da conta para consultar e preservar seu histórico.</p>
+              <Panel title="Últimas movimentações" action={<button type="button" onClick={() => setHistoryOpen(true)}
+                aria-label="Abrir histórico consolidado de movimentações" title="Histórico consolidado" className="grid size-7 place-items-center rounded-lg text-muted-foreground hover:bg-muted hover:text-primary focus-visible:ring-2 focus-visible:ring-primary"><Save className="size-4"/></button>}>
+                <p className="mb-3 text-xs text-muted-foreground">Movimentações de todas as contas e cartões, sem parcelas.</p>
                 {q.data?.error && <p role="alert" className="mb-3 rounded-lg border border-amber-300/40 p-2 text-xs text-amber-700 dark:text-amber-300">Alguns extratos estão indisponíveis. Atualize os dados ou revise a conexão.</p>}
                 {!txs.length && <Empty text="Nenhuma movimentação encontrada no período consultado." />}
                 <div className="max-h-[640px] divide-y divide-border/40 overflow-y-auto pr-1">
@@ -309,13 +244,12 @@ function Painel() {
                           <div className="break-words text-sm font-semibold">{t.description}</div>
                           <div className="mt-1 flex min-w-0 items-center gap-1">
                             <span className="truncate text-xs text-muted-foreground">{visibleName}{linked?.number ? " •••• "+linked.number : ""}</span>
-                            {linked && <button type="button" className="grid size-5 shrink-0 place-items-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-primary focus-visible:ring-2 focus-visible:ring-primary" aria-label={`Salvar e abrir histórico de ${visibleName}`} title="Salvar e consultar histórico" onClick={() => openHistory(linked.id)}><Save className="size-3.5"/></button>}
                           </div>
                           <div className="text-xs text-muted-foreground">{relDate(t.date)} • {credit ? "Cartão" : "Conta"}</div>
                         </div>
                         <div className="flex shrink-0 flex-col items-end gap-1">
-                          <div className={`text-sm font-bold ${income ? "text-success" : "text-foreground"}`}>{income ? "+ " : "- "}{brl(Math.abs(t.amount))}</div>
-                          <span className={`rounded-md px-2 py-0.5 text-[10px] font-medium ${income ? "bg-success-soft text-success" : "bg-muted text-muted-foreground"}`}>{income ? "Entrada" : credit ? "Cartão" : "Saída"}</span>
+                          <div className={`text-sm font-bold ${income ? "text-blue-600 dark:text-blue-400" : "text-red-600 dark:text-red-400"}`}>{income ? "+ " : "- "}{brl(Math.abs(t.amount))}</div>
+                          <span className={`rounded-md px-2 py-0.5 text-[10px] font-medium ${income ? "bg-blue-50 text-blue-700 dark:bg-blue-950/30 dark:text-blue-400" : "bg-red-50 text-red-700 dark:bg-red-950/30 dark:text-red-400"}`}>{income ? "Entrada" : credit ? "Cartão" : "Saída"}</span>
                         </div>
                       </div>
                     );
@@ -351,7 +285,7 @@ function Painel() {
           </div>
         </DialogContent>
       </Dialog>
-      <MovementHistoryDialog open={historyOpen} initialAccount={historyAccountId} accounts={accounts} labelFor={titleFor} onClose={() => setHistoryOpen(false)} />
+      <MovementHistoryDialog open={historyOpen} onClose={() => setHistoryOpen(false)} />
       <CardStatementDialog acc={statementAcc} name={statementAcc ? titleFor(statementAcc) : ""} brand={statementAcc ? brandFor(statementAcc) : ""} onClose={() => setStatementAcc(null)} />
       
     </AppShell>
@@ -368,10 +302,10 @@ function Kpi({ icon: Icon, label, value, sub }: { icon: typeof Wallet; label: st
   );
 }
 
-function Panel({ title, children }: { title: string; children: React.ReactNode }) {
+function Panel({ title, children, action }: { title: string; children: React.ReactNode; action?: React.ReactNode }) {
   return (
     <section className="rounded-2xl border bg-card p-5 shadow-soft">
-      <h2 className="mb-3 text-lg font-bold">{title}</h2>
+      <div className="mb-3 flex items-center justify-between gap-2"><h2 className="text-lg font-bold">{title}</h2>{action}</div>
       <div className="divide-y">{children}</div>
     </section>
   );
@@ -421,14 +355,13 @@ function relDate(iso: string) {
   return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" }).replace(/\./g, "").replace(/ de /g, " ");
 }
 
-function Row({ acc, title, sub, right, onClick, onRemove, onHistory }: { acc: FinanceAccount; title: string; sub: string; right: React.ReactNode; onClick: () => void; onRemove: () => void; onHistory: () => void }) {
+function Row({ acc, title, sub, right, onClick, onRemove }: { acc: FinanceAccount; title: string; sub: string; right: React.ReactNode; onClick: () => void; onRemove: () => void }) {
   return (
     <div className="group flex cursor-pointer items-center gap-3 rounded-lg py-2.5 hover:bg-muted/50" onClick={onClick}>
       <BankLogo acc={acc} />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1">
           <span className="truncate text-sm font-semibold">{title}</span>
-          <button type="button" onClick={e=>{e.stopPropagation();onHistory();}} title="Salvar e consultar histórico" aria-label={`Histórico de ${title}`} className="grid size-5 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-primary"><Save className="size-3.5"/></button>
         </div>
         <div className="truncate text-xs text-muted-foreground">{sub}</div>
       </div>

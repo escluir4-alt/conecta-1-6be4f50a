@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronLeft, ChevronRight, CreditCard, Pencil, Radio, Save } from "lucide-react";
+import { ChevronLeft, ChevronRight, CreditCard, Pencil, Radio } from "lucide-react";
 import type { FinanceAccount } from "@/lib/pluggy.functions";
 
 const money = (n: number) => n.toLocaleString("pt-BR",{style:"currency",currency:"BRL"});
@@ -43,9 +43,9 @@ export function CardFace({account,name,brand,expanded=false}:{account:FinanceAcc
    </div>
  </div>;
 }
-export function CardWallet({cards,displayName,displayBrand,onEdit,onOpen,onHistory}:{
+export function CardWallet({cards,displayName,displayBrand,onEdit,onOpen}:{
  cards:FinanceAccount[];displayName:(a:FinanceAccount)=>string;displayBrand:(a:FinanceAccount)=>string;
- onEdit:(a:FinanceAccount)=>void;onOpen:(a:FinanceAccount)=>void;onHistory:(a:FinanceAccount)=>void;
+ onEdit:(a:FinanceAccount)=>void;onOpen:(a:FinanceAccount)=>void;
 }) {
  const [selected,setSelected]=useState<string|null>(null);
  const chosen=cards.find(c=>c.id===selected)??cards[0];
@@ -72,10 +72,6 @@ export function CardWallet({cards,displayName,displayBrand,onEdit,onOpen,onHisto
    <Info label="Fechamento" value={compact(card.closingDate)}/>
    <Info label="Vencimento" value={compact(card.dueDate)}/>
    <Info label="Final" value={"•••• "+(card.number||"—")}/>
-  </div>
-  <div className="flex items-center justify-end gap-2 text-xs text-muted-foreground">
-   <span className="truncate">{displayName(card)}</span>
-   <button type="button" className="grid size-6 shrink-0 place-items-center rounded-md hover:bg-muted hover:text-primary" title="Salvar e consultar movimentações" aria-label={`Histórico de ${displayName(card)}`} onClick={()=>onHistory(card)}><Save className="size-3.5"/></button>
   </div>
   <div className="flex gap-2">
    <button className="flex flex-1 items-center justify-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold hover:bg-muted" onClick={()=>onEdit(card)}><Pencil className="size-3.5"/>Personalizar</button>
