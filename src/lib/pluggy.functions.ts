@@ -237,3 +237,27 @@ export const getStatement = createServerFn({ method: "GET" })
       .sort((a, b) => b.date.localeCompare(a.date));
     return { transactions, balance: acc.balance };
   });
+
+
+/**
+ * Valida propriedade do cartão usando o inventário de conexões do usuário.
+ * Nunca confiar apenas no accountId enviado pelo navegador.
+ */
+export async function assertUserCreditCard(
+  supabase: any,
+  userId: string,
+  accountId: string,
+): Promise<void> {
+  const { data: items, error } = await supabase.from("pluggy_items")
+    .select("item_id").eq("user_id", userId);
+  if (error) throw new Error("Não foi possível conferir a propriedade do cartão.");
+  if (!items?.length) throw new Error("Nenhum cartão conectado foi encontrado.");
+  const apiKey = await apiKeyFor(userId);
+  for (const item of items) {
+    const response = await pluggyGet<{ results: Array<{ id: string; type: string }> }>(
+      apiKey, `/accounts?itemId=${encodeURIComponent(item.item_id)}`
+    );
+    if (response.results.some(a => a.id === accountId && a.type === "CREDIT")) return;
+  }
+  throw new Error("Cartão não pertence às conexões de crédito autorizadas.");
+}

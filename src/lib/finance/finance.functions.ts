@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { clampDueDate, monthOfDueDate, parseBRL } from "./money";
+import { assertUserCreditCard } from "@/lib/pluggy.functions";
 import { SEED_ANNUAL, SEED_BILLS, SEED_CONTRACTS, SEED_INSTALLMENTS, SEED_YEAR, SEED_YEAR_SOURCE } from "./seed-data";
 
 type Ctx = { supabase: any; userId: string };
@@ -860,7 +861,8 @@ export const saveCardLimitOverride = createServerFn({ method: "POST" })
   }).refine(v => v.usedCents <= v.limitCents, "Utilizado não pode ultrapassar o limite.").parse(input))
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context as Ctx;
-    // Somente contas de cartão do usuário, validadas também no cliente.
+    await assertUserCreditCard(supabase, userId, data.accountId);
+    // Apenas cartões de crédito confirmados pelo servidor junto à conexão autorizada.
     // Não remover lançamentos financeiros ao alterar exibição dos limites.
     const { data: previous, error: readError } = await supabase.from("finance_card_limit_overrides")
       .select("limit_cents,used_cents").eq("user_id", userId).eq("account_id", data.accountId).maybeSingle();
@@ -882,6 +884,7 @@ export const clearCardLimitOverride = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => z.object({ accountId: z.string().min(1).max(200) }).parse(input))
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context as Ctx;
+    await assertUserCreditCard(supabase, userId, data.accountId);
     const { data: previous, error: readError } = await supabase.from("finance_card_limit_overrides")
       .select("limit_cents,used_cents").eq("user_id", userId).eq("account_id", data.accountId).maybeSingle();
     if (readError) throw new Error(readError.message);
