@@ -124,8 +124,8 @@ export function isInstallmentTransaction(tx: PTx): boolean {
 }
 async function getAllPluggyTransactions(apiKey: string, accountId: string, from?: string, to?: string): Promise<PTx[]> {
   const query = new URLSearchParams({ accountId, pageSize: "500" });
-  if (from) query.set("from", from);
-  if (to) query.set("to", to);
+  if (from) query.set("dateFrom", from);
+  if (to) query.set("dateTo", to);
   const seenCursors = new Set<string>();
   const seenIds = new Set<string>();
   const entries: PTx[] = [];
