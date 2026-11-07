@@ -145,11 +145,13 @@ function Painel() {
   }, [banks, cards]);
 
   async function registerClosedInvoice() {
-    if (!editAcc || !annualId || profileFor(editAcc.id)?.annual_expense_id !== annualId)
-      return toast.error("Salve primeiro o vínculo com o credor anual.");
+    if (!editAcc || !annualId || profileFor(editAcc.id)?.annual_expense_id !== annualId) {
+      toast.error("Salve primeiro o vínculo com o credor anual."); return;
+    }
     const amount = Number(invoiceAmount.replace(/\./g, "").replace(",", "."));
-    if (!Number.isFinite(amount) || amount < 0 || !closedAt || !invoiceDue)
-      return toast.error("Informe valor, data de fechamento e vencimento.");
+    if (!Number.isFinite(amount) || amount < 0 || !closedAt || !invoiceDue) {
+      toast.error("Informe valor, data de fechamento e vencimento."); return;
+    }
     try {
       await recordInvoice({ data: { accountId: editAcc.id, period: invoicePeriod, amountCents: Math.round(amount * 100), closedAt, dueDate: invoiceDue } });
       await qc.invalidateQueries({ queryKey: ["annual"] });
