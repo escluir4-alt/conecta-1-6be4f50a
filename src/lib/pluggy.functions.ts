@@ -161,7 +161,7 @@ export const getFinances = createServerFn({ method: "GET" })
     const accounts: FinanceAccount[] = [];
     const transactions: FinanceTx[] = [];
     const accountErrors: string[] = [];
-    const from = new Date(Date.now() - 60 * 86400000).toISOString().slice(0, 10);
+    const from = new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10);
     for (const it of items) {
       try {
         const item = await pluggyGet<PItem>(apiKey, `/items/${encodeURIComponent(it.item_id)}`).catch(() => ({} as PItem));
