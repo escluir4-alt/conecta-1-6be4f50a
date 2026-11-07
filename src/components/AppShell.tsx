@@ -4,6 +4,14 @@ import { useEffect, useState, type ReactNode } from "react";
 import {
   CalendarCheck,
   CalendarDays,
+  Calculator,
+  ClipboardList,
+  StickyNote,
+  CarFront,
+  FileText,
+  FolderArchive,
+  Bot,
+  CreditCard,
   History,
   Layers,
   LineChart,
@@ -35,7 +43,13 @@ export type AppPage =
   | "agenda"
   | "perfil"
   | "auditoria"
-  | "nuvem";
+  | "nuvem"
+  | "calculadora"
+  | "compras"
+  | "notas"
+  | "viagens"
+  | "notas-fiscais"
+  | "assistente";
 
 export interface AppUser {
   email: string;
@@ -136,64 +150,35 @@ export function AppShell({
 
   const nav = (indent: boolean, onNavigate?: () => void) => (
     <>
-      <div className="px-3 pt-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Financeiro</div>
-      <NavLink
-        to="/contas-a-receber"
-        icon={TrendingUp}
-        label="Receitas"
-        active={active === "receitas" || active === "contas-a-receber" || active === "crediario"}
-        indent={indent}
-        onNavigate={onNavigate}
-      />
+      <div className="px-3 pt-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Controle financeiro</div>
+      <NavLink to="/painel" icon={Wallet} label="Home Broker" active={active === "carteira"} indent={indent} onNavigate={onNavigate} />
+      <NavLink to="/receitas" icon={TrendingUp} label="Receitas" active={["receitas", "contas-a-receber", "historico-receitas", "crediario"].includes(active)} indent={indent} onNavigate={onNavigate} />
       <div className="ml-4 space-y-1 border-l border-border/80 pl-2">
-        <NavLink
-          to="/contas-a-receber"
-          icon={CalendarDays}
-          label="Contas a receber"
-          active={active === "contas-a-receber" || active === "crediario"}
-          indent
-          onNavigate={onNavigate}
-        />
-        <NavLink
-          to="/historico-receitas"
-          icon={History}
-          label="Histórico de Receitas"
-          active={active === "historico-receitas"}
-          indent
-          onNavigate={onNavigate}
-        />
+        <NavLink to="/contas-a-receber" icon={CalendarDays} label="Contas a receber" active={active === "contas-a-receber"} indent onNavigate={onNavigate} />
+        <NavLink to="/crediario" icon={FileText} label="Contratos parcelados" active={active === "crediario"} indent onNavigate={onNavigate} />
+        <NavLink to="/historico-receitas" icon={History} label="Histórico de receitas" active={active === "historico-receitas"} indent onNavigate={onNavigate} />
       </div>
-      <div>
-        <Link
-          to="/despesas"
-          onClick={onNavigate}
-          className={`flex items-center gap-3 rounded-xl px-3 py-2.5 transition-all ${
-            despesasActive ? "font-semibold text-foreground" : "text-muted-foreground"
-          } ${indent ? "text-[13px]" : "text-sm"}`}
-        >
-          <TrendingDown className="size-4 shrink-0" />
-          Despesas
-        </Link>
-        <div className="ml-4 space-y-1 border-l border-border/80 pl-2">
-          {DESPESAS_SUB.map((s) => (
-            <NavLink
-              key={s.id}
-              to={s.to}
-              icon={s.icon}
-              label={s.label}
-              active={active === s.id}
-              indent
-              onNavigate={onNavigate}
-            />
-          ))}
-        </div>
+      <NavLink to="/despesas/anuais" icon={TrendingDown} label="Despesas" active={despesasActive} indent={indent} onNavigate={onNavigate} />
+      <div className="ml-4 space-y-1 border-l border-border/80 pl-2">
+        <NavLink to="/despesas" icon={CalendarCheck} label="Despesas do mês" active={active === "despesas"} indent onNavigate={onNavigate} />
+        <NavLink to="/despesas/anuais" icon={CalendarDays} label="Despesas anuais" active={active === "anuais"} indent onNavigate={onNavigate} />
+        <NavLink to="/despesas/parceladas" icon={Layers} label="Contratos parcelados" active={active === "parceladas"} indent onNavigate={onNavigate} />
+        <NavLink to="/historico-pagamentos" icon={History} label="Histórico de pagamentos" active={active === "historico"} indent onNavigate={onNavigate} />
       </div>
-      <NavLink to="/agenda" icon={CalendarDays} label="Agenda" active={active === "agenda"} indent={indent} onNavigate={onNavigate} />
-      <NavLink to="/painel" icon={Wallet} label="Carteira" active={active === "carteira"} indent={indent} onNavigate={onNavigate} />
-      <NavLink to="/cotacoes" icon={LineChart} label="Bolsa de Valores" active={active === "cotacoes"} indent={indent} onNavigate={onNavigate} />
+      <NavLink to="/painel" icon={CreditCard} label="Carteira — contas e cartões" active={false} indent={indent} onNavigate={onNavigate} />
+      <NavLink to="/cotacoes" icon={LineChart} label="Bolsa de valores" active={active === "cotacoes"} indent={indent} onNavigate={onNavigate} />
       <NavLink to="/moedas" icon={LineChart} label="Moedas" active={active === "moedas"} indent={indent} onNavigate={onNavigate} />
+      <div className="px-3 pt-5 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Organização pessoal</div>
+      <NavLink to="/agenda" icon={CalendarDays} label="Agenda e calendário" active={active === "agenda"} indent={indent} onNavigate={onNavigate} />
+      <NavLink to="/calculadora" icon={Calculator} label="Calculadora" active={active === "calculadora"} indent={indent} onNavigate={onNavigate} />
+      <NavLink to="/compras" icon={ClipboardList} label="Lista de compras" active={active === "compras"} indent={indent} onNavigate={onNavigate} />
+      <NavLink to="/notas" icon={StickyNote} label="Anotações" active={active === "notas"} indent={indent} onNavigate={onNavigate} />
+      <NavLink to="/viagens" icon={CarFront} label="Viagens" active={active === "viagens"} indent={indent} onNavigate={onNavigate} />
+      <NavLink to="/notas-fiscais" icon={FolderArchive} label="Notas fiscais" active={active === "notas-fiscais"} indent={indent} onNavigate={onNavigate} />
+      <div className="px-3 pt-5 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Axion</div>
       <NavLink to="/nuvem" icon={Shield} label="Nuvem" active={active === "nuvem"} indent={indent} onNavigate={onNavigate} />
       <NavLink to="/perfil" icon={UserRound} label="Perfil" active={active === "perfil"} indent={indent} onNavigate={onNavigate} />
+      <NavLink to="/auditoria" icon={History} label="Auditoria" active={active === "auditoria"} indent={indent} onNavigate={onNavigate} />
     </>
   );
 
