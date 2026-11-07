@@ -669,3 +669,101 @@ export const getAttachmentUrl = createServerFn({ method: "POST" })
     if (error || !signed) throw new Error("Não foi possível gerar o link do comprovante.");
     return { url: signed.signedUrl };
   });
+
+
+// Consolidado de obrigações: não depende da competência selecionada na tela.
+// Contratos e despesas anuais são fontes canônicas; suas contas espelhadas não são somadas novamente.
+export const getGlobalDebtTotals = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { supabase, userId } = context as Ctx;
+    const loadAll = async (table: string, columns: string) => {
+      const records: any[] = [];
+      for (let from = 0; ; from += 1000) {
+        const { data, error } = await supabase.from(table).select(columns)
+          .eq("user_id", userId).range(from, from + 999);
+        if (error) throw new Error(`Falha ao consultar ${table}: ${error.message}`);
+        const page = (data ?? []) as any[];
+        records.push(...page);
+        if (page.length < 1000) break;
+      }
+      return records;
+    };
+    const [bills, annual, contracts, installments] = await Promise.all([
+      loadAll("finance_bills", "id,creditor,due_date,expected_cents,paid_date,paid_cents,source_annual_id,source_period,contract_id,installment_number"),
+      loadAll("annual_expenses", "id,year"),
+      loadAll("installment_contracts", "id"),
+      loadAll("installment_entries", "contract_id,number,expected_cents,paid_date,paid_cents"),
+    ]);
+    const annualIds = new Set(annual.map(row => row.id as string));
+    const contractIds = new Set(contracts.map(row => row.id as string));
+    const annualMonths: any[] = [];
+    const annualIdList = [...annualIds];
+    for (let i = 0; i < annualIdList.length; i += 100) {
+      const { data, error } = await supabase.from("annual_expense_months")
+        .select("annual_expense_id,month,expected_cents")
+        .in("annual_expense_id", annualIdList.slice(i, i + 100));
+      if (error) throw new Error(`Falha ao consultar despesas anuais: ${error.message}`);
+      annualMonths.push(...(data ?? []));
+    }
+    const paid = (r: any) => Math.max(0, Number(r.paid_cents) || 0);
+    const amount = (r: any) => Math.max(0, Number(r.expected_cents) || 0);
+    const linkedAnnual = new Map<string, any>();
+    const linkedInstallments = new Map<string, any>();
+    for (const bill of bills) {
+      if (bill.source_annual_id && bill.source_period) {
+        const key = `${bill.source_annual_id}:${bill.source_period}`;
+        if (linkedAnnual.has(key)) throw new Error(`Há contas anuais duplicadas para ${key}. Revise os lançamentos antes de consolidar.`);
+        linkedAnnual.set(key, bill);
+      }
+      if (bill.contract_id && bill.installment_number != null) {
+        const key = `${bill.contract_id}:${bill.installment_number}`;
+        if (linkedInstallments.has(key)) throw new Error(`Há parcelas duplicadas para ${key}. Revise os lançamentos antes de consolidar.`);
+        linkedInstallments.set(key, bill);
+      }
+    }
+    let total = 0;
+    let totalPaid = 0;
+    let standalone = 0;
+    let contractsTotal = 0;
+    let annualTotal = 0;
+    for (const entry of installments) {
+      if (!contractIds.has(entry.contract_id)) continue;
+      const linked = linkedInstallments.get(`${entry.contract_id}:${entry.number}`);
+      const value = amount(entry);
+      total += value;
+      contractsTotal += value;
+      // Uma baixa da parcela pode existir no contrato ou no espelho financeiro.
+      totalPaid += Math.max(paid(entry), paid(linked ?? {}));
+    }
+    const installmentKeys = new Set(installments.filter(e => contractIds.has(e.contract_id))
+      .map(e => `${e.contract_id}:${e.number}`));
+    for (const cell of annualMonths) {
+      if (!annualIds.has(cell.annual_expense_id)) continue;
+      const year = annual.find(a => a.id === cell.annual_expense_id)?.year;
+      const period = `${year}-${String(cell.month).padStart(2, "0")}`;
+      const bill = linkedAnnual.get(`${cell.annual_expense_id}:${period}`);
+      // Valores anuais que já representam parcelas contratadas são contados pelo contrato.
+      if (bill?.contract_id && installmentKeys.has(`${bill.contract_id}:${bill.installment_number}`)) continue;
+      const value = amount(cell);
+      total += value;
+      annualTotal += value;
+      totalPaid += paid(bill ?? {});
+    }
+    for (const bill of bills) {
+      if (bill.contract_id && installmentKeys.has(`${bill.contract_id}:${bill.installment_number}`)) continue;
+      const annualKey = `${bill.source_annual_id}:${bill.source_period}`;
+      if (bill.source_annual_id && linkedAnnual.get(annualKey) === bill &&
+          annualIds.has(bill.source_annual_id)) {
+        const year = annual.find(a => a.id === bill.source_annual_id)?.year;
+        const month = Number(bill.source_period?.slice(5, 7));
+        if (annualMonths.some(c => c.annual_expense_id === bill.source_annual_id &&
+          c.month === month && year === Number(bill.source_period?.slice(0, 4)))) continue;
+      }
+      total += amount(bill);
+      totalPaid += paid(bill);
+      standalone += amount(bill);
+    }
+    return { expected: total, paid: totalPaid, open: Math.max(0, total - totalPaid),
+      contracts: contractsTotal, annual: annualTotal, standalone };
+  });
