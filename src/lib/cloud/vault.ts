@@ -77,6 +77,7 @@ export async function ensureVaultForUser(password: string, userId: string) {
   return { ok: true, created: true };
 }
 
+const STORE_ATTEMPTS = "attempts";
 const ATTEMPTS_KEY = "vault-attempts";
 const LAST_ATTEMPT_KEY = "vault-last-attempt";
 
@@ -86,13 +87,15 @@ export type VaultAttemptState = {
 };
 
 export async function getVaultAttemptState(): Promise<VaultAttemptState> {
-  const [count, lockedUntil] = await Promise.all([
+  const [rawCount, rawLockedUntil] = await Promise.all([
     readIndexedValue(ATTEMPTS_KEY),
     readIndexedValue(LAST_ATTEMPT_KEY),
   ]);
 
+  const count = typeof rawCount === "number" && Number.isFinite(rawCount) ? rawCount : 0;
+  const lockedUntil = typeof rawLockedUntil === "string" ? rawLockedUntil : null;
   if (lockedUntil && new Date(lockedUntil).getTime() > Date.now()) {
-    return { count: count ?? 0, lockedUntil };
+    return { count, lockedUntil };
   }
 
   return { count: 0, lockedUntil: null };
