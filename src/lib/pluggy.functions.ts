@@ -10,7 +10,7 @@ async function getItemsForUser(userId: string): Promise<PluggyItem[]> {
   const {data,error} = await supabaseAdmin.from("pluggy_items")
     .select("item_id,connector_name,connection_slot").eq("user_id", userId);
   if(error) throw new Error("Falha ao consultar origens Pluggy. Aplique a migração multi-Pluggy.");
-  return (data ?? []) as PluggyItem[];
+  return (data ?? []) as unknown as PluggyItem[];
 }
 
 
