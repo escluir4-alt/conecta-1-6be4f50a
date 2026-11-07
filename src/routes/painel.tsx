@@ -128,6 +128,7 @@ function Painel() {
         setSyncMessage("Faturas conciliadas: nenhuma atualização necessária.");
       }
     }).catch(() => setSyncMessage("Sincronização de faturas indisponível; dados anteriores preservados."));
+    return undefined;
   }, [user, q.data, q.dataUpdatedAt, profilesQuery.data, profilesQuery.dataUpdatedAt, syncProvider, qc]);
   const accounts = q.data?.accounts ?? [];
   const txs = q.data?.transactions ?? [];
