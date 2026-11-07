@@ -52,52 +52,15 @@ export const recordClosedCardInvoice = createServerFn({ method: "POST" })
     amountCents: z.number().int().min(0).max(999999999999),
   }).parse(input))
   .handler(async ({ data, context }) => {
-    const { supabase, userId } = context;
-    await assertUserCreditCard(supabase, userId, data.accountId);
-    const { data: profile, error: profileError } = await (supabase as any).from("finance_account_profiles")
-      .select("annual_expense_id").eq("user_id", userId).eq("account_id", data.accountId).maybeSingle();
-    if (profileError) throw new Error(profileError.message);
-    if (!profile?.annual_expense_id) throw new Error("Associe primeiro o cartão a um credor das Despesas Anuais.");
-    const { data: annual, error: annualError } = await (supabase as any).from("annual_expenses")
-      .select("id,year,creditor").eq("id", profile.annual_expense_id).eq("user_id", userId).maybeSingle();
-    if (annualError || !annual) throw new Error("Credor anual não encontrado.");
-    const [year, month] = data.period.split("-").map(Number);
-    if (annual.year !== year) throw new Error("O credor vinculado precisa pertencer ao exercício da competência.");
-    const { data: annualYear } = await (supabase as any).from("annual_years")
-      .select("archived_at").eq("year", year).eq("user_id", userId).maybeSingle();
-    if (annualYear?.archived_at) throw new Error("Exercício arquivado não pode ser alterado.");
-    // Não sobrescrever pagamentos já quitados ou fatos financeiros históricos.
-    const { data: bills, error: billError } = await (supabase as any).from("finance_bills")
-      .select("id,paid_date").eq("user_id", userId)
-      .eq("source_annual_id", annual.id).eq("source_period", data.period);
-    if (billError) throw new Error(billError.message);
-    if ((bills ?? []).some((b: {paid_date: string | null}) => b.paid_date))
-      throw new Error("Já existe pagamento registrado; a fatura deve ser conciliada manualmente.");
-    const { data: previous, error: oldError } = await (supabase as any).from("finance_card_closed_invoices")
-      .select("amount_cents").eq("user_id", userId).eq("account_id", data.accountId)
-      .eq("period", data.period).maybeSingle();
-    if (oldError) throw new Error(oldError.message);
-    const { error: invoiceError } = await (supabase as any).from("finance_card_closed_invoices").upsert({
-      user_id: userId, account_id: data.accountId, period: data.period,
-      closed_at: data.closedAt, due_date: data.dueDate, amount_cents: data.amountCents,
-      origin: "manual", annual_expense_id: annual.id, updated_at: new Date().toISOString(),
-    }, { onConflict: "user_id,account_id,period" });
-    if (invoiceError) throw new Error(invoiceError.message);
-    const { error: monthError } = await (supabase as any).from("annual_expense_months").upsert({
-      annual_expense_id: annual.id, month: month!, expected_cents: data.amountCents,
-    }, { onConflict: "annual_expense_id,month" });
-    if (monthError) throw new Error("Fatura registrada, mas não foi possível atualizar a grade anual: " + monthError.message);
-    if ((bills ?? []).length) {
-      const { error: updateError } = await (supabase as any).from("finance_bills")
-        .update({ expected_cents: data.amountCents, due_date: data.dueDate })
-        .eq("user_id", userId).eq("source_annual_id", annual.id)
-        .eq("source_period", data.period).is("paid_date", null);
-      if (updateError) throw new Error("Grade anual atualizada; falha ao atualizar conta mensal: " + updateError.message);
-    }
-    await supabase.rpc("audit_append", { p_action: "closed_card_invoice", p_entity_type: "annual_expense",
-      p_entity_id: annual.id, p_before: previous, p_after: { period: data.period, amount_cents: data.amountCents },
-      p_details: { origin: "manual", card_linked: true } });
-    return { ok: true };
+    await assertUserCreditCard(context.supabase, context.userId, data.accountId);
+    const { data: outcome, error } = await (context.supabase as any).rpc("apply_closed_card_invoice", {
+      p_account_id: data.accountId, p_period: data.period,
+      p_closed_at: data.closedAt, p_due_date: data.dueDate,
+      p_amount_cents: data.amountCents, p_origin: "manual",
+      p_provider_reference: null,
+    });
+    if (error) throw new Error(error.message);
+    return { ok: true, status: outcome as string };
   });
 
 /**
@@ -129,46 +92,15 @@ export const syncProviderClosedCardInvoices = createServerFn({ method: "POST" })
           const age = (Date.now() - Date.parse(due + "T00:00:00Z")) / 86400000;
           if (age > 90 || age < -60) { skipped++; continue; }
           const cents = Math.round(bill.totalAmount * 100);
-          const { data: annual, error: annualError } = await (supabase as any).from("annual_expenses")
-            .select("id,year").eq("user_id", userId).eq("id", profile.annual_expense_id).maybeSingle();
-          if (annualError || !annual || annual.year !== Number(period.slice(0, 4))) { skipped++; continue; }
-          const { data: yr } = await (supabase as any).from("annual_years").select("archived_at")
-            .eq("user_id", userId).eq("year", annual.year).maybeSingle();
-          if (yr?.archived_at) { skipped++; continue; }
-          const { data: existing, error: existingError } = await (supabase as any).from("finance_card_closed_invoices")
-            .select("origin,provider_reference,amount_cents").eq("user_id", userId)
-            .eq("account_id", profile.account_id).eq("period", period).maybeSingle();
-          if (existingError) throw new Error(existingError.message);
-          if (existing?.origin === "manual") { skipped++; continue; }
-          if (existing?.provider_reference === bill.id && Number(existing.amount_cents) === cents) { unchanged++; continue; }
-          const { data: monthBills, error: monthlyError } = await (supabase as any).from("finance_bills")
-            .select("id,paid_date").eq("user_id", userId).eq("source_annual_id", annual.id).eq("source_period", period);
-          if (monthlyError) throw new Error(monthlyError.message);
-          if ((monthBills ?? []).some((m: {paid_date: string | null}) => m.paid_date)) { skipped++; continue; }
-          const { error: saveError } = await (supabase as any).from("finance_card_closed_invoices").upsert({
-            user_id: userId, account_id: profile.account_id, period, closed_at: close,
-            due_date: due, amount_cents: cents, origin: "provider",
-            provider_reference: bill.id, annual_expense_id: annual.id,
-            updated_at: new Date().toISOString(),
-          }, { onConflict: "user_id,account_id,period" });
-          if (saveError) throw new Error(saveError.message);
-          const { error: annualWriteError } = await (supabase as any).from("annual_expense_months").upsert({
-            annual_expense_id: annual.id, month: Number(period.slice(5, 7)), expected_cents: cents,
-          }, { onConflict: "annual_expense_id,month" });
-          if (annualWriteError) throw new Error(annualWriteError.message);
-          if (monthBills?.length) {
-            const { error: billWriteError } = await (supabase as any).from("finance_bills")
-              .update({ expected_cents: cents, due_date: due })
-              .eq("user_id", userId).eq("source_annual_id", annual.id)
-              .eq("source_period", period).is("paid_date", null);
-            if (billWriteError) throw new Error(billWriteError.message);
-          }
-          await supabase.rpc("audit_append", { p_action: "sync_closed_card_invoice",
-            p_entity_type: "annual_expense", p_entity_id: annual.id,
-            p_before: existing ?? null,
-            p_after: { period, amount_cents: cents, provider_reference: bill.id },
-            p_details: { origin: "provider", account_id: profile.account_id } });
-          updated++;
+          const { data: status, error } = await (supabase as any).rpc("apply_closed_card_invoice", {
+            p_account_id: profile.account_id, p_period: period,
+            p_closed_at: close, p_due_date: due, p_amount_cents: cents,
+            p_origin: "provider", p_provider_reference: bill.id,
+          });
+          if (error) throw new Error(error.message);
+          if (status === "updated") updated++;
+          else if (status === "unchanged") unchanged++;
+          else skipped++;
         }
       } catch (e) {
         errors.push(e instanceof Error ? e.message : "Falha de conexão com o provedor.");
