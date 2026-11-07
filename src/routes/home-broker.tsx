@@ -137,10 +137,10 @@ function HomeBroker() {
                   <td className="p-3">{formatBRL(Math.max(0, b.expected_cents - (b.paid_cents ?? 0)))}</td>
                   <td className="p-3"><div className="flex items-center gap-2">
                     <Button size="sm" variant={b.paid_date ? "outline" : "brand"} onClick={() => setTarget({
-                      kind: "bill", id: b.id, creditor: b.creditor, due_date: b.due_date,
+                      ...(b.kind === "installment" ? { kind: "installment" as const, contractId: b.contract_id, number: b.installment_number } : { kind: "bill" as const, id: b.id }), creditor: b.creditor, due_date: b.due_date,
                       expected_cents: b.expected_cents, paid_date: b.paid_date, paid_cents: b.paid_cents, note: b.paid_note,
                     })}>{b.paid_date ? "Corrigir" : "Confirmar pagamento"}</Button>
-                    <AttachmentButton entityType="bill" entityId={b.id} />
+                    <AttachmentButton entityType={b.kind === "installment" ? "installment" : "bill"} entityId={b.kind === "installment" ? `${b.contract_id}:${b.installment_number}` : b.id} />
                   </div></td>
                 </tr>)}
               </tbody>
