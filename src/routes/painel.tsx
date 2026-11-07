@@ -1,9 +1,9 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import {
-  CreditCard, Wallet, Gauge, Receipt, Plus, LayoutGrid, LogOut, KeyRound, MoreVertical, RefreshCw, Landmark, ChevronLeft, ChevronRight, Trash2,
+  CreditCard, Wallet, Gauge, Receipt, Plus, LayoutGrid, LogOut, KeyRound, MoreVertical, RefreshCw, Landmark, ChevronLeft, ChevronRight, Trash2, Pencil,
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -19,6 +19,8 @@ import {
   createConnectToken, getCredentialStatus, getFinances, getStatement, removeItem, saveItem, updateCredentials,
   type FinanceAccount,
 } from "@/lib/pluggy.functions";
+import { getFinanceAccountProfiles, saveFinanceAccountProfile, recordClosedCardInvoice, syncProviderClosedCardInvoices } from "@/lib/finance/card-profile.functions";
+import { getAnnualYear } from "@/lib/finance/finance.functions";
 
 export const Route = createFileRoute("/painel")({
   ssr: false,
@@ -61,6 +63,37 @@ function Painel() {
   const [secretOpen, setSecretOpen] = useState(false);
   const [selectedCard, setSelectedCard] = useState<string | null>(null);
   const [statementAcc, setStatementAcc] = useState<FinanceAccount | null>(null);
+  const [editAcc, setEditAcc] = useState<FinanceAccount | null>(null);
+  const [alias, setAlias] = useState("");
+  const [brand, setBrand] = useState("");
+  const [annualId, setAnnualId] = useState("");
+  const [invoicePeriod, setInvoicePeriod] = useState("2026-11");
+  const [invoiceAmount, setInvoiceAmount] = useState("");
+  const [closedAt, setClosedAt] = useState("");
+  const [invoiceDue, setInvoiceDue] = useState("");
+  const getAnnual = useServerFn(getAnnualYear);
+  const recordInvoice = useServerFn(recordClosedCardInvoice);
+  const syncProvider = useServerFn(syncProviderClosedCardInvoices);
+  const [syncMessage, setSyncMessage] = useState("");
+  const lastSyncKey = useRef("");
+  const annualQuery = useQuery({ queryKey: ["annual", Number(invoicePeriod.slice(0,4))], queryFn: () => getAnnual({ data: { year: Number(invoicePeriod.slice(0,4)) } }), enabled: !!user && !!editAcc && editAcc.type === "CREDIT" });
+  const getProfiles = useServerFn(getFinanceAccountProfiles);
+  const saveProfile = useServerFn(saveFinanceAccountProfile);
+  const profilesQuery = useQuery({ queryKey: ["finance-profiles"], queryFn: () => getProfiles(), enabled: !!user });
+  const profileFor = (id: string) => (profilesQuery.data ?? []).find(p => p.account_id === id);
+  const titleFor = (acc: FinanceAccount) => profileFor(acc.id)?.display_name || acc.name;
+  const brandFor = (acc: FinanceAccount) => profileFor(acc.id)?.card_brand || acc.brand || "";
+  const edit = (acc: FinanceAccount) => { setEditAcc(acc); setAlias(titleFor(acc)); setBrand(brandFor(acc).toUpperCase()); setAnnualId(profileFor(acc.id)?.annual_expense_id ?? ""); };
+  const saveEdit = async () => {
+    if (!editAcc) return;
+    try {
+      await saveProfile({ data: { accountId: editAcc.id, displayName: alias.trim() || null,
+        cardBrand: editAcc.type === "BANK" ? null : (["VISA","MASTERCARD","ELO","AMEX","HIPERCARD","OTHER"].includes(brand) ? brand : null) as "VISA" | "MASTERCARD" | "ELO" | "AMEX" | "HIPERCARD" | "OTHER" | null,
+        annualExpenseId: editAcc.type === "CREDIT" ? annualId || null : null } });
+      await qc.invalidateQueries({ queryKey: ["finance-profiles"] });
+      setEditAcc(null); toast.success("Cartão personalizado.");
+    } catch (e) { toast.error((e as Error).message); }
+  };
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
@@ -79,6 +112,24 @@ function Painel() {
   const removeFn = useServerFn(removeItem);
 
   const q = useQuery({ queryKey: ["finances"], queryFn: () => fetchFin(), enabled: !!user });
+  useEffect(() => {
+    if (!user || !q.data || !profilesQuery.data || q.data.error) return;
+    const key = `${q.dataUpdatedAt}-${profilesQuery.dataUpdatedAt}`;
+    if (lastSyncKey.current === key) return;
+    lastSyncKey.current = key;
+    if (!profilesQuery.data.some(p => p.annual_expense_id)) return;
+    void syncProvider().then(result => {
+      if (result.updated) {
+        setSyncMessage(`${result.updated} fatura(s) fechada(s) atualizada(s) nas Despesas Anuais.`);
+        void qc.invalidateQueries({ queryKey: ["annual"] });
+      } else if (result.errors.length) {
+        setSyncMessage("Não foi possível sincronizar todas as faturas. Confira as conexões.");
+      } else {
+        setSyncMessage("Faturas conciliadas: nenhuma atualização necessária.");
+      }
+    }).catch(() => setSyncMessage("Sincronização de faturas indisponível; dados anteriores preservados."));
+    return undefined;
+  }, [user, q.data, q.dataUpdatedAt, profilesQuery.data, profilesQuery.dataUpdatedAt, syncProvider, qc]);
   const accounts = q.data?.accounts ?? [];
   const txs = q.data?.transactions ?? [];
   const banks = accounts.filter((a) => a.type === "BANK");
@@ -92,6 +143,23 @@ function Painel() {
     const fatura = cards.reduce((s, a) => s + a.balance, 0);
     return { saldo, limite, usado, fatura, pct: limite ? Math.round((usado / limite) * 100) : 0 };
   }, [banks, cards]);
+
+  async function registerClosedInvoice() {
+    if (!editAcc || !annualId || profileFor(editAcc.id)?.annual_expense_id !== annualId) {
+      toast.error("Salve primeiro o vínculo com o credor anual."); return;
+    }
+    const amount = Number(invoiceAmount.replace(/\./g, "").replace(",", "."));
+    if (!Number.isFinite(amount) || amount < 0 || !closedAt || !invoiceDue) {
+      toast.error("Informe valor, data de fechamento e vencimento."); return;
+    }
+    try {
+      await recordInvoice({ data: { accountId: editAcc.id, period: invoicePeriod, amountCents: Math.round(amount * 100), closedAt, dueDate: invoiceDue } });
+      await qc.invalidateQueries({ queryKey: ["annual"] });
+      await qc.invalidateQueries({ queryKey: ["month-expenses"] });
+      toast.success("Fatura fechada registrada na competência e no credor vinculados.");
+      setEditAcc(null);
+    } catch (e) { toast.error((e as Error).message); }
+  }
 
   async function connect() {
     try {
@@ -157,6 +225,7 @@ function Painel() {
             <Button variant="brand" className="h-11" onClick={connect}><Plus />Adicionar conta ou cartão</Button>
           </div>
 
+          {syncMessage && <p role="status" className="mt-3 text-xs text-muted-foreground">{syncMessage}</p>}
           {q.data?.error && (
             <div className="mt-6 rounded-xl border border-destructive/30 bg-danger-soft p-4 text-sm">
               {q.data.error}{" "}
@@ -195,35 +264,36 @@ function Painel() {
               <Panel title="Contas cadastradas">
                 {banks.length === 0 && <Empty text="Nenhuma conta corrente." />}
                 {banks.map((a) => (
-                  <Row key={a.id} acc={a} title={a.institution} sub={`Open Finance • ${/poupan/i.test(a.name) ? "Poupança" : "Conta corrente"}`} right={<span className={`font-bold ${a.balance >= 0 ? "text-success" : "text-destructive"}`}>{brl(a.balance)}</span>} onClick={() => setStatementAcc(a)} onRemove={() => disconnect(a.id)} />
+                  <Row key={a.id} acc={a} title={titleFor(a)} sub={`Open Finance • ${/poupan/i.test(a.name) ? "Poupança" : "Conta corrente"}`} right={<span className={`font-bold ${a.balance >= 0 ? "text-success" : "text-destructive"}`}>{brl(a.balance)}</span>} onClick={() => setStatementAcc(a)} onRemove={() => edit(a)} />
                 ))}
               </Panel>
 
               <Panel title="Cartões cadastrados">
                 {cards.length === 0 && <Empty text="Nenhum cartão." />}
-                {selCard && (
-                  <button onClick={() => setStatementAcc(selCard)} className="mb-3 block w-full rounded-2xl p-5 text-left text-primary-foreground shadow-soft transition hover:opacity-95" style={{ background: "linear-gradient(135deg, #0d6c7b 0%, #084f64 100%)" }}>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <BankLogo acc={selCard} size="size-9" />
-                        <span className="font-semibold">{selCard.name}</span>
+                {cards.map((c) => (
+                  <div key={c.id} className="mb-2">
+                    {c.id === selCard?.id ? (
+                      <div className="relative overflow-hidden rounded-[26px] shadow-soft" style={{ background: "linear-gradient(135deg,#2e7887,#205667)" }}>
+                        <button className="block w-full p-5 text-left text-white transition hover:brightness-110" onClick={() => setStatementAcc(c)}>
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="flex min-w-0 items-center gap-3"><BankLogo acc={c} size="size-9" /><span className="truncate font-semibold">{titleFor(c)}</span></div>
+                            <BrandMark brand={brandFor(c)} />
+                          </div>
+                          <div className="mt-7 flex items-end justify-between text-sm">
+                            <div><div className="h-6 w-8 rounded-lg bg-white/30" /><div className="mt-2">Fatura {brl(c.balance)}</div></div>
+                            <div className="text-right">•••• {c.number}{c.dueDate && <div className="text-xs">Vence {c.dueDate.slice(8,10)}/{c.dueDate.slice(5,7)}</div>}</div>
+                          </div>
+                        </button>
+                        <button aria-label="Editar cartão" className="absolute right-3 top-12 rounded-lg bg-white/20 p-2 text-white hover:bg-white/30" onClick={() => edit(c)}><Pencil className="size-4" /></button>
                       </div>
-                      <BrandMark brand={selCard.brand} />
-                    </div>
-                    <div className="mt-6 flex items-end justify-between text-sm">
-                      <div>
-                        <div className="h-6 w-8 rounded-md bg-primary-foreground/30" />
-                        <div className="mt-2 opacity-90">Fatura {brl(selCard.balance)}</div>
-                      </div>
-                      <div className="text-right opacity-90">
-                        <div>•••• {selCard.number}</div>
-                        {selCard.dueDate && <div className="text-xs">Vence {new Date(selCard.dueDate).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })}</div>}
-                      </div>
-                    </div>
-                  </button>
-                )}
-                {cards.filter((c) => c.id !== selCard?.id).map((c) => (
-                  <Row key={c.id} acc={c} title={c.name} sub={`•••• ${c.number}`} right={<span className="grid h-9 w-14 place-items-center rounded-lg bg-muted"><BrandMark brand={c.brand} /></span>} onClick={() => setStatementAcc(c)} onRemove={() => disconnect(c.id)} />
+                    ) : (
+                      <button className="flex w-full items-center gap-3 rounded-xl px-1 py-3 text-left hover:bg-muted/50" onClick={() => setSelectedCard(c.id)}>
+                        <BankLogo acc={c} size="size-10" />
+                        <div className="min-w-0 flex-1"><div className="truncate text-sm font-semibold">{titleFor(c)}</div><div className="text-xs text-muted-foreground">•••• {c.number}</div></div>
+                        <span className="grid h-9 w-14 place-items-center rounded-lg bg-muted"><BrandMark brand={brandFor(c)} /></span>
+                      </button>
+                    )}
+                  </div>
                 ))}
               </Panel>
 
@@ -253,6 +323,32 @@ function Painel() {
             </div>
           )}
         </div>
+      <Dialog open={!!editAcc} onOpenChange={open => !open && setEditAcc(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Personalizar conta ou cartão</DialogTitle><DialogDescription>Identificação local sem alterar os dados do banco.</DialogDescription></DialogHeader>
+          <div className="space-y-3">
+            <div><Label>Nome do cartão</Label><Input value={alias} maxLength={100} onChange={e => setAlias(e.target.value)} /></div>
+            {editAcc?.type === "CREDIT" && <><div><Label>Bandeira</Label><select className="h-10 w-full rounded-lg border bg-background px-3" value={brand} onChange={e => setBrand(e.target.value)}>
+              <option value="">Não identificada</option>{["VISA","MASTERCARD","ELO","AMEX","HIPERCARD","OTHER"].map(b => <option key={b} value={b}>{b}</option>)}
+            </select></div>
+            <div><Label>Credor nas Despesas Anuais ({invoicePeriod.slice(0, 4)})</Label><select value={annualId} onChange={e => setAnnualId(e.target.value)} className="h-10 w-full rounded-lg border bg-background px-3">
+              <option value="">Não associado</option>{(annualQuery.data?.rows ?? []).map((r: {id: string; creditor: string}) => <option key={r.id} value={r.id}>{r.creditor}</option>)}
+            </select><p className="mt-1 text-xs text-muted-foreground">Vínculo explícito e exclusivo para evitar duplicações. Salve antes de conciliar.</p></div>
+            <div className="space-y-2 rounded-xl border p-3">
+              <p className="text-sm font-semibold">Registrar fatura fechada</p>
+              <p className="text-xs text-muted-foreground">O saldo atual do cartão não prova o fechamento. Informe os dados da fatura oficial.</p>
+              <div className="grid grid-cols-2 gap-2">
+                <div><Label>Competência</Label><Input type="month" value={invoicePeriod} onChange={e => { setInvoicePeriod(e.target.value); setAnnualId(""); }} /></div>
+                <div><Label>Valor R$</Label><Input value={invoiceAmount} placeholder="0,00" onChange={e => setInvoiceAmount(e.target.value)} /></div>
+                <div><Label>Fechamento</Label><Input type="date" value={closedAt} onChange={e => setClosedAt(e.target.value)} /></div>
+                <div><Label>Vencimento</Label><Input type="date" value={invoiceDue} onChange={e => setInvoiceDue(e.target.value)} /></div>
+              </div>
+              <Button variant="outline" className="w-full" disabled={!annualId} onClick={registerClosedInvoice}>Conciliar fatura</Button>
+            </div></>}
+            <DialogFooter><Button variant="outline" onClick={() => setEditAcc(null)}>Cancelar</Button><Button variant="brand" onClick={saveEdit}>Salvar</Button></DialogFooter>
+          </div>
+        </DialogContent>
+      </Dialog>
       <StatementDialog acc={statementAcc} onClose={() => setStatementAcc(null)} />
       <SecretDialog open={secretOpen} onOpenChange={setSecretOpen} onSaved={() => qc.invalidateQueries({ queryKey: ["finances"] })} />
     </AppShell>
@@ -320,7 +416,7 @@ function BrandMark({ brand, dark }: { brand: string; dark?: boolean }) {
       </span>
     );
   }
-  return <span className={`text-sm font-extrabold italic ${dark ? "text-chart-1" : ""}`}>{(brand || "VISA").toUpperCase()}</span>;
+  return <span className={`text-sm font-extrabold italic ${dark ? "text-chart-1" : ""}`}>{(brand || "BANDEIRA?").toUpperCase()}</span>;
 }
 
 function relDate(iso: string) {

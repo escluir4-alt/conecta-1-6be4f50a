@@ -261,3 +261,41 @@ export async function assertUserCreditCard(
   }
   throw new Error("Cartão não pertence às conexões de crédito autorizadas.");
 }
+
+/** Valida qualquer conta ou cartão vinculado a uma conexão do titular. */
+export async function assertUserFinanceAccount(supabase: any, userId: string, accountId: string): Promise<"BANK" | "CREDIT"> {
+  const { data: items, error } = await supabase.from("pluggy_items").select("item_id").eq("user_id", userId);
+  if (error) throw new Error("Falha ao verificar contas autorizadas.");
+  if (!items?.length) throw new Error("Nenhuma conexão autorizada.");
+  const apiKey = await apiKeyFor(userId);
+  for (const item of items) {
+    const response = await pluggyGet<{ results: Array<{ id: string; type: string }> }>(
+      apiKey, `/accounts?itemId=${encodeURIComponent(item.item_id)}`
+    );
+    const account = response.results.find(a => a.id === accountId);
+    if (account?.type === "BANK" || account?.type === "CREDIT") return account.type;
+  }
+  throw new Error("Conta não pertence às conexões autorizadas.");
+}
+
+/** Faturas oficiais; nunca inferir fechamento a partir do limite disponível. */
+export type PluggyCardBill = {
+  id: string;
+  dueDate: string;
+  billClosingDate: string | null;
+  totalAmount: number;
+  totalAmountCurrencyCode: string;
+};
+export async function fetchAuthorizedCardBills(supabase: any, userId: string, accountId: string): Promise<PluggyCardBill[]> {
+  await assertUserCreditCard(supabase, userId, accountId);
+  const apiKey = await apiKeyFor(userId);
+  const results: PluggyCardBill[] = [];
+  for (let page = 1; page <= 3; page++) {
+    const response = await pluggyGet<{ results: PluggyCardBill[]; totalPages?: number }>(
+      apiKey, `/bills?accountId=${encodeURIComponent(accountId)}&pageSize=100&page=${page}`
+    );
+    results.push(...(response.results ?? []));
+    if (!response.totalPages || page >= response.totalPages) break;
+  }
+  return results;
+}
