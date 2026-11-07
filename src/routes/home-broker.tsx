@@ -11,6 +11,8 @@ import { Button } from "@/components/ui/button";
 import { formatBRL, formatDateBR } from "@/lib/finance/money";
 import { getMonthExpenses, getContracts, getGlobalDebtTotals, addManualBill, getCardLimitOverrides, saveCardLimitOverride, clearCardLimitOverride } from "@/lib/finance/finance.functions";
 import { getFinances } from "@/lib/pluggy.functions";
+import { getFinanceAccountProfiles, getConfirmedCardInvoiceLinks } from "@/lib/finance/card-profile.functions";
+import { calculateCardDebtOverlap } from "@/lib/finance/card-debt-reconciliation";
 import { getRevenue, createRevenue } from "@/lib/finance/revenue.functions";
 import { ReceiveDialog } from "@/components/finance/RevenueForms";
 import type { RevenueEntry } from "@/lib/finance/revenue";
@@ -127,9 +129,13 @@ function HomeBroker() {
   const incomeReceived = incomes.reduce((sum, item) => sum + (item.received_cents ?? 0), 0);
   const contracts = useQuery({ queryKey: ["home-broker-contracts"], queryFn: () => contractsFn({ data: { includeArchived: false } }), enabled: !!user });
   const wallet = useQuery({ queryKey: ["finances"], queryFn: () => walletFn(), enabled: !!user });
+  const profileFn = useServerFn(getFinanceAccountProfiles);
+  const invoiceLinksFn = useServerFn(getConfirmedCardInvoiceLinks);
+  const profiles = useQuery({ queryKey: ["finance-profiles"], queryFn: () => profileFn(), enabled: !!user });
+  const invoiceLinks = useQuery({ queryKey: ["confirmed-card-invoice-links"], queryFn: () => invoiceLinksFn(), enabled: !!user });
   const globalDebt = useQuery({ queryKey: ["global-debt-totals", user?.email], queryFn: () => globalDebtFn(), enabled: !!user });
   const bills = expenses.data?.bills ?? [];
-  const cards = wallet.data?.accounts?.filter(a => a.type === "CREDIT") ?? [];
+  const cards = [...new Map((wallet.data?.accounts?.filter(a => a.type === "CREDIT") ?? []).map(card => [card.id, card])).values()];
   const limits = useMemo(() => cards.reduce((acc, card) => {
     const manual = overrides.data?.find(item => item.account_id === card.id);
     return {
@@ -138,8 +144,15 @@ function HomeBroker() {
     };
   }, { limit: 0, used: 0 }), [cards, overrides.data]);
   const stats = expenses.data?.kpis ?? { expected: 0, paid: 0, open: 0, count: 0 };
-  const financialReady = !!globalDebt.data && !!wallet.data && !wallet.data.error && !wallet.error;
-  const debtTotal = (globalDebt.data?.expected ?? 0) + limits.used;
+  const cardBalances = cards.map(card => ({ id: card.id, usedCents: effective(card).used }));
+  const overlap = calculateCardDebtOverlap(
+    (globalDebt.data?.candidates ?? []).map(item => ({ key:item.key, open:item.open })),
+    [...(globalDebt.data?.links ?? []), ...(invoiceLinks.data ?? []).map(item => ({ liability_key:item.liability_key,card_id:item.card_id }))],
+    cardBalances,
+  );
+  const financialReady = !!globalDebt.data && !!wallet.data && !!profiles.data && !!invoiceLinks.data &&
+    !wallet.data.error && !wallet.error && !profiles.error && !invoiceLinks.error;
+  const debtTotal = Math.max(0, (globalDebt.data?.expected ?? 0) + limits.used - overlap.overlap);
   const debtPaid = globalDebt.data?.paid ?? 0;
   const debtOpen = Math.max(0, debtTotal - debtPaid);
   const pct = debtTotal > 0 ? Math.min(100, Math.round(debtPaid / debtTotal * 100)) : 0;
@@ -152,6 +165,8 @@ function HomeBroker() {
     void client.invalidateQueries({ queryKey: ["revenue"] });
     void client.invalidateQueries({ queryKey: ["home-broker-contracts"] });
     void client.invalidateQueries({ queryKey: ["global-debt-totals"] });
+    void client.invalidateQueries({ queryKey: ["finance-profiles"] });
+    void client.invalidateQueries({ queryKey: ["confirmed-card-invoice-links"] });
   };
   return <AppShell active="home-broker" user={user}>
     <div className="mx-auto max-w-[1600px] space-y-6 p-4 sm:p-6 lg:p-8">
@@ -167,13 +182,13 @@ function HomeBroker() {
         </div>
       </div>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <Kpi label="Dívidas + cartões (sem abatimentos)" value={financialReady ? formatBRL(debtTotal) : "—"} emphasis />
+        <Kpi label="Dívidas + cartões conciliados" value={financialReady ? formatBRL(debtTotal) : "—"} emphasis />
         <Kpi label="Total já pago" value={financialReady ? formatBRL(debtPaid) : "—"} />
         <Kpi label="Saldo devedor estimado" value={financialReady ? formatBRL(debtOpen) : "—"} />
         <Kpi label="% quitado" value={financialReady ? `${pct}%` : "—"} />
       </div>
-      {(globalDebt.error || wallet.error || wallet.data?.error) && <p role="alert" className="rounded-lg border border-destructive/30 p-3 text-sm text-destructive">Consolidado indisponível: {globalDebt.error?.message || wallet.error?.message || wallet.data?.error}. Não foi exibido um total incompleto como se fosse zero.</p>}
-      {financialReady && <p className="text-xs text-muted-foreground">Dívidas e utilização dos cartões somadas sem conciliação; obrigações coincidentes podem aparecer nos dois grupos.</p>}
+      {(globalDebt.error || wallet.error || wallet.data?.error || profiles.error || invoiceLinks.error) && <p role="alert" className="rounded-lg border border-destructive/30 p-3 text-sm text-destructive">Consolidado indisponível: {globalDebt.error?.message || wallet.error?.message || wallet.data?.error || profiles.error?.message || invoiceLinks.error?.message}. Não foi exibido um total incompleto como se fosse zero.</p>}
+      {financialReady && <p className="text-xs text-muted-foreground">Conciliação por ID do cartão e obrigação confirmada. Abatimento de duplicidades: {formatBRL(overlap.overlap)}. Valores sem vínculo permanecem separados.</p>}
 
       <section className="rounded-2xl border bg-card p-4 shadow-soft">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -304,7 +319,7 @@ function HomeBroker() {
                 const percentage = value.limit > 0 ? Math.min(100, 100 * value.used / value.limit) : 0;
                 const draft = cardDrafts[card.id] ?? { limit: (value.limit / 100).toFixed(2), used: (value.used / 100).toFixed(2) };
                 return <tr key={card.id}>
-                  <td className="p-3 font-semibold">{card.name}{value.manual && <span className="ml-2 text-xs font-normal text-muted-foreground">Ajuste manual</span>}</td>
+                  <td className="p-3 font-semibold">{profiles.data?.find(p => p.account_id === card.id)?.display_name || card.name}{value.manual && <span className="ml-2 text-xs font-normal text-muted-foreground">Ajuste manual</span>}</td>
                   <td className="p-3">{cardsUnlocked ? <input aria-label={`Limite do cartão ${card.name}`} className="w-28 rounded-md border bg-background p-2" inputMode="decimal" value={draft.limit} onChange={e => setCardDrafts(prev => ({...prev, [card.id]: {...draft, limit: e.target.value}}))} /> : formatBRL(value.limit)}</td>
                   <td className="p-3">{cardsUnlocked ? <input aria-label={`Valor utilizado do cartão ${card.name}`} className="w-28 rounded-md border bg-background p-2" inputMode="decimal" value={draft.used} onChange={e => setCardDrafts(prev => ({...prev, [card.id]: {...draft, used: e.target.value}}))} /> : formatBRL(value.used)}</td>
                   <td className="p-3">{formatBRL(available)}</td>
