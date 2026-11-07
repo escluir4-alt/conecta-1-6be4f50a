@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import { assertUserCreditCard } from "@/lib/pluggy.functions";
+import { assertUserCreditCard, assertUserFinanceAccount } from "@/lib/pluggy.functions";
 
 const profileSchema = z.object({
   accountId: z.string().min(1).max(200),
@@ -25,7 +25,8 @@ export const saveFinanceAccountProfile = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => profileSchema.parse(input))
   .handler(async ({ data, context }) => {
     // Verificação de posse do cartão por meio da conexão bancária original.
-    await assertUserCreditCard(context.supabase, context.userId, data.accountId);
+    const accountType = await assertUserFinanceAccount(context.supabase, context.userId, data.accountId);
+    if (accountType === "BANK" && (data.cardBrand || data.annualExpenseId)) throw new Error("Conta bancária não pode ter bandeira ou vínculo de fatura.");
     if (data.annualExpenseId) {
       const { data: annual, error } = await context.supabase.from("annual_expenses")
         .select("id").eq("id", data.annualExpenseId).eq("user_id", context.userId).maybeSingle();
