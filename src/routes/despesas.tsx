@@ -13,16 +13,16 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { diffLabel, displayNote, formatBRL, formatDateBR, parseBRL } from "@/lib/finance/money";
 import {
-  addManualBill, deleteBillFn, exportBillsCsv, getMonthExpenses, importBillsCsv, importCasaClaraData,
+  addManualBill, deleteBillFn, exportBillsCsv, getMonthExpenses, importBillsCsv, importAxionData,
 } from "@/lib/finance/finance.functions";
 
 export const Route = createFileRoute("/despesas")({
   ssr: false,
   head: () => ({
     meta: [
-      { title: "Despesas do Mês — Casa Clara" },
+      { title: "Despesas do Mês — Axion" },
       { name: "description", content: "Registro de pagamento das despesas do mês." },
-      { property: "og:title", content: "Despesas do Mês — Casa Clara" },
+      { property: "og:title", content: "Despesas do Mês — Axion" },
       { property: "og:description", content: "Registro de pagamento das despesas do mês." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
@@ -48,12 +48,12 @@ function DespesasPage() {
   const [manualOpen, setManualOpen] = useState(false);
   const [csvOpen, setCsvOpen] = useState(false);
 
-  const seedFn = useServerFn(importCasaClaraData);
+  const seedFn = useServerFn(importAxionData);
   const monthFn = useServerFn(getMonthExpenses);
   const exportFn = useServerFn(exportBillsCsv);
   const delFn = useServerFn(deleteBillFn);
 
-  const seed = useQuery({ queryKey: ["seed-casa-clara"], queryFn: () => seedFn(), enabled: !!user, staleTime: Infinity });
+  const seed = useQuery({ queryKey: ["seed-axion"], queryFn: () => seedFn(), enabled: !!user, staleTime: Infinity });
   const q = useQuery({
     queryKey: ["month-expenses", period],
     queryFn: () => monthFn({ data: { period } }),

@@ -8,9 +8,9 @@ export const Route = createFileRoute("/auditoria")({
   ssr: false,
   head: () => ({
     meta: [
-      { title: "Logs de Auditoria — Casa Clara" },
+      { title: "Logs de Auditoria — Axion" },
       { name: "description", content: "Registro imutável de todas as ações financeiras." },
-      { property: "og:title", content: "Logs de Auditoria — Casa Clara" },
+      { property: "og:title", content: "Logs de Auditoria — Axion" },
       { property: "og:description", content: "Registro imutável de todas as ações financeiras." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },

@@ -47,9 +47,9 @@ export const Route = createFileRoute('/perfil')({
   ssr: false,
   head: () => ({
     meta: [
-      { title: 'Perfil — Casa Clara' },
+      { title: 'Perfil — Axion' },
       { name: 'description', content: 'Perfil, configuração e sistema da conta.' },
-      { property: 'og:title', content: 'Perfil — Casa Clara' },
+      { property: 'og:title', content: 'Perfil — Axion' },
       { property: 'og:description', content: 'Perfil, configuração e sistema da conta.' },
       { property: 'og:type', content: 'website' },
       { name: 'twitter:card', content: 'summary' },
@@ -79,7 +79,7 @@ function PerfilPage() {
 
   const [customFields, setCustomFields] = useState<CustomField[]>([
     { id: 1, label: 'Contato alternativo', value: '(11) 98888-1111' },
-    { id: 2, label: 'Empresa', value: 'Casa Clara' },
+    { id: 2, label: 'Empresa', value: 'Axion' },
   ]);
 
   const [sidebarLinks, setSidebarLinks] = useState<SidebarLink[]>([

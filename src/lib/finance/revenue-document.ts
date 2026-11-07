@@ -1,9 +1,9 @@
 export function printRevenueDocument(text: string, signature: string | null) {
   const page = window.open('', '_blank');
   if (!page) throw new Error('Permita abrir uma nova janela para imprimir.');
-  page.document.title = 'Documento de Receitas — Casa Clara';
+  page.document.title = 'Documento de Receitas — Axion';
   const heading = page.document.createElement('h1');
-  heading.textContent = 'Casa Clara — Receitas';
+  heading.textContent = 'Axion — Receitas';
   const content = page.document.createElement('pre');
   content.textContent = text;
   content.style.whiteSpace = 'pre-wrap';

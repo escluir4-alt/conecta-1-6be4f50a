@@ -44,9 +44,9 @@ import type { CloudFile, CloudFolder, CloudVaultConfig } from "@/lib/cloud/types
 export const Route = createFileRoute("/nuvem")({
   head: () => ({
     meta: [
-      { title: "Nuvem — Casa Clara" },
+      { title: "Nuvem — Axion" },
       { name: "description", content: "Documentos pessoais protegidos por criptografia obrigatória." },
-      { property: "og:title", content: "Nuvem — Casa Clara" },
+      { property: "og:title", content: "Nuvem — Axion" },
       { property: "og:description", content: "Documentos pessoais protegidos por criptografia obrigatória." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
@@ -380,7 +380,7 @@ function NuvemPage() {
                 )}
 
                 <div className="mt-5 text-xs text-muted-foreground">
-                  A senha da Nuvem é independente da senha do Casa Clara. Nenhum valor é gravado em logs.
+                  A senha da Nuvem é independente da senha do Axion. Nenhum valor é gravado em logs.
                 </div>
               </div>
             </div>

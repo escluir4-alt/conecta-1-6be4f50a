@@ -24,9 +24,9 @@ export const Route = createFileRoute("/painel")({
   ssr: false,
   head: () => ({
     meta: [
-      { title: "Contas e Cartões — Casa Clara" },
+      { title: "Contas e Cartões — Axion" },
       { name: "description", content: "Suas contas, cartões e movimentações financeiras em um só lugar." },
-      { property: "og:title", content: "Contas e Cartões — Casa Clara" },
+      { property: "og:title", content: "Contas e Cartões — Axion" },
       { property: "og:description", content: "Suas contas, cartões e movimentações em um só lugar." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },

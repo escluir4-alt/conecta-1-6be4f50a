@@ -36,7 +36,7 @@ async function audit(supabase: any, action: string, entityType: string, entityId
 
 // ================= IMPORTAÇÃO INICIAL (idempotente) =================
 
-export const importCasaClaraData = createServerFn({ method: "POST" })
+export const importAxionData = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     const { supabase, userId } = context as Ctx;

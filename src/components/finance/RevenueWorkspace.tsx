@@ -80,7 +80,7 @@ export function RevenueWorkspace({ mode = 'registration', detailContractId }: { 
   }
 
   async function copyReport() {
-    const lines = ['Histórico de Receitas — Casa Clara', ''];
+    const lines = ['Histórico de Receitas — Axion', ''];
     for (const g of groups) {
       lines.push(monthLabel(g), ['Fonte Pagadora', 'Valor previsto', 'Vencimento', 'Recebimento', 'Valor recebido', 'Diferença', 'Observação'].join('\t'));
       for (const e of history.filter(entry => entry.due_date.startsWith(g))) {

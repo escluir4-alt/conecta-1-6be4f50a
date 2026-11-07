@@ -20,9 +20,9 @@ export const Route = createFileRoute("/agenda")({
   ssr: false,
   head: () => ({
     meta: [
-      { title: "Agenda Financeira — Casa Clara" },
+      { title: "Agenda Financeira — Axion" },
       { name: "description", content: "Calendário de Brasília com feriados, vencimentos, pagamentos e recebimentos por dia." },
-      { property: "og:title", content: "Agenda Financeira — Casa Clara" },
+      { property: "og:title", content: "Agenda Financeira — Axion" },
       { property: "og:description", content: "Feriados de Brasília e atividades do mês, organizadas por dia." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },

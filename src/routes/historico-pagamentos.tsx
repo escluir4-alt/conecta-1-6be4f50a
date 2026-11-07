@@ -15,9 +15,9 @@ export const Route = createFileRoute("/historico-pagamentos")({
   ssr: false,
   head: () => ({
     meta: [
-      { title: "Histórico de Pagamentos — Casa Clara" },
+      { title: "Histórico de Pagamentos — Axion" },
       { name: "description", content: "Todos os pagamentos confirmados, agrupados pelo mês de vencimento." },
-      { property: "og:title", content: "Histórico de Pagamentos — Casa Clara" },
+      { property: "og:title", content: "Histórico de Pagamentos — Axion" },
       { property: "og:description", content: "Todos os pagamentos confirmados, agrupados pelo mês de vencimento." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
@@ -67,7 +67,7 @@ function HistoricoPage() {
   }
 
   async function copyReport() {
-    const lines: string[] = ["Histórico de Pagamentos — Casa Clara", ""];
+    const lines: string[] = ["Histórico de Pagamentos — Axion", ""];
     for (const [key, list] of groups) {
       lines.push(groupLabel(key));
       lines.push(["Credor", "Valor Previsto", "Vencimento", "Pagamento", "Valor Pago", "Diferença", "Observação"].join("\t"));

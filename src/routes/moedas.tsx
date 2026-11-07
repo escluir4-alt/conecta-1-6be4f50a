@@ -9,9 +9,9 @@ export const Route = createFileRoute("/moedas")({
   ssr: false,
   head: () => ({
     meta: [
-      { title: "Moedas — Casa Clara" },
+      { title: "Moedas — Axion" },
       { name: "description", content: "Cotação de dólar, euro, libra, iene, bitcoin e ethereum em reais." },
-      { property: "og:title", content: "Moedas — Casa Clara" },
+      { property: "og:title", content: "Moedas — Axion" },
       { property: "og:description", content: "Cotação de dólar, euro, libra, iene, bitcoin e ethereum em reais." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },

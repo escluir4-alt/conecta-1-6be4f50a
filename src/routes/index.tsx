@@ -12,9 +12,9 @@ import { Logo } from "@/components/Logo";
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Entrar — Casa Clara" },
-      { name: "description", content: "Entre ou crie sua conta Casa Clara e controle contas e cartões via Open Finance." },
-      { property: "og:title", content: "Entrar — Casa Clara" },
+      { title: "Entrar — Axion" },
+      { name: "description", content: "Entre ou crie sua conta Axion e controle contas e cartões via Open Finance." },
+      { property: "og:title", content: "Entrar — Axion" },
       { property: "og:description", content: "Controle de contas e cartões via Open Finance." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
