@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import {
@@ -19,7 +19,7 @@ import {
   createConnectToken, getCredentialStatus, getFinances, getStatement, removeItem, saveItem, updateCredentials,
   type FinanceAccount,
 } from "@/lib/pluggy.functions";
-import { getFinanceAccountProfiles, saveFinanceAccountProfile, recordClosedCardInvoice } from "@/lib/finance/card-profile.functions";
+import { getFinanceAccountProfiles, saveFinanceAccountProfile, recordClosedCardInvoice, syncProviderClosedCardInvoices } from "@/lib/finance/card-profile.functions";
 import { getAnnualYear } from "@/lib/finance/finance.functions";
 
 export const Route = createFileRoute("/painel")({
@@ -73,6 +73,9 @@ function Painel() {
   const [invoiceDue, setInvoiceDue] = useState("");
   const getAnnual = useServerFn(getAnnualYear);
   const recordInvoice = useServerFn(recordClosedCardInvoice);
+  const syncProvider = useServerFn(syncProviderClosedCardInvoices);
+  const [syncMessage, setSyncMessage] = useState("");
+  const lastSyncKey = useRef("");
   const annualQuery = useQuery({ queryKey: ["annual", Number(invoicePeriod.slice(0,4))], queryFn: () => getAnnual({ data: { year: Number(invoicePeriod.slice(0,4)) } }), enabled: !!user && !!editAcc && editAcc.type === "CREDIT" });
   const getProfiles = useServerFn(getFinanceAccountProfiles);
   const saveProfile = useServerFn(saveFinanceAccountProfile);
@@ -109,6 +112,23 @@ function Painel() {
   const removeFn = useServerFn(removeItem);
 
   const q = useQuery({ queryKey: ["finances"], queryFn: () => fetchFin(), enabled: !!user });
+  useEffect(() => {
+    if (!user || !q.data || !profilesQuery.data || q.data.error) return;
+    const key = `${q.dataUpdatedAt}-${profilesQuery.dataUpdatedAt}`;
+    if (lastSyncKey.current === key) return;
+    lastSyncKey.current = key;
+    if (!profilesQuery.data.some(p => p.annual_expense_id)) return;
+    void syncProvider().then(result => {
+      if (result.updated) {
+        setSyncMessage(`${result.updated} fatura(s) fechada(s) atualizada(s) nas Despesas Anuais.`);
+        void qc.invalidateQueries({ queryKey: ["annual"] });
+      } else if (result.errors.length) {
+        setSyncMessage("Não foi possível sincronizar todas as faturas. Confira as conexões.");
+      } else {
+        setSyncMessage("Faturas conciliadas: nenhuma atualização necessária.");
+      }
+    }).catch(() => setSyncMessage("Sincronização de faturas indisponível; dados anteriores preservados."));
+  }, [user, q.data, q.dataUpdatedAt, profilesQuery.data, profilesQuery.dataUpdatedAt, syncProvider, qc]);
   const accounts = q.data?.accounts ?? [];
   const txs = q.data?.transactions ?? [];
   const banks = accounts.filter((a) => a.type === "BANK");
@@ -202,6 +222,7 @@ function Painel() {
             <Button variant="brand" className="h-11" onClick={connect}><Plus />Adicionar conta ou cartão</Button>
           </div>
 
+          {syncMessage && <p role="status" className="mt-3 text-xs text-muted-foreground">{syncMessage}</p>}
           {q.data?.error && (
             <div className="mt-6 rounded-xl border border-destructive/30 bg-danger-soft p-4 text-sm">
               {q.data.error}{" "}
