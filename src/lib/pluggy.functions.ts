@@ -82,7 +82,7 @@ type PAccount = {
   number?: string;
   balance: number;
   currencyCode: string;
-  creditData?: { creditLimit?: number; availableCreditLimit?: number; brand?: string; balanceDueDate?: string } | null;
+  creditData?: { creditLimit?: number; availableCreditLimit?: number; brand?: string; balanceDueDate?: string; balanceCloseDate?: string } | null;
 };
 type PTx = { id: string; description: string; amount: number; date: string; type: "DEBIT" | "CREDIT"; category?: string | null };
 
@@ -100,6 +100,7 @@ export type FinanceAccount = {
   available: number;
   brand: string;
   dueDate: string | null;
+  closingDate: string | null;
 };
 export type FinanceTx = { id: string; description: string; amount: number; date: string; category: string; account: string; accountType: "BANK" | "CREDIT"; institution: string; logo: string | null; color: string | null };
 
@@ -149,6 +150,7 @@ export const getFinances = createServerFn({ method: "GET" })
             available: a.creditData?.availableCreditLimit ?? 0,
             brand: a.creditData?.brand ?? "",
             dueDate: a.creditData?.balanceDueDate ?? null,
+            closingDate: a.creditData?.balanceCloseDate ?? null,
           });
           const tx = await pluggyGet<{ results: PTx[] }>(apiKey, `/transactions?accountId=${a.id}&from=${from}&pageSize=50`).catch(() => ({ results: [] as PTx[] }));
           for (const t of tx.results) {
@@ -208,36 +210,102 @@ export const updateCredentials = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+export type CardStatementTransaction = { id: string; description: string; amount: number; date: string; category: string };
+export type CardStatementResult = {
+  transactions: CardStatementTransaction[];
+  balance: number;
+  source: "open-finance" | "saved";
+  capturedAt: string | null;
+  historyAvailable: boolean;
+  invoice: { amount: number; closingDate: string | null; dueDate: string | null; id: string | null } | null;
+  limits: { total: number | null; available: number | null; used: number | null } | null;
+};
 export const getStatement = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: { accountId: string; month: string }) => {
     const accountId = String(d.accountId ?? "");
     const month = String(d.month ?? "");
-    if (!/^[\w-]{1,80}$/.test(accountId)) throw new Error("Conta inválida");
-    if (!/^\d{4}-\d{2}$/.test(month)) throw new Error("Mês inválido");
+    if (!/^[\\w-]{1,80}$/.test(accountId)) throw new Error("Conta inválida");
+    if (!/^[0-9]{4}-(0[1-9]|1[0-2])$/.test(month)) throw new Error("Competência inválida");
     return { accountId, month };
   })
-  .handler(async ({ data, context }) => {
-    const { data: items } = await context.supabase.from("pluggy_items").select("item_id");
-    const apiKey = await apiKeyFor(context.userId);
-    const acc = await pluggyGet<PAccount & { itemId: string }>(apiKey, `/accounts/${data.accountId}`);
-    if (!items?.some((i) => i.item_id === acc.itemId)) throw new Error("Conta não encontrada");
-    const [y, m] = data.month.split("-").map(Number);
+  .handler(async ({ data, context }): Promise<CardStatementResult> => {
+    // Verificar titularidade antes de ler o cache persistente.
+    const { data: items, error: itemsError } = await context.supabase.from("pluggy_items")
+      .select("item_id").eq("user_id", context.userId);
+    if (itemsError || !items?.length) throw new Error("Nenhuma conta autorizada.");
+    const key = await apiKeyFor(context.userId);
+    const acc = await pluggyGet<PAccount & { itemId: string }>(key, `/accounts/${encodeURIComponent(data.accountId)}`);
+    if (!items.some(i => i.item_id === acc.itemId)) throw new Error("Conta não autorizada.");
+    const [year, month] = data.month.split("-").map(Number);
     const from = `${data.month}-01`;
-    const to = new Date(Date.UTC(y!, m!, 0)).toISOString().slice(0, 10);
-    const all: PTx[] = [];
-    for (let page = 1; page <= 10; page++) {
-      const r = await pluggyGet<{ results: PTx[]; totalPages: number }>(apiKey, `/transactions?accountId=${data.accountId}&from=${from}&to=${to}&pageSize=500&page=${page}`);
-      all.push(...r.results);
-      if (page >= (r.totalPages ?? 1)) break;
+    const to = new Date(Date.UTC(year!, month!, 0)).toISOString().slice(0, 10);
+    const saved = await (context.supabase as any).from("finance_card_month_snapshots")
+      .select("*").eq("user_id", context.userId).eq("account_id", data.accountId)
+      .eq("period", data.month).maybeSingle();
+    // Compatibilidade durante implantação: a falta da migration não bloqueia consulta ao banco.
+    const historyAvailable = !saved.error;
+    try {
+      const all: PTx[] = [];
+      for (let page = 1; page <= 10; page++) {
+        const response = await pluggyGet<{ results: PTx[]; totalPages: number }>(key,
+          `/transactions?accountId=${encodeURIComponent(data.accountId)}&from=${from}&to=${to}&pageSize=500&page=${page}`);
+        all.push(...response.results);
+        if (page >= (response.totalPages ?? 1)) break;
+      }
+      const credit = acc.type === "CREDIT";
+      const transactions = all.map(t => ({ id: t.id, description: t.description,
+        amount: credit ? -t.amount : t.amount, date: t.date, category: t.category ?? "Outros" }))
+        .sort((a,b) => b.date.localeCompare(a.date));
+      let invoice: CardStatementResult["invoice"] = null;
+      if (credit) {
+        const bills = await pluggyGet<{ results: PluggyCardBill[]; totalPages?: number }>(
+          key, `/bills?accountId=${encodeURIComponent(data.accountId)}&pageSize=100`
+        ).catch(() => ({ results: [] as PluggyCardBill[] }));
+        const bill = bills.results.find(b => b.dueDate?.startsWith(data.month) && b.totalAmountCurrencyCode === "BRL");
+        if (bill) invoice = { amount: bill.totalAmount, closingDate: bill.billClosingDate?.slice(0,10) ?? null,
+          dueDate: bill.dueDate.slice(0,10), id: bill.id };
+      }
+      const total = credit ? acc.creditData?.creditLimit ?? null : null;
+      const available = credit ? acc.creditData?.availableCreditLimit ?? null : null;
+      const isCurrent = data.month === new Date().toISOString().slice(0,7);
+      const limits = credit && isCurrent ? { total, available,
+        used: total !== null && available !== null ? Math.max(0,total-available) : null } : null;
+      if (credit && historyAvailable && (transactions.length > 0 || invoice)) {
+        const { error } = await (context.supabase as any).from("finance_card_month_snapshots").upsert({
+          user_id: context.userId, account_id: data.accountId, period: data.month,
+          transactions, total_limit_cents: limits?.total == null ? saved.data?.total_limit_cents ?? null : Math.round(limits.total*100),
+          available_limit_cents: limits?.available == null ? saved.data?.available_limit_cents ?? null : Math.round(limits.available*100),
+          used_limit_cents: limits?.used == null ? saved.data?.used_limit_cents ?? null : Math.round(limits.used*100),
+          closing_date: invoice?.closingDate ?? saved.data?.closing_date ?? null,
+          due_date: invoice?.dueDate ?? saved.data?.due_date ?? null,
+          invoice_cents: invoice ? Math.round(invoice.amount*100) : saved.data?.invoice_cents ?? null,
+          provider_invoice_id: invoice?.id ?? saved.data?.provider_invoice_id ?? null,
+          captured_at: new Date().toISOString(),
+        }, { onConflict: "user_id,account_id,period" });
+        if (error) throw new Error("Falha ao preservar o histórico: "+error.message);
+      }
+      if (!transactions.length && !invoice && saved.data) throw new Error("Dados indisponíveis no provedor.");
+      return { transactions, balance: acc.balance, source:"open-finance", capturedAt: new Date().toISOString(), historyAvailable,
+        invoice: invoice ?? (saved.data?.invoice_cents != null ? {
+          amount: saved.data.invoice_cents/100, closingDate: saved.data.closing_date,
+          dueDate: saved.data.due_date, id: saved.data.provider_invoice_id } : null),
+        limits: limits ?? (saved.data?.total_limit_cents != null ? {
+          total:saved.data.total_limit_cents/100, available:saved.data.available_limit_cents/100,
+          used:saved.data.used_limit_cents/100 } : null) };
+    } catch (e) {
+      if (!saved.data) throw e;
+      return { transactions: saved.data.transactions as CardStatementTransaction[],
+        balance: acc.balance, source:"saved", capturedAt:saved.data.captured_at, historyAvailable,
+        invoice: saved.data.invoice_cents == null ? null : {
+          amount: saved.data.invoice_cents/100, closingDate: saved.data.closing_date,
+          dueDate: saved.data.due_date, id: saved.data.provider_invoice_id },
+        limits: saved.data.total_limit_cents == null ? null : {
+          total:saved.data.total_limit_cents/100, available:saved.data.available_limit_cents/100,
+          used:saved.data.used_limit_cents/100 },
+      };
     }
-    const isCredit = acc.type === "CREDIT";
-    const transactions = all
-      .map((t) => ({ id: t.id, description: t.description, amount: isCredit ? -t.amount : t.amount, date: t.date, category: t.category ?? "Outros" }))
-      .sort((a, b) => b.date.localeCompare(a.date));
-    return { transactions, balance: acc.balance };
   });
-
 
 /**
  * Valida propriedade do cartão usando o inventário de conexões do usuário.

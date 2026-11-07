@@ -106,7 +106,7 @@ export const openRevenueFile = createServerFn({ method:'POST' }).middleware([req
 
 type SourceAdjustmentRule = { start: string; cents: number; baseCents: number; mode: 'percentage' | 'amount'; value: number; reason: string };
 function adjustmentRules(details: unknown): SourceAdjustmentRule[] {
-  const value = details && typeof details === 'object' && !Array.isArray(details) ? (details as Record<string, unknown>).axion_reajustes : null;
+  const value = details && typeof details === 'object' && !Array.isArray(details) ? (details as Record<string, unknown>)["axion_reajustes"] : null;
   if (!Array.isArray(value)) return [];
   return value.filter((x): x is SourceAdjustmentRule => x !== null && typeof x === 'object' &&
     typeof x.start === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(x.start) &&

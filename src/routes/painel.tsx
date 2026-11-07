@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import {
-  CreditCard, Wallet, Gauge, Receipt, Plus, LayoutGrid, LogOut, KeyRound, MoreVertical, RefreshCw, Landmark, ChevronLeft, ChevronRight, Trash2, Pencil,
+  CreditCard, Wallet, Gauge, Receipt, Plus, LayoutGrid, LogOut, KeyRound, MoreVertical, RefreshCw, Landmark, Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -21,6 +21,8 @@ import {
 } from "@/lib/pluggy.functions";
 import { getFinanceAccountProfiles, saveFinanceAccountProfile, recordClosedCardInvoice, syncProviderClosedCardInvoices } from "@/lib/finance/card-profile.functions";
 import { getAnnualYear } from "@/lib/finance/finance.functions";
+import { CardWallet } from "@/components/finance/CardWallet";
+import { CardStatementDialog } from "@/components/finance/CardStatementDialog";
 
 export const Route = createFileRoute("/painel")({
   ssr: false,
@@ -61,7 +63,6 @@ function Painel() {
   const qc = useQueryClient();
   const [user, setUser] = useState<{ email: string; name: string } | null>(null);
   const [secretOpen, setSecretOpen] = useState(false);
-  const [selectedCard, setSelectedCard] = useState<string | null>(null);
   const [statementAcc, setStatementAcc] = useState<FinanceAccount | null>(null);
   const [editAcc, setEditAcc] = useState<FinanceAccount | null>(null);
   const [alias, setAlias] = useState("");
@@ -134,7 +135,6 @@ function Painel() {
   const txs = q.data?.transactions ?? [];
   const banks = accounts.filter((a) => a.type === "BANK");
   const cards = accounts.filter((a) => a.type === "CREDIT");
-  const selCard = cards.find((c) => c.id === selectedCard) ?? cards[0];
 
   const stats = useMemo(() => {
     const saldo = banks.reduce((s, a) => s + a.balance, 0);
@@ -269,32 +269,7 @@ function Painel() {
               </Panel>
 
               <Panel title="Cartões cadastrados">
-                {cards.length === 0 && <Empty text="Nenhum cartão." />}
-                {cards.map((c) => (
-                  <div key={c.id} className="mb-2">
-                    {c.id === selCard?.id ? (
-                      <div className="relative overflow-hidden rounded-[26px] shadow-soft" style={{ background: "linear-gradient(135deg,#2e7887,#205667)" }}>
-                        <button className="block w-full p-5 text-left text-white transition hover:brightness-110" onClick={() => setStatementAcc(c)}>
-                          <div className="flex items-center justify-between gap-3">
-                            <div className="flex min-w-0 items-center gap-3"><BankLogo acc={c} size="size-9" /><span className="truncate font-semibold">{titleFor(c)}</span></div>
-                            <BrandMark brand={brandFor(c)} />
-                          </div>
-                          <div className="mt-7 flex items-end justify-between text-sm">
-                            <div><div className="h-6 w-8 rounded-lg bg-white/30" /><div className="mt-2">Fatura {brl(c.balance)}</div></div>
-                            <div className="text-right">•••• {c.number}{c.dueDate && <div className="text-xs">Vence {c.dueDate.slice(8,10)}/{c.dueDate.slice(5,7)}</div>}</div>
-                          </div>
-                        </button>
-                        <button aria-label="Editar cartão" className="absolute right-3 top-12 rounded-lg bg-white/20 p-2 text-white hover:bg-white/30" onClick={() => edit(c)}><Pencil className="size-4" /></button>
-                      </div>
-                    ) : (
-                      <button className="flex w-full items-center gap-3 rounded-xl px-1 py-3 text-left hover:bg-muted/50" onClick={() => setSelectedCard(c.id)}>
-                        <BankLogo acc={c} size="size-10" />
-                        <div className="min-w-0 flex-1"><div className="truncate text-sm font-semibold">{titleFor(c)}</div><div className="text-xs text-muted-foreground">•••• {c.number}</div></div>
-                        <span className="grid h-9 w-14 place-items-center rounded-lg bg-muted"><BrandMark brand={brandFor(c)} /></span>
-                      </button>
-                    )}
-                  </div>
-                ))}
+                <CardWallet cards={cards} displayName={titleFor} displayBrand={brandFor} onEdit={edit} onOpen={setStatementAcc} />
               </Panel>
 
               <Panel title="Últimas movimentações de contas">
@@ -349,7 +324,7 @@ function Painel() {
           </div>
         </DialogContent>
       </Dialog>
-      <StatementDialog acc={statementAcc} onClose={() => setStatementAcc(null)} />
+      <CardStatementDialog acc={statementAcc} name={statementAcc ? titleFor(statementAcc) : ""} brand={statementAcc ? brandFor(statementAcc) : ""} onClose={() => setStatementAcc(null)} />
       <SecretDialog open={secretOpen} onOpenChange={setSecretOpen} onSaved={() => qc.invalidateQueries({ queryKey: ["finances"] })} />
     </AppShell>
   );
@@ -407,18 +382,6 @@ function BankLogo({ acc, size = "size-10" }: { acc: { institution: string; logo:
   );
 }
 
-function BrandMark({ brand, dark }: { brand: string; dark?: boolean }) {
-  if (/master/i.test(brand)) {
-    return (
-      <span className="relative inline-flex h-6 w-10">
-        <span className="absolute left-0 size-6 rounded-full" style={{ background: "#EB001B" }} />
-        <span className="absolute right-0 size-6 rounded-full opacity-90" style={{ background: "#F79E1B" }} />
-      </span>
-    );
-  }
-  return <span className={`text-sm font-extrabold italic ${dark ? "text-chart-1" : ""}`}>{(brand || "BANDEIRA?").toUpperCase()}</span>;
-}
-
 function relDate(iso: string) {
   const d = new Date(iso);
   const today = new Date();
@@ -443,60 +406,6 @@ function Row({ acc, title, sub, right, onClick, onRemove }: { acc: FinanceAccoun
         <Trash2 className="size-4" />
       </button>
     </div>
-  );
-}
-
-function StatementDialog({ acc, onClose }: { acc: FinanceAccount | null; onClose: () => void }) {
-  const fn = useServerFn(getStatement);
-  const [offset, setOffset] = useState(0);
-  useEffect(() => setOffset(0), [acc?.id]);
-  const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() + offset);
-  const month = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-  const q = useQuery({ queryKey: ["statement", acc?.id, month], queryFn: () => fn({ data: { accountId: acc!.id, month } }), enabled: !!acc });
-  const txs = q.data?.transactions ?? [];
-  const entradas = txs.filter((t) => t.amount > 0).reduce((s, t) => s + t.amount, 0);
-  const saidas = txs.filter((t) => t.amount < 0).reduce((s, t) => s + t.amount, 0);
-  return (
-    <Dialog open={!!acc} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-lg">
-        {acc && (
-          <>
-            <DialogHeader>
-              <div className="flex items-center gap-3">
-                <BankLogo acc={acc} />
-                <div>
-                  <DialogTitle>{acc.type === "CREDIT" ? acc.name : acc.institution}</DialogTitle>
-                  <DialogDescription>Extrato mensal{acc.number ? ` • •••• ${acc.number}` : ""}</DialogDescription>
-                </div>
-              </div>
-            </DialogHeader>
-            <div className="flex items-center justify-between rounded-xl bg-muted px-3 py-2">
-              <Button variant="ghost" size="icon" onClick={() => setOffset(offset - 1)} aria-label="Mês anterior"><ChevronLeft /></Button>
-              <span className="font-semibold capitalize">{d.toLocaleDateString("pt-BR", { month: "long", year: "numeric" })}</span>
-              <Button variant="ghost" size="icon" disabled={offset >= 0} onClick={() => setOffset(offset + 1)} aria-label="Próximo mês"><ChevronRight /></Button>
-            </div>
-            <div className="grid grid-cols-2 gap-3 text-sm">
-              <div className="rounded-xl bg-success-soft p-3"><div className="text-xs text-muted-foreground">Entradas</div><div className="font-bold text-success">{brl(entradas)}</div></div>
-              <div className="rounded-xl bg-danger-soft p-3"><div className="text-xs text-muted-foreground">Saídas</div><div className="font-bold text-destructive">{brl(Math.abs(saidas))}</div></div>
-            </div>
-            <div className="max-h-80 divide-y overflow-y-auto">
-              {q.isLoading && <Empty text="Carregando extrato…" />}
-              {q.error && <Empty text={(q.error as Error).message} />}
-              {!q.isLoading && !q.error && txs.length === 0 && <Empty text="Nenhuma movimentação neste mês." />}
-              {txs.map((t) => (
-                <div key={t.id} className="flex items-center justify-between gap-3 py-2.5">
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-semibold">{t.description}</div>
-                    <div className="text-xs text-muted-foreground">{new Date(t.date).toLocaleDateString("pt-BR")} • {t.category}</div>
-                  </div>
-                  <div className={`shrink-0 text-sm font-bold ${t.amount >= 0 ? "text-success" : "text-destructive"}`}>{t.amount >= 0 ? "+ " : "- "}{brl(Math.abs(t.amount))}</div>
-                </div>
-              ))}
-            </div>
-          </>
-        )}
-      </DialogContent>
-    </Dialog>
   );
 }
 

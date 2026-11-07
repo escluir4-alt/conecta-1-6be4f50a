@@ -76,7 +76,7 @@ export function RevenueWorkspace({ mode = 'registration', detailContractId, asRe
   }
   const reajusteBase = reajusteSource ? (() => {
     const schedule = reajusteSource.details && typeof reajusteSource.details === 'object' && !Array.isArray(reajusteSource.details)
-      ? (reajusteSource.details as Record<string, unknown>).axion_reajustes : null;
+      ? (reajusteSource.details as Record<string, unknown>)["axion_reajustes"] : null;
     const rules = Array.isArray(schedule) ? schedule.filter((v): v is { start: string; cents: number } =>
       !!v && typeof v === 'object' && typeof v.start === 'string' && typeof v.cents === 'number' && v.start < reajusteStart.slice(0, 7)) : [];
     rules.sort((a,b) => b.start.localeCompare(a.start));
