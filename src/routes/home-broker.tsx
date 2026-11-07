@@ -10,6 +10,9 @@ import { Button } from "@/components/ui/button";
 import { formatBRL, formatDateBR } from "@/lib/finance/money";
 import { getMonthExpenses } from "@/lib/finance/finance.functions";
 import { getFinances } from "@/lib/pluggy.functions";
+import { getRevenue } from "@/lib/finance/revenue.functions";
+import { ReceiveDialog } from "@/components/finance/RevenueForms";
+import type { RevenueEntry } from "@/lib/finance/revenue";
 
 export const Route = createFileRoute("/home-broker")({
   ssr: false,
@@ -33,10 +36,16 @@ function HomeBroker() {
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [target, setTarget] = useState<PayTarget | null>(null);
+  const [receiving, setReceiving] = useState<RevenueEntry | null>(null);
   const period = `${year}-${String(month).padStart(2, "0")}`;
   const monthFn = useServerFn(getMonthExpenses);
   const walletFn = useServerFn(getFinances);
+  const revenueFn = useServerFn(getRevenue);
   const expenses = useQuery({ queryKey: ["month-expenses", period], queryFn: () => monthFn({ data: { period } }), enabled: !!user });
+  const revenue = useQuery({ queryKey: ["revenue", user?.email, period], queryFn: () => revenueFn({ data: { month: period } }), enabled: !!user });
+  const incomes = (revenue.data?.entries ?? []).filter(entry => entry.due_date.startsWith(period));
+  const incomeExpected = incomes.reduce((sum, item) => sum + item.expected_cents, 0);
+  const incomeReceived = incomes.reduce((sum, item) => sum + (item.received_cents ?? 0), 0);
   const wallet = useQuery({ queryKey: ["finances"], queryFn: () => walletFn(), enabled: !!user });
   const bills = expenses.data?.bills ?? [];
   const cards = wallet.data?.accounts?.filter(a => a.type === "CREDIT") ?? [];
@@ -50,6 +59,7 @@ function HomeBroker() {
     void client.invalidateQueries({ queryKey: ["month-expenses", period] });
     void client.invalidateQueries({ queryKey: ["history"] });
     void client.invalidateQueries({ queryKey: ["annual-year"] });
+    void client.invalidateQueries({ queryKey: ["revenue"] });
   };
   return <AppShell active="home-broker" user={user}>
     <div className="space-y-6 p-5 lg:p-8">
@@ -117,6 +127,30 @@ function HomeBroker() {
         </div>
       </section>
       <section className="rounded-2xl border bg-card p-4 shadow-soft">
+        <div className="flex flex-wrap justify-between gap-3"><div><h2 className="text-lg font-bold">Receitas — confirmar recebimento</h2>
+          <p className="text-xs text-muted-foreground">Integração com o cadastro e o histórico de receitas do Conecta.</p></div>
+          <Link to="/historico-receitas" className="text-sm font-semibold text-primary underline">Histórico de receitas</Link>
+        </div>
+        <div className="mt-3 grid gap-3 sm:grid-cols-3">
+          <Kpi label="Previsto a receber" value={formatBRL(incomeExpected)} />
+          <Kpi label="Total recebido" value={formatBRL(incomeReceived)} />
+          <Kpi label="A receber" value={formatBRL(Math.max(0, incomeExpected - incomeReceived))} />
+        </div>
+        {revenue.error && <p role="alert" className="mt-3 text-sm text-destructive">Não foi possível consultar as receitas: {revenue.error.message}</p>}
+        <div className="mt-4 overflow-x-auto"><table className="w-full min-w-[600px] text-sm">
+          <thead className="bg-muted text-left text-xs uppercase text-muted-foreground"><tr><th className="p-3">Fonte pagadora</th><th className="p-3">Previsão</th><th className="p-3">Vencimento</th><th className="p-3">Recebido</th><th className="p-3">Ação</th></tr></thead>
+          <tbody className="divide-y">
+            {revenue.isLoading && <tr><td colSpan={5} className="p-5 text-center">Carregando receitas…</td></tr>}
+            {!revenue.isLoading && incomes.length === 0 && <tr><td colSpan={5} className="p-5 text-center text-muted-foreground">Nenhuma receita prevista para esta competência.</td></tr>}
+            {incomes.map(entry => <tr key={entry.id}>
+              <td className="p-3 font-semibold">{entry.title}</td><td className="p-3">{formatBRL(entry.expected_cents)}</td>
+              <td className="p-3">{formatDateBR(entry.due_date)}</td><td className="p-3">{entry.received_date ? formatBRL(entry.received_cents) : "—"}</td>
+              <td className="p-3"><Button size="sm" variant={entry.received_date ? "outline" : "brand"} onClick={() => setReceiving(entry)}>
+                {entry.received_date ? "Corrigir" : "Confirmar recebimento"}</Button></td>
+            </tr>)}
+          </tbody></table></div>
+      </section>
+      <section className="rounded-2xl border bg-card p-4 shadow-soft">
         <div className="mb-3 flex items-center justify-between"><h2 className="font-bold">Cartões — limite utilizado</h2>
           <Link to="/painel" className="text-sm font-semibold text-primary underline">Abrir Carteira</Link></div>
         {wallet.error && <p className="text-sm text-destructive">Dados dos cartões indisponíveis.</p>}
@@ -136,5 +170,6 @@ function HomeBroker() {
       </div>
     </div>
     <PayDialog target={target} onClose={() => setTarget(null)} onSaved={refresh} />
+    {receiving && <ReceiveDialog entry={receiving} onClose={() => setReceiving(null)} onSaved={refresh} />}
   </AppShell>;
 }
