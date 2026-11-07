@@ -301,6 +301,24 @@ export type CardStatementResult = {
   invoice: { amount: number; closingDate: string | null; dueDate: string | null; id: string | null } | null;
   limits: { total: number | null; available: number | null; used: number | null } | null;
 };
+async function resolveUserAccount(userId:string,accountId:string):Promise<{account:PAccount & {itemId:string};apiKey:string;slot:PluggySlot}> {
+  const items=await getItemsForUser(userId);
+  const keys=new Map<PluggySlot,string>();
+  for(const slot of ["primary","secondary"] as const) {
+    if(!items.some(i=>i.connection_slot===slot)) continue;
+    try {keys.set(slot,await apiKeyFor(userId,slot));}catch {continue;}
+  }
+  for(const item of items) {
+    const key=keys.get(item.connection_slot);
+    if(!key) continue;
+    try {
+      const account=await pluggyGet<PAccount & {itemId:string}>(key,`/accounts/${encodeURIComponent(accountId)}`);
+      if(account.itemId===item.item_id) return {account,apiKey:key,slot:item.connection_slot};
+    } catch { /* another Pluggy application may not know this ID */ }
+  }
+  throw new Error("Conta não encontrada nas conexões Pluggy autorizadas.");
+}
+
 export const getStatement = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: { accountId: string; month: string }) => {
@@ -312,12 +330,9 @@ export const getStatement = createServerFn({ method: "GET" })
   })
   .handler(async ({ data, context }): Promise<CardStatementResult> => {
     // Verificar titularidade antes de ler o cache persistente.
-    const { data: items, error: itemsError } = await context.supabase.from("pluggy_items")
-      .select("item_id").eq("user_id", context.userId);
-    if (itemsError || !items?.length) throw new Error("Nenhuma conta autorizada.");
-    const key = await apiKeyFor(context.userId);
-    const acc = await pluggyGet<PAccount & { itemId: string }>(key, `/accounts/${encodeURIComponent(data.accountId)}`);
-    if (!items.some(i => i.item_id === acc.itemId)) throw new Error("Conta não autorizada.");
+    const resolved=await resolveUserAccount(context.userId,data.accountId);
+    const key=resolved.apiKey;
+    const acc=resolved.account;
     const [year, month] = data.month.split("-").map(Number);
     const from = `${data.month}-01`;
     const to = new Date(Date.UTC(year!, month!, 0)).toISOString().slice(0, 10);
@@ -386,39 +401,13 @@ export const getStatement = createServerFn({ method: "GET" })
  * Valida propriedade do cartão usando o inventário de conexões do usuário.
  * Nunca confiar apenas no accountId enviado pelo navegador.
  */
-export async function assertUserCreditCard(
-  supabase: any,
-  userId: string,
-  accountId: string,
-): Promise<void> {
-  const { data: items, error } = await supabase.from("pluggy_items")
-    .select("item_id").eq("user_id", userId);
-  if (error) throw new Error("Não foi possível conferir a propriedade do cartão.");
-  if (!items?.length) throw new Error("Nenhum cartão conectado foi encontrado.");
-  const apiKey = await apiKeyFor(userId);
-  for (const item of items) {
-    const response = await pluggyGet<{ results: Array<{ id: string; type: string }> }>(
-      apiKey, `/accounts?itemId=${encodeURIComponent(item.item_id)}`
-    );
-    if (response.results.some(a => a.id === accountId && a.type === "CREDIT")) return;
-  }
-  throw new Error("Cartão não pertence às conexões de crédito autorizadas.");
+export async function assertUserCreditCard(supabase:any,userId:string,accountId:string):Promise<void> {
+  const result=await resolveUserAccount(userId,accountId);
+  if(result.account.type!=="CREDIT") throw new Error("Conta não é cartão de crédito autorizado.");
 }
-
-/** Valida qualquer conta ou cartão vinculado a uma conexão do titular. */
-export async function assertUserFinanceAccount(supabase: any, userId: string, accountId: string): Promise<"BANK" | "CREDIT"> {
-  const { data: items, error } = await supabase.from("pluggy_items").select("item_id").eq("user_id", userId);
-  if (error) throw new Error("Falha ao verificar contas autorizadas.");
-  if (!items?.length) throw new Error("Nenhuma conexão autorizada.");
-  const apiKey = await apiKeyFor(userId);
-  for (const item of items) {
-    const response = await pluggyGet<{ results: Array<{ id: string; type: string }> }>(
-      apiKey, `/accounts?itemId=${encodeURIComponent(item.item_id)}`
-    );
-    const account = response.results.find(a => a.id === accountId);
-    if (account?.type === "BANK" || account?.type === "CREDIT") return account.type;
-  }
-  throw new Error("Conta não pertence às conexões autorizadas.");
+export async function assertUserFinanceAccount(supabase:any,userId:string,accountId:string):Promise<"BANK"|"CREDIT"> {
+  const result=await resolveUserAccount(userId,accountId);
+  return result.account.type;
 }
 
 /** Faturas oficiais; nunca inferir fechamento a partir do limite disponível. */
@@ -431,7 +420,7 @@ export type PluggyCardBill = {
 };
 export async function fetchAuthorizedCardBills(supabase: any, userId: string, accountId: string): Promise<PluggyCardBill[]> {
   await assertUserCreditCard(supabase, userId, accountId);
-  const apiKey = await apiKeyFor(userId);
+  const {apiKey}=await resolveUserAccount(userId,accountId);
   const results: PluggyCardBill[] = [];
   for (let page = 1; page <= 3; page++) {
     const response = await pluggyGet<{ results: PluggyCardBill[]; totalPages?: number }>(
