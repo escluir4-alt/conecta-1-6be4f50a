@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import {
-  CreditCard, Wallet, Gauge, Receipt, Plus, LayoutGrid, LogOut, KeyRound, MoreVertical, RefreshCw, Landmark, Trash2,
+  CreditCard, Wallet, Gauge, Receipt, Plus, LayoutGrid, LogOut, KeyRound, MoreVertical, RefreshCw, Landmark, Pencil, Save,
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -23,6 +23,7 @@ import { getFinanceAccountProfiles, saveFinanceAccountProfile, recordClosedCardI
 import { getAnnualYear } from "@/lib/finance/finance.functions";
 import { CardWallet } from "@/components/finance/CardWallet";
 import { CardStatementDialog } from "@/components/finance/CardStatementDialog";
+import { MovementHistoryDialog } from "@/components/finance/MovementHistoryDialog";
 
 export const Route = createFileRoute("/painel")({
   ssr: false,
@@ -64,6 +65,9 @@ function Painel() {
   const [user, setUser] = useState<{ email: string; name: string } | null>(null);
   const [secretOpen, setSecretOpen] = useState(false);
   const [statementAcc, setStatementAcc] = useState<FinanceAccount | null>(null);
+  const [historyAccountId, setHistoryAccountId] = useState<string | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const openHistory = (id: string) => { setHistoryAccountId(id); setHistoryOpen(true); };
   const [editAcc, setEditAcc] = useState<FinanceAccount | null>(null);
   const [alias, setAlias] = useState("");
   const [brand, setBrand] = useState("");
@@ -264,36 +268,43 @@ function Painel() {
               <Panel title="Contas cadastradas">
                 {banks.length === 0 && <Empty text="Nenhuma conta corrente." />}
                 {banks.map((a) => (
-                  <Row key={a.id} acc={a} title={titleFor(a)} sub={`Open Finance • ${/poupan/i.test(a.name) ? "Poupança" : "Conta corrente"}`} right={<span className={`font-bold ${a.balance >= 0 ? "text-success" : "text-destructive"}`}>{brl(a.balance)}</span>} onClick={() => setStatementAcc(a)} onRemove={() => edit(a)} />
+                  <Row key={a.id} acc={a} title={titleFor(a)} sub={`Open Finance • ${/poupan/i.test(a.name) ? "Poupança" : "Conta corrente"}`} right={<span className={`font-bold ${a.balance >= 0 ? "text-success" : "text-destructive"}`}>{brl(a.balance)}</span>} onClick={() => setStatementAcc(a)} onRemove={() => edit(a)} onHistory={() => openHistory(a.id)} />
                 ))}
               </Panel>
 
               <Panel title="Cartões cadastrados">
-                <CardWallet cards={cards} displayName={titleFor} displayBrand={brandFor} onEdit={edit} onOpen={setStatementAcc} />
+                <CardWallet cards={cards} displayName={titleFor} displayBrand={brandFor} onEdit={edit} onOpen={setStatementAcc} onHistory={(card) => openHistory(card.id)} />
               </Panel>
 
-              <Panel title="Últimas movimentações de contas">
-                {txs.length === 0 && <Empty text="Sem movimentações recentes." />}
-                {txs.slice(0, 8).map((t) => {
-                  const credit = t.accountType === "CREDIT";
-                  const income = t.amount >= 0;
-                  return (
-                    <div key={t.id} className="flex items-center gap-3 py-3">
-                      <BankLogo acc={{ institution: t.institution, logo: t.logo, color: t.color }} />
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-sm font-semibold">{t.description}</div>
-                        <div className="truncate text-xs text-muted-foreground">{t.account}</div>
-                        <div className="text-xs text-muted-foreground">{relDate(t.date)}</div>
+              <Panel title="Últimas movimentações de contas e cartões">
+                <p className="mb-3 text-xs text-muted-foreground">Movimentações recebidas pela Pluggy, sem parcelas. Use o disquete ao lado da conta para consultar e preservar seu histórico.</p>
+                {q.data?.error && <p role="alert" className="mb-3 rounded-lg border border-amber-300/40 p-2 text-xs text-amber-700 dark:text-amber-300">Alguns extratos estão indisponíveis. Atualize os dados ou revise a conexão.</p>}
+                {!txs.length && <Empty text="Nenhuma movimentação encontrada no período consultado." />}
+                <div className="max-h-[640px] divide-y divide-border/40 overflow-y-auto pr-1">
+                  {txs.map((t) => {
+                    const credit = t.accountType === "CREDIT";
+                    const income = t.amount >= 0;
+                    const linked = accounts.find(a => a.id === t.accountId);
+                    const visibleName = linked ? titleFor(linked) : t.account;
+                    return (
+                      <div key={t.accountId+":"+t.id} className="flex items-start gap-3 py-3">
+                        <BankLogo acc={{ institution: t.institution, logo: t.logo, color: t.color }} size="size-9" />
+                        <div className="min-w-0 flex-1">
+                          <div className="break-words text-sm font-semibold">{t.description}</div>
+                          <div className="mt-1 flex min-w-0 items-center gap-1">
+                            <span className="truncate text-xs text-muted-foreground">{visibleName}{linked?.number ? " •••• "+linked.number : ""}</span>
+                            {linked && <button type="button" className="grid size-5 shrink-0 place-items-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-primary focus-visible:ring-2 focus-visible:ring-primary" aria-label={`Salvar e abrir histórico de ${visibleName}`} title="Salvar e consultar histórico" onClick={() => openHistory(linked.id)}><Save className="size-3.5"/></button>}
+                          </div>
+                          <div className="text-xs text-muted-foreground">{relDate(t.date)} • {credit ? "Cartão" : "Conta"}</div>
+                        </div>
+                        <div className="flex shrink-0 flex-col items-end gap-1">
+                          <div className={`text-sm font-bold ${income ? "text-success" : "text-foreground"}`}>{income ? "+ " : "- "}{brl(Math.abs(t.amount))}</div>
+                          <span className={`rounded-md px-2 py-0.5 text-[10px] font-medium ${income ? "bg-success-soft text-success" : "bg-muted text-muted-foreground"}`}>{income ? "Entrada" : credit ? "Cartão" : "Saída"}</span>
+                        </div>
                       </div>
-                      <div className="flex flex-col items-end gap-1">
-                        <div className={`text-sm font-bold ${income ? "text-success" : "text-destructive"}`}>{income ? "+ " : "- "}{brl(Math.abs(t.amount))}</div>
-                        <span className={`rounded-md px-2 py-0.5 text-xs font-medium ${income ? "bg-success-soft text-success" : "bg-danger-soft text-destructive"}`}>
-                          {income ? "Receita" : credit ? "Cartão de crédito" : "Débito em conta"}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
               </Panel>
             </div>
           )}
@@ -324,6 +335,7 @@ function Painel() {
           </div>
         </DialogContent>
       </Dialog>
+      <MovementHistoryDialog open={historyOpen} initialAccount={historyAccountId} accounts={accounts} labelFor={titleFor} onClose={() => setHistoryOpen(false)} />
       <CardStatementDialog acc={statementAcc} name={statementAcc ? titleFor(statementAcc) : ""} brand={statementAcc ? brandFor(statementAcc) : ""} onClose={() => setStatementAcc(null)} />
       <SecretDialog open={secretOpen} onOpenChange={setSecretOpen} onSaved={() => qc.invalidateQueries({ queryKey: ["finances"] })} />
     </AppShell>
@@ -393,18 +405,19 @@ function relDate(iso: string) {
   return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" }).replace(/\./g, "").replace(/ de /g, " ");
 }
 
-function Row({ acc, title, sub, right, onClick, onRemove }: { acc: FinanceAccount; title: string; sub: string; right: React.ReactNode; onClick: () => void; onRemove: () => void }) {
+function Row({ acc, title, sub, right, onClick, onRemove, onHistory }: { acc: FinanceAccount; title: string; sub: string; right: React.ReactNode; onClick: () => void; onRemove: () => void; onHistory: () => void }) {
   return (
     <div className="group flex cursor-pointer items-center gap-3 rounded-lg py-2.5 hover:bg-muted/50" onClick={onClick}>
       <BankLogo acc={acc} />
       <div className="min-w-0 flex-1">
-        <div className="truncate text-sm font-semibold">{title}</div>
+        <div className="flex items-center gap-1">
+          <span className="truncate text-sm font-semibold">{title}</span>
+          <button type="button" onClick={e=>{e.stopPropagation();onHistory();}} title="Salvar e consultar histórico" aria-label={`Histórico de ${title}`} className="grid size-5 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-primary"><Save className="size-3.5"/></button>
+        </div>
         <div className="truncate text-xs text-muted-foreground">{sub}</div>
       </div>
       {right}
-      <button onClick={(e) => { e.stopPropagation(); onRemove(); }} aria-label="Remover conexão" className="text-muted-foreground opacity-0 transition group-hover:opacity-100 hover:text-destructive">
-        <Trash2 className="size-4" />
-      </button>
+      <button type="button" onClick={e=>{e.stopPropagation();onRemove();}} aria-label={`Editar ${title}`} title="Editar nomenclatura" className="text-muted-foreground opacity-0 transition group-hover:opacity-100 focus-visible:opacity-100 hover:text-primary"><Pencil className="size-4" /></button>
     </div>
   );
 }

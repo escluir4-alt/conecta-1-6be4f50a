@@ -84,7 +84,7 @@ type PAccount = {
   currencyCode: string;
   creditData?: { creditLimit?: number; availableCreditLimit?: number; brand?: string; balanceDueDate?: string; balanceCloseDate?: string } | null;
 };
-type PTx = { id: string; description: string; amount: number; date: string; type: "DEBIT" | "CREDIT"; category?: string | null };
+type PTx = { id: string; description: string; amount: number; date: string; type: "DEBIT" | "CREDIT"; category?: string | null; status?: string | null; billId?: string | null; creditCardMetadata?: { installmentNumber?: number | null; totalInstallments?: number | null } | null; installmentNumber?: number | null; totalInstallments?: number | null };
 
 export type FinanceAccount = {
   id: string;
@@ -102,12 +102,49 @@ export type FinanceAccount = {
   dueDate: string | null;
   closingDate: string | null;
 };
-export type FinanceTx = { id: string; description: string; amount: number; date: string; category: string; account: string; accountType: "BANK" | "CREDIT"; institution: string; logo: string | null; color: string | null };
+export type FinanceTx = { id: string; accountId: string; description: string; amount: number; date: string; category: string; account: string; accountType: "BANK" | "CREDIT"; institution: string; logo: string | null; color: string | null };
 
 type PItem = { connector?: { name?: string; imageUrl?: string; primaryColor?: string } };
 
 function isAggregator(name: string) {
   return /pluggy/i.test(name);
+}
+
+/**
+ * Pluggy v2 pagina por cursor. Não converter a resposta em uma página limitada nem
+ * ocultar falhas de acesso ao extrato. O ciclo e limitado apenas para proteger
+ * contra cursor repetido pelo provedor.
+ */
+export function isInstallmentTransaction(tx: PTx): boolean {
+  if ((tx.creditCardMetadata?.totalInstallments ?? 0) > 1) return true;
+  if ((tx.totalInstallments ?? 0) > 1) return true;
+  const description = tx.description ?? "";
+  // Detecta marcadores explícitos de parcela, não compras que só contêm números.
+  return /(?:parc(?:ela)?\.?\s*\d{1,3}\s*(?:\/|de)\s*\d{1,3}|\b\d{1,3}\s*\/\s*\d{1,3}\s*(?:parc(?:ela)?)?\b|parcelamento\s+(?:de\s+)?(?:fatura|compra))/i.test(description);
+}
+async function getAllPluggyTransactions(apiKey: string, accountId: string, from?: string, to?: string): Promise<PTx[]> {
+  const query = new URLSearchParams({ accountId });
+  if (from) query.set("dateFrom", from);
+  if (to) query.set("dateTo", to);
+  const seenCursors = new Set<string>();
+  const seenIds = new Set<string>();
+  const entries: PTx[] = [];
+  let path = `/v2/transactions?${query.toString()}`;
+  for (let page = 0; page < 1000; page++) {
+    const response = await pluggyGet<{ results: PTx[]; next?: string | null }>(apiKey, path);
+    for (const tx of response.results ?? []) {
+      if (!tx.id || seenIds.has(tx.id)) continue;
+      seenIds.add(tx.id);
+      entries.push(tx);
+    }
+    if (!response.next) return entries;
+    const next = response.next.startsWith("?") ? `/v2/transactions${response.next}` :
+      response.next.startsWith("/v2/transactions?") ? response.next : null;
+    if (!next || seenCursors.has(next)) throw new Error("Paginação inesperada de transações pela instituição.");
+    seenCursors.add(next);
+    path = next;
+  }
+  throw new Error("Volume de transações excedeu a capacidade de sincronização desta solicitação.");
 }
 
 export const getFinances = createServerFn({ method: "GET" })
@@ -124,7 +161,7 @@ export const getFinances = createServerFn({ method: "GET" })
     const accounts: FinanceAccount[] = [];
     const transactions: FinanceTx[] = [];
     const accountErrors: string[] = [];
-    const from = new Date(Date.now() - 60 * 86400000).toISOString().slice(0, 10);
+    const from = new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10);
     for (const it of items) {
       try {
         const item = await pluggyGet<PItem>(apiKey, `/items/${encodeURIComponent(it.item_id)}`).catch(() => ({} as PItem));
@@ -152,20 +189,20 @@ export const getFinances = createServerFn({ method: "GET" })
             dueDate: a.creditData?.balanceDueDate ?? null,
             closingDate: a.creditData?.balanceCloseDate ?? null,
           });
-          const tx = await pluggyGet<{ results: PTx[] }>(apiKey, `/transactions?accountId=${a.id}&from=${from}&pageSize=50`).catch(() => ({ results: [] as PTx[] }));
-          for (const t of tx.results) {
-            transactions.push({
-              id: t.id,
-              description: t.description,
-              amount: isCredit ? -t.amount : t.amount,
-              date: t.date,
-              category: t.category ?? "Outros",
-              account: a.marketingName || a.name,
-              accountType: a.type,
-              institution,
-              logo,
-              color,
-            });
+          try {
+            const entries = await getAllPluggyTransactions(apiKey, a.id, from);
+            for (const t of entries) {
+              if (isInstallmentTransaction(t)) continue;
+              transactions.push({
+                id: t.id, accountId: a.id, description: t.description,
+                amount: isCredit ? -t.amount : t.amount,
+                date: t.date, category: t.category ?? "Outros",
+                account: a.marketingName || a.name, accountType: a.type,
+                institution, logo, color,
+              });
+            }
+          } catch (txError) {
+            accountErrors.push(`${institution}: ${txError instanceof Error ? txError.message : "Extrato indisponível"}`);
           }
         }
       } catch (error) {
@@ -173,7 +210,7 @@ export const getFinances = createServerFn({ method: "GET" })
       }
     }
     transactions.sort((a, b) => b.date.localeCompare(a.date));
-    return { accounts, transactions: transactions.slice(0, 40), error: accountErrors.length ? `Não foi possível consultar ${accountErrors.length} conexão(ões) bancária(s). Atualize ou reconecte os bancos antes de calcular o consolidado.` : null };
+    return { accounts, transactions, error: accountErrors.length ? `Alguns extratos não foram recuperados: ${accountErrors.join("; ")}. Confira as autorizações da Pluggy.` : null };
   });
 
 export const getCredentialStatus = createServerFn({ method: "GET" })
@@ -225,7 +262,7 @@ export const getStatement = createServerFn({ method: "GET" })
   .inputValidator((d: { accountId: string; month: string }) => {
     const accountId = String(d.accountId ?? "");
     const month = String(d.month ?? "");
-    if (!/^[\\w-]{1,80}$/.test(accountId)) throw new Error("Conta inválida");
+    if (!/^[\w-]{1,80}$/.test(accountId)) throw new Error("Conta inválida");
     if (!/^[0-9]{4}-(0[1-9]|1[0-2])$/.test(month)) throw new Error("Competência inválida");
     return { accountId, month };
   })
@@ -246,15 +283,9 @@ export const getStatement = createServerFn({ method: "GET" })
     // Compatibilidade durante implantação: a falta da migration não bloqueia consulta ao banco.
     const historyAvailable = !saved.error;
     try {
-      const all: PTx[] = [];
-      for (let page = 1; page <= 10; page++) {
-        const response = await pluggyGet<{ results: PTx[]; totalPages: number }>(key,
-          `/transactions?accountId=${encodeURIComponent(data.accountId)}&from=${from}&to=${to}&pageSize=500&page=${page}`);
-        all.push(...response.results);
-        if (page >= (response.totalPages ?? 1)) break;
-      }
+      const all = await getAllPluggyTransactions(key, data.accountId, from, to);
       const credit = acc.type === "CREDIT";
-      const transactions = all.map(t => ({ id: t.id, description: t.description,
+      const transactions = all.filter(t => !isInstallmentTransaction(t)).map(t => ({ id: t.id, description: t.description,
         amount: credit ? -t.amount : t.amount, date: t.date, category: t.category ?? "Outros" }))
         .sort((a,b) => b.date.localeCompare(a.date));
       let invoice: CardStatementResult["invoice"] = null;
@@ -271,7 +302,7 @@ export const getStatement = createServerFn({ method: "GET" })
       const isCurrent = data.month === new Date().toISOString().slice(0,7);
       const limits = credit && isCurrent ? { total, available,
         used: total !== null && available !== null ? Math.max(0,total-available) : null } : null;
-      if (credit && historyAvailable && (transactions.length > 0 || invoice)) {
+      if (historyAvailable) {
         const { error } = await (context.supabase as any).from("finance_card_month_snapshots").upsert({
           user_id: context.userId, account_id: data.accountId, period: data.month,
           transactions, total_limit_cents: limits?.total == null ? saved.data?.total_limit_cents ?? null : Math.round(limits.total*100),
@@ -285,7 +316,7 @@ export const getStatement = createServerFn({ method: "GET" })
         }, { onConflict: "user_id,account_id,period" });
         if (error) throw new Error("Falha ao preservar o histórico: "+error.message);
       }
-      if (!transactions.length && !invoice && saved.data) throw new Error("Dados indisponíveis no provedor.");
+      // Extrato vazio é dado válido. Não substituí-lo por cache antigo sem erro real.
       return { transactions, balance: acc.balance, source:"open-finance", capturedAt: new Date().toISOString(), historyAvailable,
         invoice: invoice ?? (saved.data?.invoice_cents != null ? {
           amount: saved.data.invoice_cents/100, closingDate: saved.data.closing_date,
