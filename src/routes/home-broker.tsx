@@ -186,7 +186,7 @@ function HomeBroker() {
             <tbody className="divide-y">
               {contracts.isLoading && <tr><td colSpan={6} className="p-4 text-center">Carregando contratos…</td></tr>}
               {!contracts.isLoading && contracts.data?.length === 0 && <tr><td colSpan={6} className="p-4 text-center text-muted-foreground">Nenhum contrato parcelado cadastrado.</td></tr>}
-              {(contracts.data ?? []).map(c => <tr key={c.id}>
+              {(contracts.data ?? []).map((c: { id: string; name: string; kpis: { total: number; paid: number; remaining: number; count: number; paidCount: number } }) => <tr key={c.id}>
                 <td className="p-3 font-semibold">{c.name}</td>
                 <td className="p-3">{formatBRL(c.kpis.total)}</td><td className="p-3">{formatBRL(c.kpis.paid)}</td>
                 <td className="p-3">{formatBRL(c.kpis.remaining)}</td><td className="p-3">{c.kpis.total ? (100 * c.kpis.paid / c.kpis.total).toFixed(1) : "0,0"}%</td>
