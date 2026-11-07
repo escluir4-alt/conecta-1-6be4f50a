@@ -229,6 +229,7 @@ export function AppShell({
                 <Link to="/notas" className="rounded-md p-2 text-sm hover:bg-accent">Anotações</Link>
                 <Link to="/nuvem" className="rounded-md p-2 text-sm hover:bg-accent">Nuvem</Link>
                 <Link to="/perfil" className="rounded-md p-2 text-sm hover:bg-accent">Perfil</Link>
+                <Link to="/configuracoes/open-finance" className="rounded-md p-2 text-sm hover:bg-accent">Configurações · Open Finance</Link>
                 <Link to="/auditoria" className="rounded-md p-2 text-sm hover:bg-accent">Auditoria</Link>
               </div>
             </details>

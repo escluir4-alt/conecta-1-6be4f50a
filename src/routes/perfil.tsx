@@ -1,4 +1,4 @@
-import { createFileRoute } from '@tanstack/react-router';
+import { createFileRoute, Link } from '@tanstack/react-router';
 import { useState, type ChangeEvent } from 'react';
 import {
   ArrowUp,
@@ -211,6 +211,9 @@ function PerfilPage() {
 
   const renderConfiguracao = () => (
     <div className="space-y-6">
+      <Link to="/configuracoes/open-finance" className="flex items-center justify-between gap-3 rounded-3xl border bg-card p-5 shadow-soft transition hover:border-primary/30 hover:bg-muted/30">
+        <span className="flex items-center gap-3"><KeyRound className="size-5 text-primary"/><span><strong className="block">Open Finance · Meu Pluggy</strong><span className="text-xs text-muted-foreground">Gerenciar Client ID e Client Secret de duas contas independentes</span></span></span><ChevronRight className="size-5 text-muted-foreground"/>
+      </Link>
       <div className="rounded-3xl border bg-card p-5 shadow-soft">
         <div className="mb-4 flex items-center gap-2"><SunMedium className="h-4 w-4 text-muted-foreground" /><h3 className="font-semibold">Tema</h3></div>
         <div className="flex flex-wrap gap-3">
