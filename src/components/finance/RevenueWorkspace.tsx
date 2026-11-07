@@ -24,7 +24,7 @@ function monthLabel(month: string) {
 function Summary({ label, value, tone = 'text-primary' }: { label: string; value: string; tone?: string }) {
   return <div className="rounded-lg border bg-card p-4 shadow-soft"><div className="text-xs font-medium uppercase text-muted-foreground">{label}</div><div className={`mt-1.5 break-words text-xl font-extrabold ${tone}`}>{value}</div></div>;
 }
-export function RevenueWorkspace({ mode = 'registration', detailContractId }: { mode?: 'registration' | 'annual' | 'history' | 'contracts'; detailContractId?: string }) {
+export function RevenueWorkspace({ mode = 'registration', detailContractId, asReceitas = false }: { mode?: 'registration' | 'annual' | 'history' | 'contracts'; detailContractId?: string; asReceitas?: boolean }) {
   const user = useRequireUser(); const qc = useQueryClient(); const today = todayBR();
   const [year, setYear] = useState(today.slice(0, 4)); const [historyYear, setHistoryYear] = useState(''); const [source, setSource] = useState('');
   const [editing, setEditing] = useState<RevenueSource | null>(null);
@@ -105,9 +105,9 @@ export function RevenueWorkspace({ mode = 'registration', detailContractId }: { 
     setDocument(`CONTRATO — ${c.title}\nComprador: ${c.buyer}\nCPF: ${c.cpf} · RG: ${c.rg}\nContratado: ${formatBRL(c.total_cents)}\nRecebido: ${formatBRL(contractSummary.received)}\nEm aberto: ${formatBRL(contractSummary.pending)}\nJuros: ${c.interest_percent}% a.m.\n\nParcelas:\n${installments.map(e => `${String(e.number).padStart(3, '0')} — ${formatDateBR(e.due_date)} • Previsto ${formatBRL(e.expected_cents)} • Recebido ${formatBRL(e.received_cents)}`).join('\n')}\n\nAssinatura: __________________`);
   }
 
-  const title = mode === 'history' ? 'Histórico de Receitas' : mode === 'annual' ? 'Contas a receber' : mode === 'contracts' ? 'Contratos parcelados' : 'Receitas';
+  const title = mode === 'history' ? 'Histórico de Receitas' : mode === 'annual' ? (asReceitas ? 'Receitas' : 'Contas a receber') : mode === 'contracts' ? 'Contratos parcelados' : 'Receitas';
 
-  return <AppShell active={mode === 'history' ? 'historico-receitas' : mode === 'annual' ? 'contas-a-receber' : mode === 'contracts' ? 'crediario' : 'receitas'} user={user}><div className="p-6 lg:p-8">
+  return <AppShell active={mode === 'history' ? 'historico-receitas' : mode === 'annual' ? (asReceitas ? 'receitas' : 'contas-a-receber') : mode === 'contracts' ? 'crediario' : 'receitas'} user={user}><div className="p-6 lg:p-8">
     <div className="flex flex-wrap items-center justify-between gap-3"><div><div className="text-xs font-semibold uppercase text-muted-foreground">Controle financeiro</div><h1 className="text-3xl font-extrabold tracking-tight">{title}</h1></div>
       <div className="no-print flex flex-wrap items-center gap-2">
         {mode === 'registration' && <><Button asChild variant="outline"><Link to="/contas-a-receber">Contas a receber <ArrowRight /></Link></Button><Button asChild variant="outline"><Link to="/crediario">Contratos parcelados</Link></Button><Button asChild variant="outline"><Link to="/historico-receitas">Histórico de receitas</Link></Button><Button variant="brand" onClick={() => setNewOpen(true)}><Plus />Nova receita</Button></>}
