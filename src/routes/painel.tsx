@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import {
-  CreditCard, Wallet, Gauge, Receipt, Plus, LayoutGrid, LogOut, KeyRound, MoreVertical, RefreshCw, Landmark, ChevronLeft, ChevronRight, Trash2,
+  CreditCard, Wallet, Gauge, Receipt, Plus, LayoutGrid, LogOut, KeyRound, MoreVertical, RefreshCw, Landmark, ChevronLeft, ChevronRight, Trash2, Pencil,
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -19,6 +19,7 @@ import {
   createConnectToken, getCredentialStatus, getFinances, getStatement, removeItem, saveItem, updateCredentials,
   type FinanceAccount,
 } from "@/lib/pluggy.functions";
+import { getFinanceAccountProfiles, saveFinanceAccountProfile } from "@/lib/finance/card-profile.functions";
 
 export const Route = createFileRoute("/painel")({
   ssr: false,
@@ -61,6 +62,26 @@ function Painel() {
   const [secretOpen, setSecretOpen] = useState(false);
   const [selectedCard, setSelectedCard] = useState<string | null>(null);
   const [statementAcc, setStatementAcc] = useState<FinanceAccount | null>(null);
+  const [editAcc, setEditAcc] = useState<FinanceAccount | null>(null);
+  const [alias, setAlias] = useState("");
+  const [brand, setBrand] = useState("");
+  const getProfiles = useServerFn(getFinanceAccountProfiles);
+  const saveProfile = useServerFn(saveFinanceAccountProfile);
+  const profilesQuery = useQuery({ queryKey: ["finance-profiles"], queryFn: () => getProfiles(), enabled: !!user });
+  const profileFor = (id: string) => (profilesQuery.data ?? []).find(p => p.account_id === id);
+  const titleFor = (acc: FinanceAccount) => profileFor(acc.id)?.display_name || acc.name;
+  const brandFor = (acc: FinanceAccount) => profileFor(acc.id)?.card_brand || acc.brand || "";
+  const edit = (acc: FinanceAccount) => { setEditAcc(acc); setAlias(titleFor(acc)); setBrand(brandFor(acc).toUpperCase()); };
+  const saveEdit = async () => {
+    if (!editAcc) return;
+    try {
+      await saveProfile({ data: { accountId: editAcc.id, displayName: alias.trim() || null,
+        cardBrand: (["VISA","MASTERCARD","ELO","AMEX","HIPERCARD","OTHER"].includes(brand) ? brand : null) as "VISA" | "MASTERCARD" | "ELO" | "AMEX" | "HIPERCARD" | "OTHER" | null,
+        annualExpenseId: profileFor(editAcc.id)?.annual_expense_id ?? null } });
+      await qc.invalidateQueries({ queryKey: ["finance-profiles"] });
+      setEditAcc(null); toast.success("Cartão personalizado.");
+    } catch (e) { toast.error((e as Error).message); }
+  };
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
@@ -201,29 +222,30 @@ function Painel() {
 
               <Panel title="Cartões cadastrados">
                 {cards.length === 0 && <Empty text="Nenhum cartão." />}
-                {selCard && (
-                  <button onClick={() => setStatementAcc(selCard)} className="mb-3 block w-full rounded-2xl p-5 text-left text-primary-foreground shadow-soft transition hover:opacity-95" style={{ background: "linear-gradient(135deg, #0d6c7b 0%, #084f64 100%)" }}>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <BankLogo acc={selCard} size="size-9" />
-                        <span className="font-semibold">{selCard.name}</span>
+                {cards.map((c) => (
+                  <div key={c.id} className="mb-2">
+                    {c.id === selCard?.id ? (
+                      <div className="relative overflow-hidden rounded-[26px] shadow-soft" style={{ background: "linear-gradient(135deg,#2e7887,#205667)" }}>
+                        <button className="block w-full p-5 text-left text-white transition hover:brightness-110" onClick={() => setStatementAcc(c)}>
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="flex min-w-0 items-center gap-3"><BankLogo acc={c} size="size-9" /><span className="truncate font-semibold">{titleFor(c)}</span></div>
+                            <BrandMark brand={brandFor(c)} />
+                          </div>
+                          <div className="mt-7 flex items-end justify-between text-sm">
+                            <div><div className="h-6 w-8 rounded-lg bg-white/30" /><div className="mt-2">Fatura {brl(c.balance)}</div></div>
+                            <div className="text-right">•••• {c.number}{c.dueDate && <div className="text-xs">Vence {c.dueDate.slice(8,10)}/{c.dueDate.slice(5,7)}</div>}</div>
+                          </div>
+                        </button>
+                        <button aria-label="Editar cartão" className="absolute right-3 top-12 rounded-lg bg-white/20 p-2 text-white hover:bg-white/30" onClick={() => edit(c)}><Pencil className="size-4" /></button>
                       </div>
-                      <BrandMark brand={selCard.brand} />
-                    </div>
-                    <div className="mt-6 flex items-end justify-between text-sm">
-                      <div>
-                        <div className="h-6 w-8 rounded-md bg-primary-foreground/30" />
-                        <div className="mt-2 opacity-90">Fatura {brl(selCard.balance)}</div>
-                      </div>
-                      <div className="text-right opacity-90">
-                        <div>•••• {selCard.number}</div>
-                        {selCard.dueDate && <div className="text-xs">Vence {new Date(selCard.dueDate).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })}</div>}
-                      </div>
-                    </div>
-                  </button>
-                )}
-                {cards.filter((c) => c.id !== selCard?.id).map((c) => (
-                  <Row key={c.id} acc={c} title={c.name} sub={`•••• ${c.number}`} right={<span className="grid h-9 w-14 place-items-center rounded-lg bg-muted"><BrandMark brand={c.brand} /></span>} onClick={() => setStatementAcc(c)} onRemove={() => disconnect(c.id)} />
+                    ) : (
+                      <button className="flex w-full items-center gap-3 rounded-xl px-1 py-3 text-left hover:bg-muted/50" onClick={() => setSelectedCard(c.id)}>
+                        <BankLogo acc={c} size="size-10" />
+                        <div className="min-w-0 flex-1"><div className="truncate text-sm font-semibold">{titleFor(c)}</div><div className="text-xs text-muted-foreground">•••• {c.number}</div></div>
+                        <span className="grid h-9 w-14 place-items-center rounded-lg bg-muted"><BrandMark brand={brandFor(c)} /></span>
+                      </button>
+                    )}
+                  </div>
                 ))}
               </Panel>
 
@@ -253,6 +275,18 @@ function Painel() {
             </div>
           )}
         </div>
+      <Dialog open={!!editAcc} onOpenChange={open => !open && setEditAcc(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Editar cartão</DialogTitle><DialogDescription>Nome e bandeira personalizados, sem alterar a instituição bancária.</DialogDescription></DialogHeader>
+          <div className="space-y-3">
+            <div><Label>Nome do cartão</Label><Input value={alias} maxLength={100} onChange={e => setAlias(e.target.value)} /></div>
+            <div><Label>Bandeira</Label><select className="h-10 w-full rounded-lg border bg-background px-3" value={brand} onChange={e => setBrand(e.target.value)}>
+              <option value="">Não identificada</option>{["VISA","MASTERCARD","ELO","AMEX","HIPERCARD","OTHER"].map(b => <option key={b} value={b}>{b}</option>)}
+            </select></div>
+            <DialogFooter><Button variant="outline" onClick={() => setEditAcc(null)}>Cancelar</Button><Button variant="brand" onClick={saveEdit}>Salvar</Button></DialogFooter>
+          </div>
+        </DialogContent>
+      </Dialog>
       <StatementDialog acc={statementAcc} onClose={() => setStatementAcc(null)} />
       <SecretDialog open={secretOpen} onOpenChange={setSecretOpen} onSaved={() => qc.invalidateQueries({ queryKey: ["finances"] })} />
     </AppShell>
@@ -320,7 +354,7 @@ function BrandMark({ brand, dark }: { brand: string; dark?: boolean }) {
       </span>
     );
   }
-  return <span className={`text-sm font-extrabold italic ${dark ? "text-chart-1" : ""}`}>{(brand || "VISA").toUpperCase()}</span>;
+  return <span className={`text-sm font-extrabold italic ${dark ? "text-chart-1" : ""}`}>{(brand || "BANDEIRA?").toUpperCase()}</span>;
 }
 
 function relDate(iso: string) {
