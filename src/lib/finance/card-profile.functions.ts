@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import { assertUserCreditCard, assertUserFinanceAccount } from "@/lib/pluggy.functions";
+import { assertUserCreditCard, assertUserFinanceAccount, fetchAuthorizedCardBills } from "@/lib/pluggy.functions";
 
 const profileSchema = z.object({
   accountId: z.string().min(1).max(200),
@@ -98,4 +98,81 @@ export const recordClosedCardInvoice = createServerFn({ method: "POST" })
       p_entity_id: annual.id, p_before: previous, p_after: { period: data.period, amount_cents: data.amountCents },
       p_details: { origin: "manual", card_linked: true } });
     return { ok: true };
+  });
+
+/**
+ * Sincroniza somente faturas que a instituição efetivamente reportou como fechadas.
+ * Uma conta não vinculada, um pagamento já registrado ou exercício arquivado nunca é alterado.
+ * O mês da competência corresponde ao vencimento.
+ */
+export const syncProviderClosedCardInvoices = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { supabase, userId } = context;
+    const { data: profiles, error: profilesError } = await supabase.from("finance_account_profiles")
+      .select("account_id,annual_expense_id").eq("user_id", userId).not("annual_expense_id", "is", null);
+    if (profilesError) throw new Error(profilesError.message);
+    let updated = 0, unchanged = 0, skipped = 0;
+    const errors: string[] = [];
+    const today = new Date().toISOString().slice(0, 10);
+    for (const profile of profiles ?? []) {
+      try {
+        const providerBills = await fetchAuthorizedCardBills(supabase, userId, profile.account_id);
+        for (const bill of providerBills) {
+          const close = bill.billClosingDate?.slice(0, 10);
+          const due = bill.dueDate?.slice(0, 10);
+          if (!close || !due || close > today || !/^\d{4}-\d{2}-\d{2}$/.test(due) ||
+              bill.totalAmountCurrencyCode !== "BRL" ||
+              !Number.isFinite(bill.totalAmount) || bill.totalAmount < 0) { skipped++; continue; }
+          const period = due.slice(0, 7);
+          // Somente período recente (últimos 90 dias) e não futuro excessivamente distante.
+          const age = (Date.now() - Date.parse(due + "T00:00:00Z")) / 86400000;
+          if (age > 90 || age < -60) { skipped++; continue; }
+          const cents = Math.round(bill.totalAmount * 100);
+          const { data: annual, error: annualError } = await supabase.from("annual_expenses")
+            .select("id,year").eq("user_id", userId).eq("id", profile.annual_expense_id).maybeSingle();
+          if (annualError || !annual || annual.year !== Number(period.slice(0, 4))) { skipped++; continue; }
+          const { data: yr } = await supabase.from("annual_years").select("archived_at")
+            .eq("user_id", userId).eq("year", annual.year).maybeSingle();
+          if (yr?.archived_at) { skipped++; continue; }
+          const { data: existing, error: existingError } = await supabase.from("finance_card_closed_invoices")
+            .select("origin,provider_reference,amount_cents").eq("user_id", userId)
+            .eq("account_id", profile.account_id).eq("period", period).maybeSingle();
+          if (existingError) throw new Error(existingError.message);
+          if (existing?.origin === "manual") { skipped++; continue; }
+          if (existing?.provider_reference === bill.id && Number(existing.amount_cents) === cents) { unchanged++; continue; }
+          const { data: monthBills, error: monthlyError } = await supabase.from("finance_bills")
+            .select("id,paid_date").eq("user_id", userId).eq("source_annual_id", annual.id).eq("source_period", period);
+          if (monthlyError) throw new Error(monthlyError.message);
+          if ((monthBills ?? []).some((m: {paid_date: string | null}) => m.paid_date)) { skipped++; continue; }
+          const { error: saveError } = await supabase.from("finance_card_closed_invoices").upsert({
+            user_id: userId, account_id: profile.account_id, period, closed_at: close,
+            due_date: due, amount_cents: cents, origin: "provider",
+            provider_reference: bill.id, annual_expense_id: annual.id,
+            updated_at: new Date().toISOString(),
+          }, { onConflict: "user_id,account_id,period" });
+          if (saveError) throw new Error(saveError.message);
+          const { error: annualWriteError } = await supabase.from("annual_expense_months").upsert({
+            annual_expense_id: annual.id, month: Number(period.slice(5, 7)), expected_cents: cents,
+          }, { onConflict: "annual_expense_id,month" });
+          if (annualWriteError) throw new Error(annualWriteError.message);
+          if (monthBills?.length) {
+            const { error: billWriteError } = await supabase.from("finance_bills")
+              .update({ expected_cents: cents, due_date: due })
+              .eq("user_id", userId).eq("source_annual_id", annual.id)
+              .eq("source_period", period).is("paid_date", null);
+            if (billWriteError) throw new Error(billWriteError.message);
+          }
+          await supabase.rpc("audit_append", { p_action: "sync_closed_card_invoice",
+            p_entity_type: "annual_expense", p_entity_id: annual.id,
+            p_before: existing ?? null,
+            p_after: { period, amount_cents: cents, provider_reference: bill.id },
+            p_details: { origin: "provider", account_id: profile.account_id } });
+          updated++;
+        }
+      } catch (e) {
+        errors.push(e instanceof Error ? e.message : "Falha de conexão com o provedor.");
+      }
+    }
+    return { updated, unchanged, skipped, errors };
   });
