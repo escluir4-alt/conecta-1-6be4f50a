@@ -14,6 +14,7 @@ import {
   listFiles,
   listFolders,
   loadVaultConfig,
+  openDb,
   saveEncryptedBlob,
   saveFile,
   saveFolder,
@@ -59,10 +60,11 @@ export function getRuntime(): VaultRuntime {
 export async function ensureVaultForUser(password: string, userId: string) {
   const existing = await loadVaultConfig();
 
-  if (existing) {
+  if (existing && existing.userId === userId) {
     const key = await unlockVaultConfig(existing, password);
     runtime.vaultConfig = existing;
     runtime.masterKey = key;
+    await clearVaultAttemptCounters();
     return { ok: true, created: false };
   }
 
@@ -70,8 +72,90 @@ export async function ensureVaultForUser(password: string, userId: string) {
   const key = await unlockVaultConfig(config, password);
   runtime.vaultConfig = config;
   runtime.masterKey = key;
+  await clearVaultAttemptCounters();
 
   return { ok: true, created: true };
+}
+
+const ATTEMPTS_KEY = "vault-attempts";
+const LAST_ATTEMPT_KEY = "vault-last-attempt";
+
+export type VaultAttemptState = {
+  count: number;
+  lockedUntil: string | null;
+};
+
+export async function getVaultAttemptState(): Promise<VaultAttemptState> {
+  const [count, lockedUntil] = await Promise.all([
+    readIndexedValue(ATTEMPTS_KEY),
+    readIndexedValue(LAST_ATTEMPT_KEY),
+  ]);
+
+  if (lockedUntil && new Date(lockedUntil).getTime() > Date.now()) {
+    return { count: count ?? 0, lockedUntil };
+  }
+
+  return { count: 0, lockedUntil: null };
+}
+
+export async function registerVaultFailure(policy: {
+  lockMinutes: number;
+  maxAttempts: number;
+}): Promise<VaultAttemptState> {
+  const state = await getVaultAttemptState();
+  const nextCount = (state.count || 0) + 1;
+
+  if (nextCount >= policy.maxAttempts && !state.lockedUntil) {
+    const lockedUntil = new Date(Date.now() + policy.lockMinutes * 60_000).toISOString();
+    await writeIndexedValue(LAST_ATTEMPT_KEY, lockedUntil);
+    return { count: nextCount, lockedUntil };
+  }
+
+  await writeIndexedValue(ATTEMPTS_KEY, nextCount);
+  return { count: nextCount, lockedUntil: state.lockedUntil };
+}
+
+export async function getVaultPolicy(): Promise<{
+  lockMinutes: number;
+  maxAttempts: number;
+} | null> {
+  const config = await loadVaultConfig();
+  if (!config) return null;
+  return config.passwordPolicy;
+}
+
+export function isVaultLocked(state: VaultAttemptState): boolean {
+  return !!state.lockedUntil && new Date(state.lockedUntil).getTime() > Date.now();
+}
+
+export async function clearVaultAttemptCounters() {
+  await Promise.all([
+    writeIndexedValue(ATTEMPTS_KEY, 0),
+    writeIndexedValue(LAST_ATTEMPT_KEY, null),
+  ]);
+}
+
+async function readIndexedValue(key: string): Promise<unknown> {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_ATTEMPTS, "readonly");
+    const store = tx.objectStore(STORE_ATTEMPTS);
+    const request = store.get(key);
+    request.onsuccess = () => resolve((request.result as { id: string; value: unknown } | undefined)?.value ?? undefined);
+    request.onerror = () => reject(request.error ?? new Error("Erro ao ler estado de tentativas"));
+  });
+}
+
+async function writeIndexedValue(key: string, value: unknown) {
+  const db = await openDb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(STORE_ATTEMPTS, "readwrite");
+    const store = tx.objectStore(STORE_ATTEMPTS);
+    if (value === null) store.delete(key);
+    else store.put({ id: key, value });
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error ?? new Error("Erro ao gravar estado de tentativas"));
+  });
 }
 
 export async function createFreshVault(password: string, userId: string): Promise<CloudVaultConfig> {

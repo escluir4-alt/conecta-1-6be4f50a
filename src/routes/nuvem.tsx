@@ -33,10 +33,14 @@ import {
   encryptAndStoreFile,
   ensureVaultForUser,
   getRuntime,
+  getVaultAttemptState,
+  getVaultPolicy,
+  isVaultLocked,
   listVaultFiles,
   listVaultFolders,
   lockVault,
   previewSecureFile,
+  registerVaultFailure,
   uploadBatchToSupabase,
 } from "@/lib/cloud/vault";
 import type { CloudFile, CloudFolder, CloudVaultConfig } from "@/lib/cloud/types";
@@ -66,9 +70,15 @@ function NuvemPage() {
   const [folders, setFolders] = useState<CloudFolder[]>([]);
   const [files, setFiles] = useState<CloudFile[]>([]);
   const [displayNames, setDisplayNames] = useState<Record<string, string>>({});
+  const [folderNames, setFolderNames] = useState<Record<string, string>>({});
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [attemptCount, setAttemptCount] = useState(0);
+  const [lockedUntil, setLockedUntil] = useState<string | null>(null);
+  const [lockReason, setLockReason] = useState<"inactivity" | "manual" | "attempts" | null>(null);
+  const lastActivityRef = useRef(0);
+  const idleTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   async function syncDisplayNames(nextFiles: CloudFile[]) {
     const masterKey = getRuntime().masterKey;
@@ -82,6 +92,51 @@ function NuvemPage() {
       map[file.id] = await decryptVaultName(file, masterKey);
     }
     setDisplayNames(map);
+  }
+
+  async function syncFolderNames(nextFolders: CloudFolder[]) {
+    const masterKey = getRuntime().masterKey;
+    if (!masterKey) {
+      setFolderNames({});
+      return;
+    }
+
+    const map: Record<string, string> = {};
+    for (const folder of nextFolders) {
+      map[folder.id] = await decryptVaultName(folder, masterKey);
+    }
+    setFolderNames(map);
+  }
+
+  function scheduleIdleLock(lockMinutes: number) {
+    if (idleTimerRef.current) clearInterval(idleTimerRef.current);
+    lastActivityRef.current = Date.now();
+    idleTimerRef.current = setInterval(() => {
+      const idleMs = Date.now() - lastActivityRef.current;
+      const remaining = lockMinutes * 60_000 - idleMs;
+      if (remaining <= 0) {
+        if (idleTimerRef.current) clearInterval(idleTimerRef.current);
+        void (async () => {
+          await lockVault();
+          setStatus("locked");
+          setPassword("");
+          setLockReason("inactivity");
+          toast.info("Cofre bloqueado por inatividade.");
+        })();
+      }
+    }, 1000);
+  }
+
+  function refreshIdleLock() {
+    lastActivityRef.current = Date.now();
+    if (lockReason === "inactivity") setLockReason(null);
+  }
+
+  function stopIdleLock() {
+    if (idleTimerRef.current) {
+      clearInterval(idleTimerRef.current);
+      idleTimerRef.current = null;
+    }
   }
 
   useEffect(() => {
@@ -105,6 +160,12 @@ function NuvemPage() {
       setFolders(nextFolders);
       setFiles(nextFiles);
       await syncDisplayNames(nextFiles);
+
+      const attemptState = await getVaultAttemptState();
+      if (isVaultLocked(attemptState)) {
+        setLockedUntil(attemptState.lockedUntil);
+        setAttemptCount(attemptState.count);
+      }
     }
 
     void init();
@@ -119,6 +180,21 @@ function NuvemPage() {
   useEffect(() => {
     void syncDisplayNames(files);
   }, [files, vault]);
+
+  useEffect(() => {
+    void syncFolderNames(folders);
+  }, [folders]);
+
+  useEffect(() => {
+    if (status !== "unlocked") return;
+    const handleActivity = () => refreshIdleLock();
+    const handleKey = () => refreshIdleLock();
+    return () => {
+      window.removeEventListener("mousemove", handleActivity);
+      window.removeEventListener("keydown", handleKey);
+      window.removeEventListener("click", handleActivity);
+    };
+  }, [status]);
 
   const filteredFiles = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -146,9 +222,15 @@ function NuvemPage() {
       await ensureVaultForUser(password, user.email);
       setVault(config);
       setStatus("unlocked");
+      setLockedUntil(null);
+      setAttemptCount(0);
+      setLockReason(null);
       const nextFiles = await listVaultFiles();
       setFiles(nextFiles);
       await syncDisplayNames(nextFiles);
+      if (config.passwordPolicy.lockMinutes > 0) {
+        scheduleIdleLock(config.passwordPolicy.lockMinutes);
+      }
       toast.success("Cofre da Nuvem criado com sucesso.");
     } catch (err) {
       const message = err instanceof Error ? err.message : "Erro ao criar o cofre.";
@@ -160,6 +242,19 @@ function NuvemPage() {
   }
 
   async function unlockVault() {
+    if (!user) return;
+
+    const attemptState = await getVaultAttemptState();
+    if (isVaultLocked(attemptState) && attemptState.lockedUntil) {
+      const waitMs = new Date(attemptState.lockedUntil).getTime() - Date.now();
+      setError(
+        `Muitas tentativas. Cofre bloqueado por ${Math.ceil(waitMs / 60000)} minuto(s). Tente novamente depois.`
+      );
+      setLockedUntil(attemptState.lockedUntil);
+      setAttemptCount(attemptState.count);
+      return;
+    }
+
     if (!vault) {
       await createVault();
       return;
@@ -174,29 +269,59 @@ function NuvemPage() {
     setError("");
 
     try {
-      await ensureVaultForUser(password, user?.email ?? "");
+      await ensureVaultForUser(password, user.email);
       setStatus("unlocked");
+      setLockedUntil(null);
+      setCooldownMs(0);
+      setAttemptCount(0);
+      setLockReason(null);
       const nextFiles = await listVaultFiles();
       const nextFolders = await listVaultFolders();
       setFiles(nextFiles);
       setFolders(nextFolders);
       await syncDisplayNames(nextFiles);
+      const policy = vault?.passwordPolicy;
+      if (policy?.lockMinutes && status === "unlocked" && policy.lockMinutes > 0) {
+        scheduleIdleLock(policy.lockMinutes);
+      }
       toast.success("Nuvem desbloqueada.");
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Senha incorreta ou cofre inválido.";
-      setError(message);
-      toast.error(message);
+      const policy = await getVaultPolicy();
+      if (policy) {
+        const state = await registerVaultFailure(policy);
+        setAttemptCount(state.count);
+        if (state.lockedUntil) {
+          setLockedUntil(state.lockedUntil);
+          setLockReason("attempts");
+          setError(
+            `Muitas tentativas. Cofre bloqueado por ${policy.lockMinutes} minuto(s). Tente novamente depois.`
+          );
+          toast.error("Cofre bloqueado por excesso de tentativas.");
+        } else {
+          setError(
+            `Senha incorreta ou cofre inválido. Tentativa ${state.count} de ${policy.maxAttempts}.`
+          );
+          toast.error("Senha incorreta.");
+        }
+      } else {
+        const message = err instanceof Error ? err.message : "Senha incorreta ou cofre inválido.";
+        setError(message);
+        toast.error(message);
+      }
     } finally {
       setLoading(false);
     }
   }
 
   async function blockVault() {
+    stopIdleLock();
     await lockVault();
     setStatus("locked");
     setPassword("");
     setError("");
+    setLockReason("manual");
     setDisplayNames({});
+    setFolderNames({});
     toast.info("Cofre bloqueado.");
   }
 
@@ -279,6 +404,7 @@ function NuvemPage() {
     const confirmed = window.confirm("Deseja limpar o cofre local e reiniciar a Nuvem?");
     if (!confirmed) return;
 
+    stopIdleLock();
     await clearVaultDB();
     setVault(null);
     setFiles([]);
@@ -286,11 +412,24 @@ function NuvemPage() {
     setStatus("locked");
     setPassword("");
     setError("");
+    setLockedUntil(null);
+    setAttemptCount(0);
+    setLockReason(null);
     setDisplayNames({});
+    setFolderNames({});
     toast.success("Cofre reiniciado.");
   }
 
   const lockedView = status === "locked" || !vault;
+  const [cooldownMs, setCooldownMs] = useState(0);
+
+  useEffect(() => {
+    if (!lockedUntil) return;
+    const tick = () => setCooldownMs(Math.max(0, new Date(lockedUntil).getTime() - Date.now()));
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [lockedUntil]);
 
   return (
     <AppShell
@@ -349,8 +488,26 @@ function NuvemPage() {
 
                 <h2 className="mt-5 text-2xl font-bold">Nuvem bloqueada</h2>
                 <p className="mt-2 text-sm text-muted-foreground">
-                  Digite a senha exclusiva do cofre para acessar seus documentos.
+                  {lockReason === "inactivity"
+                    ? "O cofre bloqueou sozinho por inatividade."
+                    : lockReason === "attempts"
+                      ? "Muitas tentativas de senha incorreta."
+                      : "Digite a senha exclusiva do cofre para acessar seus documentos."}
                 </p>
+
+                {lockReason === "inactivity" && vault?.passwordPolicy.lockMinutes > 0 && (
+                  <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-xs font-semibold text-amber-700">
+                    <Lock className="size-3.5" />
+                    Bloqueio automático a cada {vault.passwordPolicy.lockMinutes} min sem uso
+                  </div>
+                )}
+
+                {cooldownMs > 0 && lockReason === "attempts" && (
+                  <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-destructive/30 bg-destructive/10 px-3 py-1 text-xs font-semibold text-destructive">
+                    <Lock className="size-3.5" />
+                    {attemptCount} tentativas registradas • aguarde {Math.max(1, Math.ceil(cooldownMs / 60000))} min
+                  </div>
+                )}
 
                 <div className="mt-6 space-y-4">
                   <Input
@@ -359,9 +516,15 @@ function NuvemPage() {
                     onChange={(event) => setPassword(event.target.value)}
                     placeholder="Senha da Nuvem"
                     className="h-12"
+                    disabled={cooldownMs > 0 && lockReason === "attempts"}
                   />
 
-                  <Button variant="brand" className="h-12 w-full" onClick={unlockVault} disabled={loading}>
+                  <Button
+                    variant="brand"
+                    className="h-12 w-full"
+                    onClick={unlockVault}
+                    disabled={loading || (cooldownMs > 0 && lockReason === "attempts")}
+                  >
                     <Unlock className="mr-2 size-4" />
                     {loading ? "Desbloqueando..." : vault ? "Desbloquear Nuvem" : "Criar e desbloquear Nuvem"}
                   </Button>
@@ -430,7 +593,7 @@ function NuvemPage() {
                     <div className="flex items-center gap-3">
                       <FolderPlus className="size-5 text-muted-foreground" />
                       <div className="min-w-0 flex-1">
-                        <div className="truncate font-medium">{folder.nameEnc || "Pasta cifrada"}</div>
+                        <div className="truncate font-medium">{folderNames[folder.id] || folder.nameEnc || "Pasta cifrada"}</div>
                         <div className="text-xs text-muted-foreground">{new Date(folder.createdAt).toLocaleString("pt-BR")}</div>
                       </div>
                     </div>

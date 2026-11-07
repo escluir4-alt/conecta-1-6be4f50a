@@ -7,8 +7,9 @@ const STORE_VAULT = "vault";
 const STORE_FOLDERS = "folders";
 const STORE_FILES = "files";
 const STORE_BLOBS = "blobs";
+const STORE_ATTEMPTS = "attempts";
 
-function openDb(): Promise<IDBDatabase> {
+export function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
 
@@ -29,6 +30,10 @@ function openDb(): Promise<IDBDatabase> {
 
       if (!db.objectStoreNames.contains(STORE_BLOBS)) {
         db.createObjectStore(STORE_BLOBS, { keyPath: "id" });
+      }
+
+      if (!db.objectStoreNames.contains(STORE_ATTEMPTS)) {
+        db.createObjectStore(STORE_ATTEMPTS, { keyPath: "id" });
       }
     };
 
