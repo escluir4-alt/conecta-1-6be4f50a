@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useRequireUser } from "@/components/AppShell";
-import { axionAsk, axionDelete, axionList, axionLoad, axionPreferences, axionSave, axionSavePreferences, axionStatus } from "@/lib/axion/axion.functions";
+import { axionAcceptTransfer, axionCancelTransfer, axionRequestTransfer, axionAsk, axionDelete, axionList, axionLoad, axionPreferences, axionSave, axionSavePreferences, axionSaveProvider, axionStatus } from "@/lib/axion/axion.functions";
 import type { Conversation, Message, Scope } from "@/lib/axion/contracts";
 
 export const Route = createFileRoute("/assistente")({
@@ -29,9 +29,28 @@ function Page() {
   const status = useServerFn(axionStatus);
   const capability = useQuery({ queryKey: ["axion-access", user?.email], queryFn: () => status(), enabled: !!user });
   if (!user || capability.isPending) return <p className="p-6">Verificando acesso…</p>;
+  if (capability.data?.incoming)
+    return <AcceptTransfer onAccepted={async () => { await capability.refetch(); }} />;
   if (capability.isError || !capability.data?.owner)
     return <div className="p-6"><p>Axion IA disponível apenas ao titular autorizado.</p><Link to="/painel">Voltar ao painel</Link></div>;
-  return <ConfiguredChat key={user.email} email={user.email} configured={capability.data.configured} web={capability.data.web} />;
+  return <ConfiguredChat key={user.email} email={user.email} access={capability.data} onConfigured={async () => { await capability.refetch(); }} />;
+}
+
+function AcceptTransfer({ onAccepted }: { onAccepted: () => Promise<void> }) {
+  const accept = useServerFn(axionAcceptTransfer);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  return <main className="mx-auto max-w-xl space-y-4 p-6">
+    <h1 className="text-xl font-semibold">Transferência da Axion IA</h1>
+    <p>Você receberá acesso como titular. As conversas e a chave do titular anterior não serão transferidas.</p>
+    <Button disabled={busy} onClick={async () => {
+      setBusy(true);
+      setError("");
+      try { await accept(); await onAccepted(); } catch (e) { setError(e instanceof Error ? e.message : "Transferência não concluída."); }
+      finally { setBusy(false); }
+    }}>Aceitar titularidade</Button>
+    {error && <p role="alert">{error}</p>}
+  </main>;
 }
 
 function fresh(): Conversation {
@@ -39,14 +58,27 @@ function fresh(): Conversation {
 }
 
 type Preferences = { tone: "direto" | "detalhado"; deep: boolean; memory: string };
-function ConfiguredChat({ email, configured, web }: { email: string; configured: boolean; web: boolean }) {
+type Access = { configured: boolean; web: boolean; setup: boolean; provider: { model: string; max_request_cents: number; web: boolean } | null };
+type ConfiguredProps = { email: string; access: Access; onConfigured: () => Promise<void> };
+function ConfiguredChat({ email, access, onConfigured }: ConfiguredProps) {
   const getPreferences = useServerFn(axionPreferences);
   const prefs = useQuery({ queryKey: ["axion-preferences", email], queryFn: () => getPreferences() });
   if (prefs.isPending) return <p className="p-6">Carregando preferências…</p>;
   if (prefs.isError) return <p role="alert" className="p-6">Não foi possível carregar as preferências da Axion.</p>;
-  return <Chat configured={configured} web={web} email={email} initial={prefs.data} />;
+  return <Chat access={access} email={email} onConfigured={onConfigured} initial={prefs.data} />;
 }
-function Chat({ configured, web, email, initial }: { configured: boolean; web: boolean; email: string; initial: Preferences }) {
+function Chat({ access, email, onConfigured, initial }: ConfiguredProps & { initial: Preferences }) {
+  const { configured, web, setup, provider } = access;
+  const saveProvider = useServerFn(axionSaveProvider);
+  const requestTransfer = useServerFn(axionRequestTransfer);
+  const cancelTransfer = useServerFn(axionCancelTransfer);
+  const [targetEmail, setTargetEmail] = useState("");
+  const [transferNotice, setTransferNotice] = useState("");
+  const [providerKey, setProviderKey] = useState("");
+  const [providerModel, setProviderModel] = useState(provider?.model ?? "");
+  const [providerCents, setProviderCents] = useState(String(provider?.max_request_cents ?? ""));
+  const [providerWeb, setProviderWeb] = useState(provider?.web ?? false);
+  const [providerNotice, setProviderNotice] = useState("");
   const ask = useServerFn(axionAsk), save = useServerFn(axionSave), load = useServerFn(axionLoad);
   const list = useServerFn(axionList), remove = useServerFn(axionDelete);
   const [conversation, setConversation] = useState<Conversation | null>(null);
@@ -138,7 +170,7 @@ function Chat({ configured, web, email, initial }: { configured: boolean; web: b
       <div className="flex flex-wrap gap-1">
         <Button variant="ghost" disabled={busy} onClick={() => reset(null)}>Nova conversa</Button>
         <Button variant="ghost" aria-expanded={panel === "history"} onClick={() => setPanel(panel === "history" ? null : "history")}><History size={16} /> Histórico</Button>
-        <Button variant="ghost" aria-expanded={panel === "settings"} onClick={() => setPanel(panel === "settings" ? null : "settings")}><Settings size={16} /> Configuração</Button>
+        <Button variant="ghost" aria-expanded={panel === "settings"} onClick={() => { setProviderKey(""); setPanel(panel === "settings" ? null : "settings"); }}><Settings size={16} /> Configuração</Button>
       </div>
     </header>
     {panel === "settings" && <section aria-label="Configuração" className="grid gap-3 rounded-xl border p-4 text-sm">
@@ -153,6 +185,43 @@ function Chat({ configured, web, email, initial }: { configured: boolean; web: b
       </label>
       <label><input type="checkbox" checked={includeMemory && scope !== "web"} disabled={scope === "web" || !saved.memory} onChange={e => setIncludeMemory(e.target.checked)} /> Enviar memória salva ao modelo nesta conversa</label>
       <Button variant="outline" disabled={busy} onClick={() => void action(async () => { setSaved(await savePreferences({ data: { tone, deep, memory } })); })}>Salvar configuração</Button>
+      <h2 className="border-t pt-3 font-semibold">Provedor OpenAI</h2>
+      {setup ? <>
+        <p>A chave fica no cofre do servidor e não volta à tela. {provider ? "Chave cadastrada: deixe em branco para mantê-la." : "Informe uma chave de API da sua conta OpenAI."}</p>
+        <label>Chave da API<Input type="password" autoComplete="off" spellCheck={false} maxLength={512} value={providerKey} onChange={e => setProviderKey(e.target.value)} /></label>
+        <label>Modelo da API<Input value={providerModel} maxLength={120} onChange={e => setProviderModel(e.target.value)} /></label>
+        <label>Estimativa máxima por chamada em centavos (1 a 3000)<Input type="number" min={1} max={3000} step={1} value={providerCents} onChange={e => setProviderCents(e.target.value)} /></label>
+        <p>Use um limite superior que inclua tokens, imagens, busca, câmbio e taxas. O valor é uma reserva, não um preço calculado.</p>
+        <label><input type="checkbox" checked={providerWeb} onChange={e => setProviderWeb(e.target.checked)} /> Ativar busca (confira a cobrança do modelo)</label>
+        <Button type="button" disabled={busy || !providerModel.trim() || !providerCents || (!provider && !providerKey.trim())} onClick={() => {
+          setProviderNotice("");
+          const cents = Number(providerCents);
+          if (!Number.isInteger(cents) || cents < 1 || cents > 3000) { setError("Informe um limite inteiro de 1 a 3000 centavos."); return; }
+          const key = providerKey.trim();
+          setProviderKey("");
+          void action(async () => {
+            await saveProvider({ data: { key, model: providerModel.trim(), cents, web: providerWeb } });
+            await onConfigured();
+            setProviderNotice("Configuração salva. Envie uma mensagem curta para testar o provedor.");
+          });
+        }}>Salvar provedor</Button>
+        {providerNotice && <p role="status">{providerNotice}</p>}
+      </> : <p>A configuração pelo app está indisponível neste ambiente. Use os segredos do servidor.</p>}
+      <h2 className="border-t pt-3 font-semibold">Alterar titular</h2>
+      <p>A nova conta precisa estar confirmada no Conecta. Ela terá 15 minutos para entrar e aceitar em /assistente. Seu histórico e sua chave não serão transferidos.</p>
+      <label>E-mail da nova conta<Input type="email" value={targetEmail} onChange={e => setTargetEmail(e.target.value)} /></label>
+      <div className="flex flex-wrap gap-2">
+        <Button type="button" variant="outline" disabled={busy || !targetEmail.trim()} onClick={() => void action(async () => {
+          await requestTransfer({ data: targetEmail });
+          setTargetEmail("");
+          setTransferNotice("Solicitação criada. A nova conta deve entrar no Conecta e abrir /assistente.");
+        })}>Solicitar transferência</Button>
+        <Button type="button" variant="ghost" disabled={busy} onClick={() => void action(async () => {
+          await cancelTransfer();
+          setTransferNotice("Transferência pendente cancelada.");
+        })}>Cancelar transferência pendente</Button>
+      </div>
+      {transferNotice && <p role="status">{transferNotice}</p>}
       <p>As reservas para chamadas de IA têm teto de R$ 30 por mês. O uso depende da configuração do servidor.</p>
     </section>}
     {panel === "history" && <section aria-label="Histórico" className="grid gap-2 rounded-xl border p-4">
@@ -178,7 +247,7 @@ function Chat({ configured, web, email, initial }: { configured: boolean; web: b
         }}>Excluir</Button>
       </div>}
     </section>}
-    {!configured && <p role="status" className="rounded-xl border p-3 text-sm">O chat está instalado no código. Configure o provedor e o custo máximo no servidor para habilitar respostas.</p>}
+    {!configured && <p role="status" className="rounded-xl border p-3 text-sm">Abra Configuração → Provedor OpenAI para habilitar as respostas.</p>}
     {(conversation?.branches.length ?? 0) > 1 && <label className="text-sm">Versão <select disabled={busy} value={branch} onChange={e => { setBranch(Number(e.target.value)); setEdit(null); setQuestion(""); }} className="ml-2 rounded border bg-background p-1">
       {conversation?.branches.map((_, i) => <option key={i} value={i}>Versão {i + 1}</option>)}
     </select></label>}
