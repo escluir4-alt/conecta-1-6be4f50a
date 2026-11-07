@@ -26,7 +26,7 @@ function loadPluggyConnect() {
   if(existing){existing.addEventListener("load",()=>resolve(),{once:true});existing.addEventListener("error",()=>reject(new Error("Falha ao carregar Pluggy Connect")),{once:true});return;}
   const script=document.createElement("script");
   script.src="https://cdn.pluggy.ai/pluggy-connect/v2.8.2/pluggy-connect.js";
-  script.dataset.axionPluggy="true";
+  script.dataset["axionPluggy"]="true";
   script.onload=()=>resolve();
   script.onerror=()=>reject(new Error("Falha ao iniciar Pluggy Connect"));
   document.body.appendChild(script);
