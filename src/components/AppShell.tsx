@@ -5,6 +5,9 @@ import { axionStatus } from "@/lib/axion/axion.functions";
 import { useEffect, useState, type ReactNode } from "react";
 import {
   CalendarCheck,
+  LayoutDashboard,
+  Clock3,
+  Settings2,
   CalendarDays,
   Calculator,
   ClipboardList,
@@ -30,6 +33,8 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 
 export type AppPage =
+  | "home-broker"
+  | "relogio"
   | "receitas"
   | "contas-a-receber"
   | "historico-receitas"
@@ -153,33 +158,19 @@ export function AppShell({
   const nav = (indent: boolean, onNavigate?: () => void) => (
     <>
       <div className="px-3 pt-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Controle financeiro</div>
-      <NavLink to="/painel" icon={Wallet} label="Home Broker" active={active === "carteira"} indent={indent} onNavigate={onNavigate} />
+      <NavLink to="/home-broker" icon={LayoutDashboard} label="Home Broker" active={active === "home-broker"} indent={indent} onNavigate={onNavigate} />
       <NavLink to="/receitas" icon={TrendingUp} label="Receitas" active={["receitas", "contas-a-receber", "historico-receitas", "crediario"].includes(active)} indent={indent} onNavigate={onNavigate} />
-      <div className="ml-4 space-y-1 border-l border-border/80 pl-2">
-        <NavLink to="/contas-a-receber" icon={CalendarDays} label="Contas a receber" active={active === "contas-a-receber"} indent onNavigate={onNavigate} />
-        <NavLink to="/crediario" icon={FileText} label="Contratos parcelados" active={active === "crediario"} indent onNavigate={onNavigate} />
-        <NavLink to="/historico-receitas" icon={History} label="Histórico de receitas" active={active === "historico-receitas"} indent onNavigate={onNavigate} />
-      </div>
       <NavLink to="/despesas/anuais" icon={TrendingDown} label="Despesas" active={despesasActive} indent={indent} onNavigate={onNavigate} />
-      <div className="ml-4 space-y-1 border-l border-border/80 pl-2">
-        <NavLink to="/despesas" icon={CalendarCheck} label="Despesas do mês" active={active === "despesas"} indent onNavigate={onNavigate} />
-        <NavLink to="/despesas/anuais" icon={CalendarDays} label="Despesas anuais" active={active === "anuais"} indent onNavigate={onNavigate} />
-        <NavLink to="/despesas/parceladas" icon={Layers} label="Contratos parcelados" active={active === "parceladas"} indent onNavigate={onNavigate} />
-        <NavLink to="/historico-pagamentos" icon={History} label="Histórico de pagamentos" active={active === "historico"} indent onNavigate={onNavigate} />
-      </div>
-      <NavLink to="/cotacoes" icon={LineChart} label="Bolsa de valores" active={active === "cotacoes"} indent={indent} onNavigate={onNavigate} />
-      <NavLink to="/moedas" icon={LineChart} label="Moedas" active={active === "moedas"} indent={indent} onNavigate={onNavigate} />
+      <NavLink to="/painel" icon={Wallet} label="Carteira" active={active === "carteira"} indent={indent} onNavigate={onNavigate} />
+      <NavLink to="/cotacoes" icon={LineChart} label="Bolsa de Valores" active={["cotacoes", "moedas"].includes(active)} indent={indent} onNavigate={onNavigate} />
       <div className="px-3 pt-5 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Organização pessoal</div>
       <NavLink to="/agenda" icon={CalendarDays} label="Agenda e calendário" active={active === "agenda"} indent={indent} onNavigate={onNavigate} />
       <NavLink to="/calculadora" icon={Calculator} label="Calculadora" active={active === "calculadora"} indent={indent} onNavigate={onNavigate} />
       <NavLink to="/compras" icon={ClipboardList} label="Lista de compras" active={active === "compras"} indent={indent} onNavigate={onNavigate} />
-      <NavLink to="/notas" icon={StickyNote} label="Anotações" active={active === "notas"} indent={indent} onNavigate={onNavigate} />
-      <NavLink to="/viagens" icon={CarFront} label="Viagens" active={active === "viagens"} indent={indent} onNavigate={onNavigate} />
       <NavLink to="/notas-fiscais" icon={FolderArchive} label="Notas fiscais" active={active === "notas-fiscais"} indent={indent} onNavigate={onNavigate} />
-      <div className="px-3 pt-5 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Axion</div>
-      <NavLink to="/nuvem" icon={Shield} label="Nuvem" active={active === "nuvem"} indent={indent} onNavigate={onNavigate} />
-      <NavLink to="/perfil" icon={UserRound} label="Perfil" active={active === "perfil"} indent={indent} onNavigate={onNavigate} />
-      <NavLink to="/auditoria" icon={History} label="Auditoria" active={active === "auditoria"} indent={indent} onNavigate={onNavigate} />
+      <NavLink to="/relogio" icon={Clock3} label="Relógio e alarmes" active={active === "relogio"} indent={indent} onNavigate={onNavigate} />
+      <NavLink to="/viagens" icon={CarFront} label="Viagens" active={active === "viagens"} indent={indent} onNavigate={onNavigate} />
+      <NavLink to="/assistente" icon={MessageCircle} label="Assistente IA" active={false} indent={indent} onNavigate={onNavigate} />
     </>
   );
 
@@ -230,6 +221,15 @@ export function AppShell({
 
           <div className="flex min-w-0 flex-1 items-center justify-end gap-3">
             {headerActions}
+            <details className="relative no-print">
+              <summary className="flex cursor-pointer list-none items-center gap-1 rounded-lg border px-3 py-2 text-xs font-semibold text-muted-foreground" aria-label="Outros recursos do Conecta"><Settings2 className="size-4" /><span className="hidden lg:inline">Outros recursos</span></summary>
+              <div className="absolute right-0 z-50 mt-2 flex w-56 flex-col gap-1 rounded-xl border bg-card p-2 shadow-lg">
+                <Link to="/notas" className="rounded-md p-2 text-sm hover:bg-accent">Anotações</Link>
+                <Link to="/nuvem" className="rounded-md p-2 text-sm hover:bg-accent">Nuvem</Link>
+                <Link to="/perfil" className="rounded-md p-2 text-sm hover:bg-accent">Perfil</Link>
+                <Link to="/auditoria" className="rounded-md p-2 text-sm hover:bg-accent">Auditoria</Link>
+              </div>
+            </details>
             <div className="hidden min-w-0 text-right text-sm md:block">
               <div className="break-words font-semibold text-foreground">{user?.name}</div>
               <div className="break-words text-xs text-muted-foreground">{user?.email}</div>
