@@ -254,6 +254,113 @@ export const getFinances = createServerFn({ method: "GET" })
     return { accounts, transactions, error: accountErrors.length ? `Alguns extratos não foram recuperados: ${accountErrors.join("; ")}. Confira as autorizações da Pluggy.` : null };
   });
 
+
+export type ConsolidatedMovement = {
+  id:string; accountId:string; accountName:string; institution:string;
+  lastFour:string; accountType:"BANK"|"CREDIT"; brand:string;
+  description:string; amount:number; date:string; category:string; connectionSlot:PluggySlot;
+};
+export type ConsolidatedMonth = {
+  transactions: ConsolidatedMovement[];
+  errors:string[];
+  savedAccounts:number;
+  unsavedAccounts:number;
+  staleAccounts:number;
+};
+
+/** Todos os lançamentos bancários do mês, consolidados sem selecionar aplicação.
+ * Uma falha numa origem não impede consultar as demais.
+ * Os snapshots pertencem à conta original e preservam o histórico para consultas futuras.
+ */
+export const getConsolidatedMonth = createServerFn({method:"POST"})
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input:unknown) => {
+    const period=String((input as {period?:string}|null)?.period??"");
+    if(!/^[0-9]{4}-(0[1-9]|1[0-2])$/.test(period)) throw new Error("Competência inválida");
+    return {period};
+  })
+  .handler(async ({data,context}):Promise<ConsolidatedMonth> => {
+    const items=await getItemsForUser(context.userId);
+    const [year,month]=data.period.split("-").map(Number);
+    const from=data.period+"-01";
+    const to=new Date(Date.UTC(year!,month!,0)).toISOString().slice(0,10);
+    const keys=new Map<PluggySlot,string>();
+    const errors:string[]=[];
+    for(const slot of ["primary","secondary"] as const) {
+      if(!items.some(i=>i.connection_slot===slot)) continue;
+      try{keys.set(slot,await apiKeyFor(context.userId,slot));}
+      catch(e){errors.push(slotLabel(slot)+": "+(e instanceof Error?e.message:"Credenciais indisponíveis"));}
+    }
+    const transactions:ConsolidatedMovement[]=[];
+    let savedAccounts=0,unsavedAccounts=0,staleAccounts=0;
+    const seen=new Set<string>();
+    for(const item of items) {
+      const key=keys.get(item.connection_slot);
+      if(!key) continue;
+      try {
+        const conn=await pluggyGet<PItem>(key,`/items/${encodeURIComponent(item.item_id)}`).catch(()=>({} as PItem));
+        const accounts=await pluggyGet<{results:PAccount[]}>(key,`/accounts?itemId=${encodeURIComponent(item.item_id)}`);
+        for(const account of accounts.results??[]) {
+          if(account.type!=="BANK" && account.type!=="CREDIT") continue;
+          const institution=conn.connector?.name||item.connector_name||"Banco";
+          const name=account.marketingName||account.name;
+          const number=(account.number??"").slice(-4);
+          const sourceKey=item.connection_slot+":"+account.id;
+          const snapshot=await (context.supabase as any).from("finance_card_month_snapshots")
+            .select("transactions,captured_at").eq("user_id",context.userId)
+            .eq("account_id",account.id).eq("period",data.period).maybeSingle();
+          const hasCache=!snapshot.error && snapshot.data && Array.isArray(snapshot.data.transactions);
+          let entries:CardStatementTransaction[]=[];
+          let fetched=false;
+          try {
+            const raw=await getAllPluggyTransactions(key,account.id,from,to);
+            entries=raw.filter(tx=>!isInstallmentTransaction(tx)).map(tx=>({
+              id:tx.id,description:tx.description,amount:account.type==="CREDIT"?-tx.amount:tx.amount,
+              date:tx.date,category:tx.category??"Outros",
+            }));
+            fetched=true;
+          }catch(e) {
+            if(hasCache) {
+              entries=(snapshot.data.transactions as CardStatementTransaction[]);
+              staleAccounts++;
+              errors.push(name+": extrato salvo, Pluggy indisponível");
+            } else {
+              errors.push(name+": "+(e instanceof Error?e.message:"Extrato indisponível"));
+            }
+          }
+          if(fetched) {
+            if(!snapshot.error) {
+              const {error}=await (context.supabase as any).from("finance_card_month_snapshots").upsert({
+                user_id:context.userId,account_id:account.id,period:data.period,
+                transactions:entries,captured_at:new Date().toISOString(),
+              },{onConflict:"user_id,account_id,period"});
+              if(error){unsavedAccounts++;errors.push(name+": histórico não pôde ser salvo");}
+              else savedAccounts++;
+            }else {
+              unsavedAccounts++;
+              errors.push(name+": configure o armazenamento do histórico no Supabase");
+            }
+          }
+          for(const tx of entries) {
+            const date=tx.date.slice(0,10);
+            if(date<from||date>to) continue;
+            const identity=sourceKey+":"+tx.id;
+            if(seen.has(identity)) continue;
+            seen.add(identity);
+            transactions.push({
+              id:tx.id,accountId:account.id,accountName:name,institution,
+              lastFour:number,accountType:account.type,brand:account.creditData?.brand??"",
+              description:tx.description,amount:tx.amount,date:tx.date,
+              category:tx.category,connectionSlot:item.connection_slot,
+            });
+          }
+        }
+      } catch(e){errors.push(slotLabel(item.connection_slot)+": "+(e instanceof Error?e.message:"Falha ao consultar banco"));}
+    }
+    transactions.sort((a,b)=>a.date.localeCompare(b.date)||a.accountName.localeCompare(b.accountName));
+    return {transactions,errors,savedAccounts,unsavedAccounts,staleAccounts};
+  });
+
 export const getCredentialStatus = createServerFn({method:"GET"})
   .middleware([requireSupabaseAuth])
   .inputValidator((d: {slot?: PluggySlot} = {}) => ({slot:d?.slot==="secondary"?"secondary" as const:"primary" as const}))
