@@ -222,3 +222,66 @@
   .axion-page-content { animation: none; }
   .axion-app-shell { background: white; }
 }
+
+/* Dark emerald navigation follows the selected desktop concept. */
+@layer components {
+  .axion-sidebar {
+    color: #f4f5ef;
+    background:
+      radial-gradient(ellipse at 90% 100%, rgba(193,161,107,.12), transparent 42%),
+      linear-gradient(165deg, #123c30 0%, #092b24 55%, #071f1b 100%);
+    border-right: 1px solid rgba(207,188,143,.18);
+    box-shadow: 10px 0 40px -24px rgba(7,31,26,.40);
+  }
+  .axion-sidebar .axion-nav-link {
+    color: #d3e1d7;
+  }
+  .axion-sidebar .axion-nav-link:hover {
+    background: rgba(255,255,255,.09);
+    color: #fff;
+  }
+  .axion-sidebar .axion-nav-link[data-active="true"] {
+    color: #fff;
+    background: linear-gradient(90deg, rgba(221,197,155,.19), rgba(255,255,255,.08));
+    border-color: rgba(215,187,132,.25);
+    box-shadow: inset 3px 0 #d4b378;
+  }
+  .axion-sidebar nav > div:first-child,
+  .axion-sidebar nav > div:not(:first-child):not(:has(a)) { color: #b2c6ba; }
+  .axion-sidebar-signout { color: #d5e1d8; }
+  .axion-sidebar-signout:hover { color: #fff; background: rgba(255,255,255,.11); }
+  .axion-mobile-bottom {
+    position: fixed;
+    z-index: 25;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    display: grid;
+    grid-template-columns: repeat(4,minmax(0,1fr));
+    align-items: center;
+    padding: 9px 6px calc(8px + env(safe-area-inset-bottom));
+    background: rgba(255,255,255,.97);
+    border-top: 1px solid #e4e9e2;
+    box-shadow: 0 -8px 30px -22px rgba(19,61,47,.22);
+    backdrop-filter: blur(18px);
+  }
+  .axion-mobile-bottom a {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    min-height: 48px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #65746c;
+  }
+  .axion-mobile-bottom a:hover,
+  .axion-mobile-bottom .axion-bottom-current {
+    background: #edf2eb;
+    color: #143d32;
+  }
+}
+@media (min-width: 768px) { .axion-mobile-bottom { display: none; } }
+@media print { .axion-mobile-bottom { display: none !important; } }
