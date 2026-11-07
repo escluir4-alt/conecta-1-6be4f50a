@@ -2,9 +2,27 @@ import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
 const PLUGGY = "https://api.pluggy.ai";
-
-async function getCreds(userId: string) {
+export type PluggySlot = "primary" | "secondary";
+type PluggyItem = { item_id: string; connector_name: string | null; connection_slot: PluggySlot };
+const slotLabel = (slot: PluggySlot) => slot === "primary" ? "Meu Pluggy 01" : "Meu Pluggy 02";
+async function getItemsForUser(userId: string): Promise<PluggyItem[]> {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const {data,error} = await supabaseAdmin.from("pluggy_items")
+    .select("item_id,connector_name,connection_slot").eq("user_id", userId);
+  if(error) throw new Error("Falha ao consultar origens Pluggy. Aplique a migração multi-Pluggy.");
+  return (data ?? []) as PluggyItem[];
+}
+
+
+async function getCreds(userId: string, slot: PluggySlot = "primary") {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  if (slot === "secondary") {
+    const {data,error} = await (supabaseAdmin as any).from("pluggy_secondary_credentials")
+      .select("client_id,client_secret,updated_at").eq("user_id",userId).maybeSingle();
+    if(error) throw new Error("A segunda conexão Pluggy precisa da migração do banco.");
+    if(!data) throw new Error("Cadastre as credenciais do Meu Pluggy 02.");
+    return {clientId:data.client_id as string,clientSecret:data.client_secret as string,custom:true,updatedAt:data.updated_at as string};
+  }
   const { data } = await supabaseAdmin
     .from("pluggy_credentials")
     .select("client_id, client_secret, updated_at")
@@ -19,8 +37,8 @@ async function getCreds(userId: string) {
   };
 }
 
-async function apiKeyFor(userId: string) {
-  const c = await getCreds(userId);
+async function apiKeyFor(userId: string, slot: PluggySlot = "primary") {
+  const c = await getCreds(userId, slot);
   const res = await fetch(`${PLUGGY}/auth`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -39,8 +57,9 @@ async function pluggyGet<T>(apiKey: string, path: string): Promise<T> {
 
 export const createConnectToken = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .handler(async ({ context }) => {
-    const apiKey = await apiKeyFor(context.userId);
+  .inputValidator((d: { slot?: PluggySlot } = {}) => ({ slot: d?.slot === "secondary" ? "secondary" as const : "primary" as const }))
+  .handler(async ({ data, context }) => {
+    const apiKey = await apiKeyFor(context.userId, data.slot);
     const res = await fetch(`${PLUGGY}/connect_token`, {
       method: "POST",
       headers: { "X-API-KEY": apiKey, "Content-Type": "application/json" },
@@ -48,28 +67,34 @@ export const createConnectToken = createServerFn({ method: "POST" })
     });
     if (!res.ok) throw new Error("Não foi possível iniciar a conexão.");
     const j = (await res.json()) as { accessToken: string };
-    return { connectToken: j.accessToken };
+    return { connectToken: j.accessToken, slot: data.slot };
   });
 
 export const saveItem = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: { itemId: string; connectorName?: string }) => {
+  .inputValidator((d: { itemId: string; connectorName?: string; slot?: PluggySlot }) => {
     if (typeof d?.itemId !== "string" || d.itemId.length > 100) throw new Error("itemId inválido");
-    return { itemId: d.itemId, connectorName: String(d.connectorName ?? "").slice(0, 120) };
+    return { itemId: d.itemId, connectorName: String(d.connectorName ?? "").slice(0, 120), slot: d.slot === "secondary" ? "secondary" as const : "primary" as const };
   })
   .handler(async ({ data, context }) => {
-    const { error } = await context.supabase
-      .from("pluggy_items")
-      .upsert({ user_id: context.userId, item_id: data.itemId, connector_name: data.connectorName }, { onConflict: "user_id,item_id" });
-    if (error) throw new Error(error.message);
-    return { ok: true };
+    const apiKey = await apiKeyFor(context.userId,data.slot);
+    await pluggyGet<PItem>(apiKey,`/items/${encodeURIComponent(data.itemId)}`);
+    const previous = (await getItemsForUser(context.userId)).find(i=>i.item_id===data.itemId);
+    if (previous && previous.connection_slot !== data.slot) throw new Error("A conexão pertence a outro Meu Pluggy.");
+    const {error} = await (context.supabase as any).from("pluggy_items").upsert({
+      user_id: context.userId, item_id:data.itemId,connector_name:data.connectorName,
+      connection_slot:data.slot,
+    },{onConflict:"user_id,item_id"});
+    if(error) throw new Error(error.message);
+    return {ok:true};
   });
 
 export const removeItem = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: { itemId: string }) => ({ itemId: String(d.itemId) }))
+  .inputValidator((d: { itemId: string; slot?: PluggySlot }) => ({ itemId: String(d.itemId), slot: d.slot === "secondary" ? "secondary" as const : "primary" as const }))
   .handler(async ({ data, context }) => {
-    await context.supabase.from("pluggy_items").delete().eq("item_id", data.itemId);
+    await (context.supabase as any).from("pluggy_items").delete().eq("user_id",context.userId)
+      .eq("item_id", data.itemId).eq("connection_slot", data.slot);
     return { ok: true };
   });
 
@@ -89,6 +114,7 @@ type PTx = { id: string; description: string; amount: number; date: string; type
 export type FinanceAccount = {
   id: string;
   itemId: string;
+  connectionSlot: PluggySlot;
   institution: string;
   logo: string | null;
   color: string | null;
@@ -102,7 +128,7 @@ export type FinanceAccount = {
   dueDate: string | null;
   closingDate: string | null;
 };
-export type FinanceTx = { id: string; accountId: string; description: string; amount: number; date: string; category: string; account: string; accountType: "BANK" | "CREDIT"; institution: string; logo: string | null; color: string | null };
+export type FinanceTx = { id: string; connectionSlot: PluggySlot; accountId: string; description: string; amount: number; date: string; category: string; account: string; accountType: "BANK" | "CREDIT"; institution: string; logo: string | null; color: string | null };
 
 type PItem = { connector?: { name?: string; imageUrl?: string; primaryColor?: string } };
 
@@ -150,19 +176,22 @@ async function getAllPluggyTransactions(apiKey: string, accountId: string, from?
 export const getFinances = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
-    const { data: items } = await context.supabase.from("pluggy_items").select("item_id, connector_name");
-    if (!items || items.length === 0) return { accounts: [] as FinanceAccount[], transactions: [] as FinanceTx[], error: null as string | null };
-    let apiKey: string;
-    try {
-      apiKey = await apiKeyFor(context.userId);
-    } catch (e) {
-      return { accounts: [], transactions: [], error: (e as Error).message };
+    const items = await getItemsForUser(context.userId);
+    if (items.length === 0) return {accounts:[] as FinanceAccount[],transactions:[] as FinanceTx[],error:null as string|null};
+    const keys = new Map<PluggySlot,string>();
+    const connectionErrors:string[]=[];
+    for (const slot of ["primary","secondary"] as const) {
+      if(!items.some(item=>item.connection_slot===slot)) continue;
+      try { keys.set(slot,await apiKeyFor(context.userId,slot)); }
+      catch(error){connectionErrors.push(`${slotLabel(slot)}: ${error instanceof Error?error.message:"Falha na autenticação"}`);}
     }
     const accounts: FinanceAccount[] = [];
     const transactions: FinanceTx[] = [];
-    const accountErrors: string[] = [];
+    const accountErrors: string[] = [...connectionErrors];
     const from = new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10);
     for (const it of items) {
+      const apiKey=keys.get(it.connection_slot);
+      if(!apiKey) continue;
       try {
         const item = await pluggyGet<PItem>(apiKey, `/items/${encodeURIComponent(it.item_id)}`).catch(() => ({} as PItem));
         const connName = item.connector?.name || it.connector_name || "Banco";
@@ -176,6 +205,7 @@ export const getFinances = createServerFn({ method: "GET" })
           accounts.push({
             id: a.id,
             itemId: it.item_id,
+            connectionSlot: it.connection_slot,
             institution,
             logo,
             color,
@@ -194,7 +224,7 @@ export const getFinances = createServerFn({ method: "GET" })
             for (const t of entries) {
               if (isInstallmentTransaction(t)) continue;
               transactions.push({
-                id: t.id, accountId: a.id, description: t.description,
+                id: t.id, connectionSlot: it.connection_slot, accountId: a.id, description: t.description,
                 amount: isCredit ? -t.amount : t.amount,
                 date: t.date, category: t.category ?? "Outros",
                 account: a.marketingName || a.name, accountType: a.type,
@@ -213,39 +243,53 @@ export const getFinances = createServerFn({ method: "GET" })
     return { accounts, transactions, error: accountErrors.length ? `Alguns extratos não foram recuperados: ${accountErrors.join("; ")}. Confira as autorizações da Pluggy.` : null };
   });
 
-export const getCredentialStatus = createServerFn({ method: "GET" })
+export const getCredentialStatus = createServerFn({method:"GET"})
   .middleware([requireSupabaseAuth])
-  .handler(async ({ context }) => {
-    const c = await getCreds(context.userId);
-    return { clientId: c.clientId, custom: c.custom, updatedAt: c.updatedAt, secretHint: c.clientSecret ? "••••" + c.clientSecret.slice(-4) : "" };
+  .inputValidator((d: {slot?: PluggySlot} = {}) => ({slot:d?.slot==="secondary"?"secondary" as const:"primary" as const}))
+  .handler(async ({data,context}) => {
+    try {
+      const c=await getCreds(context.userId,data.slot);
+      return {slot:data.slot,configured:!!c.clientId&&!!c.clientSecret,
+        clientId:c.clientId,custom:c.custom,updatedAt:c.updatedAt,
+        secretHint:c.clientSecret?"••••"+c.clientSecret.slice(-4):""};
+    } catch(e) {
+      if(data.slot==="secondary"&&(e as Error).message.includes("Cadastre")) {
+        return {slot:data.slot,configured:false,clientId:"",custom:true,updatedAt:null as string|null,secretHint:""};
+      }
+      throw e;
+    }
+  });
+export const updateCredentials = createServerFn({method:"POST"})
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: {clientId:string;clientSecret:string;slot?:PluggySlot}) => {
+    const clientId=String(d.clientId??"").trim();
+    const clientSecret=String(d.clientSecret??"").trim();
+    if(clientId.length<8||clientId.length>100) throw new Error("Client ID inválido");
+    if(clientSecret.length<8||clientSecret.length>200) throw new Error("Client Secret inválido");
+    return {clientId,clientSecret,slot:d.slot==="secondary"?"secondary" as const:"primary" as const};
+  })
+  .handler(async ({data,context}) => {
+    const res=await fetch(`${PLUGGY}/auth`,{method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({clientId:data.clientId,clientSecret:data.clientSecret})});
+    if(!res.ok) throw new Error("A Pluggy recusou as credenciais desta aplicação.");
+    const existing=(await getItemsForUser(context.userId)).filter(i=>i.connection_slot===data.slot);
+    if(existing.length) {
+      const previous=await getCreds(context.userId,data.slot);
+      if(previous.clientId!==data.clientId) {
+        throw new Error("Esta origem possui bancos conectados. Não é possível trocar o Client ID sem remover ou migrar as conexões.");
+      }
+    }
+    const {supabaseAdmin}=await import("@/integrations/supabase/client.server");
+    const table=data.slot==="secondary"?"pluggy_secondary_credentials":"pluggy_credentials";
+    const {error}=await (supabaseAdmin as any).from(table).upsert({
+      user_id:context.userId,client_id:data.clientId,client_secret:data.clientSecret,
+      updated_at:new Date().toISOString(),
+    },{onConflict:"user_id"});
+    if(error) throw new Error(error.message);
+    return {ok:true,slot:data.slot};
   });
 
-export const updateCredentials = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .inputValidator((d: { clientId: string; clientSecret: string }) => {
-    const clientId = String(d.clientId ?? "").trim();
-    const clientSecret = String(d.clientSecret ?? "").trim();
-    if (clientId.length < 8 || clientId.length > 100) throw new Error("Client ID inválido");
-    if (clientSecret.length < 8 || clientSecret.length > 200) throw new Error("Client Secret inválido");
-    return { clientId, clientSecret };
-  })
-  .handler(async ({ data, context }) => {
-    const res = await fetch(`${PLUGGY}/auth`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
-    });
-    if (!res.ok) throw new Error("A Pluggy recusou essas credenciais. Confira e tente de novo.");
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { error } = await supabaseAdmin.from("pluggy_credentials").upsert({
-      user_id: context.userId,
-      client_id: data.clientId,
-      client_secret: data.clientSecret,
-      updated_at: new Date().toISOString(),
-    });
-    if (error) throw new Error(error.message);
-    return { ok: true };
-  });
 
 export type CardStatementTransaction = { id: string; description: string; amount: number; date: string; category: string };
 export type CardStatementResult = {
