@@ -8,9 +8,10 @@ const slotLabel = (slot: PluggySlot) => slot === "primary" ? "Meu Pluggy 01" : "
 async function getItemsForUser(userId: string): Promise<PluggyItem[]> {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   const {data,error} = await supabaseAdmin.from("pluggy_items")
-    .select("item_id,connector_name,connection_slot").eq("user_id", userId);
-  if(error) throw new Error("Falha ao consultar origens Pluggy. Aplique a migração multi-Pluggy.");
-  return (data ?? []) as unknown as PluggyItem[];
+    .select("*").eq("user_id", userId);
+  if(error) throw new Error("Falha ao consultar bancos conectados.");
+  return ((data ?? []) as Array<{item_id:string;connector_name:string|null;connection_slot?:PluggySlot}>)
+    .map(item=>({...item,connection_slot:item.connection_slot==="secondary"?"secondary":"primary"}));
 }
 
 
@@ -81,10 +82,16 @@ export const saveItem = createServerFn({ method: "POST" })
     await pluggyGet<PItem>(apiKey,`/items/${encodeURIComponent(data.itemId)}`);
     const previous = (await getItemsForUser(context.userId)).find(i=>i.item_id===data.itemId);
     if (previous && previous.connection_slot !== data.slot) throw new Error("A conexão pertence a outro Meu Pluggy.");
-    const {error} = await (context.supabase as any).from("pluggy_items").upsert({
-      user_id: context.userId, item_id:data.itemId,connector_name:data.connectorName,
-      connection_slot:data.slot,
-    },{onConflict:"user_id,item_id"});
+    const {supabaseAdmin}=await import("@/integrations/supabase/client.server");
+    const fields:{user_id:string;item_id:string;connector_name:string;connection_slot?:PluggySlot}={
+      user_id:context.userId,item_id:data.itemId,connector_name:data.connectorName,connection_slot:data.slot,
+    };
+    let {error}=await (supabaseAdmin as any).from("pluggy_items").upsert(fields,{onConflict:"user_id,item_id"});
+    // Safeguard while older Supabase deployments apply the multi-Pluggy migration.
+    if(error && data.slot==="primary" && /connection_slot|schema cache/i.test(error.message)) {
+      delete fields.connection_slot;
+      ({error}=await (supabaseAdmin as any).from("pluggy_items").upsert(fields,{onConflict:"user_id,item_id"}));
+    }
     if(error) throw new Error(error.message);
     return {ok:true};
   });
@@ -93,9 +100,13 @@ export const removeItem = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: { itemId: string; slot?: PluggySlot }) => ({ itemId: String(d.itemId), slot: d.slot === "secondary" ? "secondary" as const : "primary" as const }))
   .handler(async ({ data, context }) => {
-    await (context.supabase as any).from("pluggy_items").delete().eq("user_id",context.userId)
-      .eq("item_id", data.itemId).eq("connection_slot", data.slot);
-    return { ok: true };
+    const {supabaseAdmin}=await import("@/integrations/supabase/client.server");
+    const row=(await getItemsForUser(context.userId)).find(item=>item.item_id===data.itemId);
+    if(!row||row.connection_slot!==data.slot) throw new Error("Origem da conta não corresponde à conexão.");
+    const {error}=await (supabaseAdmin as any).from("pluggy_items").delete().eq("user_id",context.userId)
+      .eq("item_id", data.itemId);
+    if(error) throw new Error(error.message);
+    return {ok:true};
   });
 
 type PAccount = {
