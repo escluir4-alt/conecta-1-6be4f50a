@@ -262,7 +262,7 @@ export const getStatement = createServerFn({ method: "GET" })
   .inputValidator((d: { accountId: string; month: string }) => {
     const accountId = String(d.accountId ?? "");
     const month = String(d.month ?? "");
-    if (!/^[\\w-]{1,80}$/.test(accountId)) throw new Error("Conta inválida");
+    if (!/^[\w-]{1,80}$/.test(accountId)) throw new Error("Conta inválida");
     if (!/^[0-9]{4}-(0[1-9]|1[0-2])$/.test(month)) throw new Error("Competência inválida");
     return { accountId, month };
   })
