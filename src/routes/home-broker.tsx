@@ -144,7 +144,7 @@ function HomeBroker() {
             {!revenue.isLoading && incomes.length === 0 && <tr><td colSpan={5} className="p-5 text-center text-muted-foreground">Nenhuma receita prevista para esta competência.</td></tr>}
             {incomes.map(entry => <tr key={entry.id}>
               <td className="p-3 font-semibold">{entry.title}</td><td className="p-3">{formatBRL(entry.expected_cents)}</td>
-              <td className="p-3">{formatDateBR(entry.due_date)}</td><td className="p-3">{entry.received_date ? formatBRL(entry.received_cents) : "—"}</td>
+              <td className="p-3">{formatDateBR(entry.due_date)}</td><td className="p-3">{entry.received_date ? formatBRL(entry.received_cents ?? 0) : "—"}</td>
               <td className="p-3"><Button size="sm" variant={entry.received_date ? "outline" : "brand"} onClick={() => setReceiving(entry)}>
                 {entry.received_date ? "Corrigir" : "Confirmar recebimento"}</Button></td>
             </tr>)}
