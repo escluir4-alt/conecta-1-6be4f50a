@@ -1,5 +1,7 @@
 import { Link, useNavigate } from "@tanstack/react-router";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useServerFn } from "@tanstack/react-start";
+import { axionStatus } from "@/lib/axion/axion.functions";
 import { useEffect, useState, type ReactNode } from "react";
 import {
   CalendarCheck,
@@ -15,6 +17,7 @@ import {
   LineChart,
   LogOut,
   Menu,
+  MessageCircle,
   Shield,
   TrendingDown,
   TrendingUp,
@@ -46,8 +49,7 @@ export type AppPage =
   | "compras"
   | "notas"
   | "viagens"
-  | "notas-fiscais"
-  | "assistente";
+  | "notas-fiscais";
 
 export interface AppUser {
   email: string;
@@ -143,6 +145,8 @@ export function AppShell({
   children: ReactNode;
 }) {
   const signOut = useSignOut();
+  const axion = useServerFn(axionStatus);
+  const axionAccess = useQuery({ queryKey: ["axion-access", user?.email], queryFn: () => axion(), enabled: !!user });
   const [menuOpen, setMenuOpen] = useState(false);
   const despesasActive = ["despesas", "anuais", "parceladas", "historico"].includes(active);
 
@@ -234,6 +238,12 @@ export function AppShell({
         </header>
         {children}
       </main>
+      {user && axionAccess.data?.owner && (
+        <Link to="/assistente" className="no-print fixed bottom-[max(1rem,env(safe-area-inset-bottom))] right-4 z-30 flex items-center gap-2 rounded-full bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground shadow-lg focus-visible:outline-2">
+          <MessageCircle size={18} aria-hidden="true" /> Axion IA
+        </Link>
+      )}
     </div>
   );
 }
+
