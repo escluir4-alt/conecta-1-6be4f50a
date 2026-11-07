@@ -42,7 +42,7 @@ export function RevenueWorkspace({ mode = 'registration', detailContractId }: { 
   // Recebimentos avulsos permanecem no histórico, mas não compõem a matriz anual.
   const annual = annualRevenue(entries, year).filter(entry => {
     const registered = registeredSources.find(source => source.id === entry.source_id);
-    return registered?.details?.axion_one_off !== 'true';
+    return (registered?.details as Record<string, unknown> | null)?.['axion_one_off'] !== 'true';
   });
   const annualSummary = revenueSummary(annual, today);
   const currentSource = (entry: RevenueEntry): RevenueEntry => {
