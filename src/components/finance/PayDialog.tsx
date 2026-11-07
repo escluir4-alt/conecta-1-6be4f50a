@@ -69,6 +69,7 @@ export function PayDialog({ target, onClose, onSaved }: { target: PayTarget | nu
       return;
     }
     setSaving(true);
+    let paymentSaved = false;
     try {
       if (target.kind === "bill") {
         const payload = { billId: target.id, paidDate: date, paidCents: cents, note };
@@ -79,6 +80,7 @@ export function PayDialog({ target, onClose, onSaved }: { target: PayTarget | nu
         if (isRevision) await reviseInst({ data: payload });
         else await payInst({ data: payload });
       }
+      paymentSaved = true;
       const entityType = target.kind === "bill" ? "bill" : "installment";
       const entityId = target.kind === "bill" ? target.id : `${target.contractId}:${target.number}`;
       for (const f of files) {
@@ -89,7 +91,13 @@ export function PayDialog({ target, onClose, onSaved }: { target: PayTarget | nu
       onSaved();
       onClose();
     } catch (e) {
-      toast.error((e as Error).message);
+      if (paymentSaved) {
+        toast.warning("Pagamento registrado, mas não foi possível anexar todos os comprovantes. Abra o ícone de comprovantes para tentar novamente.", { description: (e as Error).message });
+        onSaved();
+        onClose();
+      } else {
+        toast.error((e as Error).message);
+      }
     } finally {
       setSaving(false);
     }
