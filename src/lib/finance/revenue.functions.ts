@@ -5,13 +5,13 @@ import { REVENUE_CATEGORIES, lateCharges } from './revenue';
 import { contactSchema, installmentPlan } from './contract-plan';
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(v => Number.isFinite(Date.parse(v)) && new Date(v).toISOString().slice(0,10) === v, 'Data inválida');
 const money = z.number().int().min(1).max(999999999999);
-export const getRevenue = createServerFn({ method: 'POST' }).middleware([requireSupabaseAuth]).inputValidator((v: unknown) => z.object({ month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/) }).parse(v)).handler(async ({ data, context }) => {
+export const getRevenue = createServerFn({ method: 'POST' }).middleware([requireSupabaseAuth]).inputValidator((v: unknown) => z.object({ month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/), fullYear: z.boolean().optional() }).parse(v)).handler(async ({ data, context }) => {
   const { error: syncError } = await context.supabase.rpc('revenue_sync', { p_month: `${data.month}-01` });
   if (syncError) throw new Error(syncError.message);
   // A grade anual precisa também dos lançamentos de dezembro, mesmo antes desse mês.
   // O RPC é idempotente e preserva recebimentos já registrados.
   const yearEnd = `${data.month.slice(0, 4)}-12-01`;
-  if (data.month.slice(5) !== '12') {
+  if (data.fullYear && data.month.slice(5) !== '12') {
     const { error: yearSyncError } = await context.supabase.rpc('revenue_sync', { p_month: yearEnd });
     if (yearSyncError) throw new Error(yearSyncError.message);
   }
