@@ -14,14 +14,14 @@ export function brl(cents:number){return new Intl.NumberFormat("pt-BR",{style:"c
 export function parseBRL(raw:string){
  const clean=raw.trim().replace(/^R\$\s*/,"");
  if(!/^(?:\d{1,3}(?:\.\d{3})+|\d+)(?:,\d{1,2})?$/.test(clean)) throw Error("Valor inválido: use 1.234,56");
- const [whole,decimal=""]=clean.split(",");
+ const [whole="",decimal=""]=clean.split(",");
  const cents=Number(whole.replaceAll(".",""))*100+Number(decimal.padEnd(2,"0"));
  if(!Number.isSafeInteger(cents)||cents<0) throw Error("Valor fora do limite");
  return cents;
 }
 export function checkDate(value:string){
  if(!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
- const [y,m,d]=value.split("-").map(Number);const dt=new Date(Date.UTC(y,m-1,d));
+ const [y=0,m=0,d=0]=value.split("-").map(Number);const dt=new Date(Date.UTC(y,m-1,d));
  return dt.getUTCFullYear()===y&&dt.getUTCMonth()===m-1&&dt.getUTCDate()===d;
 }
 export function validateFiscal(file:File,draft:FiscalDraft){
@@ -53,7 +53,7 @@ async function buildPdf(file:File):Promise<File>{
  }
  const w=image.width,h=image.height; const scale=Math.min(595/w,842/h,1);
  const page=doc.addPage([595,842]);page.drawImage(image,{x:(595-w*scale)/2,y:(842-h*scale)/2,width:w*scale,height:h*scale});
- return new File([await doc.save()],"nota.pdf",{type:"application/pdf"});
+ return new File([Uint8Array.from(await doc.save())],"nota.pdf",{type:"application/pdf"});
 }
 export async function getDocuments():Promise<FiscalDoc[]>{
  const {data,error}=await client.from("fiscal_documents").select("*").order("issued_on",{ascending:false});
