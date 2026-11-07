@@ -8,9 +8,9 @@ import { AppShell, useRequireUser } from '@/components/AppShell';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
-import { formatBRL, formatDateBR, diffLabel } from '@/lib/finance/money';
+import { formatBRL, formatDateBR, diffLabel, parseBRL } from '@/lib/finance/money';
 import { printRevenueDocument } from '@/lib/finance/revenue-document';
-import { getRevenue, openRevenueFile, uploadRevenueFile } from '@/lib/finance/revenue.functions';
+import { getRevenue, openRevenueFile, uploadRevenueFile, updateRevenueForecast } from '@/lib/finance/revenue.functions';
 import { annualRevenue, receivedRevenue, revenueSourceKey, revenueSummary, revenueMonthEntries, revenueSettled, todayBR, type RevenueEntry, type RevenueContract, type RevenueSource } from '@/lib/finance/revenue';
 import { NewRevenueDialog, ReceiveDialog, AdjustmentDialog, FileInput, uploadFiles } from './RevenueForms';
 import { RevenueTable } from './RevenueTable';
@@ -28,12 +28,16 @@ export function RevenueWorkspace({ mode = 'registration', detailContractId, asRe
   const user = useRequireUser(); const qc = useQueryClient(); const today = todayBR();
   const [year, setYear] = useState(today.slice(0, 4)); const [historyYear, setHistoryYear] = useState(''); const [source, setSource] = useState('');
   const [editing, setEditing] = useState<RevenueSource | null>(null);
+  const [forecast, setForecast] = useState<RevenueEntry | null>(null);
+  const [forecastValue, setForecastValue] = useState('');
+  const [forecastReason, setForecastReason] = useState('');
+  const [forecastBusy, setForecastBusy] = useState(false);
   const [search, setSearch] = useState(''); const [newOpen, setNewOpen] = useState(false);
   const [selected, setSelected] = useState<RevenueEntry | null>(null); const [contractId, setContractId] = useState<string | null>(null);
   const [adjust, setAdjust] = useState<RevenueEntry | null>(null); const [document, setDocument] = useState<string | null>(null);
   const [cell, setCell] = useState<{ title: string; entries: RevenueEntry[] } | null>(null);
   const [attachment, setAttachment] = useState<{ entryId: string | null; contractId: string | null } | null>(null); const [fileBusy, setFileBusy] = useState(false);
-  const fetch = useServerFn(getRevenue); const openFile = useServerFn(openRevenueFile); const upload = useServerFn(uploadRevenueFile);
+  const fetch = useServerFn(getRevenue); const openFile = useServerFn(openRevenueFile); const upload = useServerFn(uploadRevenueFile); const updateForecast = useServerFn(updateRevenueForecast);
   const month = mode === 'annual' ? `${year}-${today.slice(5, 7)}` : today.slice(0, 7);
   const q = useQuery({ queryKey: ['revenue', user?.email, month], queryFn: () => fetch({ data: { month } }), enabled: !!user });
   const registeredSources = q.data?.sources ?? [];
@@ -61,6 +65,26 @@ export function RevenueWorkspace({ mode = 'registration', detailContractId, asRe
     const source = registeredSources.find(s => s.id === entry.source_id);
     if (!source) { toast.error('Cadastro da receita não encontrado.'); return; }
     setCell(null); setEditing(source);
+  }
+  function openForecast(entry: RevenueEntry) {
+    if (entry.received_date || entry.contract_id) return;
+    setCell(null); setForecast(entry);
+    setForecastValue((entry.expected_cents / 100).toFixed(2).replace('.', ','));
+    setForecastReason('');
+  }
+  async function saveForecast() {
+    if (!forecast) return;
+    const cents = parseBRL(forecastValue);
+    if (cents === null || cents <= 0 || forecastReason.trim().length < 3) {
+      toast.error('Informe o valor e o motivo do reajuste.'); return;
+    }
+    setForecastBusy(true);
+    try {
+      await updateForecast({ data: { id: forecast.id, cents, previousCents: forecast.expected_cents, reason: forecastReason.trim() } });
+      toast.success('Previsão mensal ajustada e registrada no histórico.');
+      setForecast(null); saved();
+    } catch (error) { toast.error((error as Error).message); }
+    finally { setForecastBusy(false); }
   }
   function saved() { void qc.invalidateQueries({ queryKey: ['revenue'] }); setCell(null); }
   function fileButton(e: RevenueEntry) { setAttachment({ entryId: e.id, contractId: null }); }
@@ -111,7 +135,7 @@ export function RevenueWorkspace({ mode = 'registration', detailContractId, asRe
     <div className="flex flex-wrap items-center justify-between gap-3"><div><div className="text-xs font-semibold uppercase text-muted-foreground">Controle financeiro</div><h1 className="text-3xl font-extrabold tracking-tight">{title}</h1></div>
       <div className="no-print flex flex-wrap items-center gap-2">
         {mode === 'registration' && <><Button asChild variant="outline"><Link to="/contas-a-receber">Contas a receber <ArrowRight /></Link></Button><Button asChild variant="outline"><Link to="/crediario">Contratos parcelados</Link></Button><Button asChild variant="outline"><Link to="/historico-receitas">Histórico de receitas</Link></Button><Button variant="brand" onClick={() => setNewOpen(true)}><Plus />Nova receita</Button></>}
-        {mode === 'annual' && <><Button asChild variant="brand"><Link to="/crediario">Contratos parcelados <ArrowRight /></Link></Button></>}
+        {mode === 'annual' && <><Button asChild variant="outline"><Link to="/historico-receitas">Histórico de receitas</Link></Button><Button asChild variant="brand"><Link to="/crediario">Contratos parcelados <ArrowRight /></Link></Button></>}
         {mode === 'contracts' && <Button asChild variant="outline"><Link to="/contas-a-receber"><ArrowLeft />Contas a receber</Link></Button>}
         {mode === 'history' && <><select aria-label="Ano do histórico" className="h-10 rounded-md border bg-card px-3 text-sm" value={historyYear} onChange={e => setHistoryYear(e.target.value)}><option value="">Todos os anos</option>{years.map(y => <option key={y} value={y}>{y}</option>)}</select><select aria-label="Fonte do histórico" className="h-10 max-w-full rounded-md border bg-card px-3 text-sm" value={source} onChange={e => setSource(e.target.value)}><option value="">Todas as fontes</option>{[...new Set(entries.filter(e => e.received_date).map(e => e.title))].sort().map(s => <option key={s} value={s}>{s}</option>)}</select><Button variant="outline" onClick={copyReport}><Copy />Copiar</Button><Button variant="outline" onClick={() => window.print()}><Printer />Imprimir / PDF</Button></>}
       </div></div>
@@ -123,7 +147,7 @@ export function RevenueWorkspace({ mode = 'registration', detailContractId, asRe
 
       {mode === 'annual' && <><div className="mt-5 flex flex-wrap items-center gap-3"><span className="rounded-md bg-success-soft px-3 py-1 text-xs font-bold text-success">Em andamento</span><label className="flex items-center gap-2 text-sm font-medium text-muted-foreground">Exercício:<select aria-label="Exercício" className="h-10 rounded-md border bg-card px-3 text-sm" value={year} onChange={e => setYear(e.target.value)}>{years.map(y => <option key={y} value={y}>{y}</option>)}</select></label></div>
         <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-5"><Summary label="Total geral previsto" value={formatBRL(annualSummary.expected)} /><Summary label="Valor recebido no ano" value={formatBRL(annualSummary.received)} tone="text-success" /><Summary label="A receber no ano" value={formatBRL(annualSummary.pending)} tone="text-destructive" /><Summary label="Fontes registradas" value={String(annualRows.length)} /><Summary label="Status do exercício" value="Em andamento" /></div>
-        <div className="mt-6 overflow-x-auto rounded-lg border bg-card shadow-soft"><table className="w-full min-w-[900px] text-sm"><thead><tr className="bg-muted text-xs uppercase text-muted-foreground"><th className="sticky left-0 z-10 bg-muted px-3 py-2.5 text-left">Fonte Pagadora</th><th className="px-3 py-2.5 text-center">Jan</th>{MONTHS.slice(1).map(m => <th key={m} className="px-2 py-2.5 text-center">{m}</th>)}<th className="px-3 py-2.5 text-right">Total anual</th></tr></thead><tbody className="divide-y">{annualRows.length ? annualRows.map(row => { const list = annual.filter(e => revenueSourceKey(e) === revenueSourceKey(row)); return <tr key={revenueSourceKey(row)}><td className="sticky left-0 z-10 bg-card px-3 py-2 font-semibold"><div className="flex items-center justify-between gap-2"><span>{row.title}</span>{!row.contract_id && <Button size="icon" variant="ghost" aria-label={`Editar receita ${row.title}`} title="Editar receita" onClick={() => editSource(row)}><Pencil /></Button>}</div></td>{MONTHS.map((m, i) => { const monthEntries = revenueMonthEntries(annual, row, `${year}-${String(i + 1).padStart(2, '0')}`); const paid = monthEntries.length > 0 && monthEntries.every(revenueSettled); return <td key={`${revenueSourceKey(row)}-${m}`} className={`px-2 py-2 text-center ${paid ? 'font-medium text-success' : ''}`}>{monthEntries.length ? <Button variant="ghost" className={`h-auto min-w-20 px-1 py-2 ${paid ? 'text-success' : ''}`} aria-label={`${row.title} — ${m} ${year}`} onClick={() => setCell({ title: `${row.title} — ${m} ${year}`, entries: monthEntries })}>{formatBRL(monthEntries.reduce((sum, e) => sum + e.expected_cents, 0))}</Button> : '—'}</td>; })}<td className="px-3 py-2 text-right font-bold">{formatBRL(list.reduce((sum, e) => sum + e.expected_cents, 0))}</td></tr>; }) : <tr><td colSpan={14} className="px-4 py-12 text-center text-muted-foreground">Nenhuma conta a receber neste exercício.</td></tr>}</tbody></table></div><Button className="mt-4" variant="outline" onClick={() => setNewOpen(true)}><Plus />Nova fonte de renda</Button></>}
+        <div className="mt-6 overflow-x-auto rounded-lg border bg-card shadow-soft"><table className="w-full min-w-[900px] text-sm"><thead><tr className="bg-muted text-xs uppercase text-muted-foreground"><th className="sticky left-0 z-10 bg-muted px-3 py-2.5 text-left">Fonte Pagadora</th><th className="px-3 py-2.5 text-center">Jan</th>{MONTHS.slice(1).map(m => <th key={m} className="px-2 py-2.5 text-center">{m}</th>)}<th className="px-3 py-2.5 text-right">Total anual</th></tr></thead><tbody className="divide-y">{annualRows.length ? annualRows.map(row => { const list = annual.filter(e => revenueSourceKey(e) === revenueSourceKey(row)); return <tr key={revenueSourceKey(row)}><td className="sticky left-0 z-10 bg-card px-3 py-2 font-semibold"><div className="flex items-center justify-between gap-2"><span>{row.title}</span>{!row.contract_id && <Button size="icon" variant="ghost" aria-label={`Editar receita ${row.title}`} title="Editar receita" onClick={() => editSource(row)}><Pencil /></Button>}</div></td>{MONTHS.map((m, i) => { const monthEntries = revenueMonthEntries(annual, row, `${year}-${String(i + 1).padStart(2, '0')}`); const paid = monthEntries.length > 0 && monthEntries.every(revenueSettled); return <td key={`${revenueSourceKey(row)}-${m}`} className={`px-2 py-2 text-center ${paid ? 'font-medium text-success' : ''}`}>{monthEntries.length ? <div className="flex items-center justify-center gap-0.5"><Button variant="ghost" className={`h-auto min-w-20 px-1 py-2 ${paid ? 'text-success' : ''}`} aria-label={`${row.title} — ${m} ${year}`} onClick={() => setCell({ title: `${row.title} — ${m} ${year}`, entries: monthEntries })}>{formatBRL(monthEntries.reduce((sum, e) => sum + e.expected_cents, 0))}</Button>{monthEntries.length === 1 && !monthEntries[0].received_date && !monthEntries[0].contract_id && <Button size="icon" variant="ghost" className="h-6 w-6 text-muted-foreground hover:text-primary" title={`Reajustar ${row.title} em ${m}/${year}`} aria-label={`Reajustar ${row.title} em ${m}/${year}`} onClick={() => openForecast(monthEntries[0])}><Pencil className="h-3 w-3" /></Button>}</div> : '—'}</td>; })}<td className="px-3 py-2 text-right font-bold">{formatBRL(list.reduce((sum, e) => sum + e.expected_cents, 0))}</td></tr>; }) : <tr><td colSpan={14} className="px-4 py-12 text-center text-muted-foreground">Nenhuma conta a receber neste exercício.</td></tr>}</tbody><tfoot><tr className="border-t-2 bg-muted/70 font-bold"><th scope="row" className="sticky left-0 z-10 bg-muted px-3 py-3 text-left">Total mensal</th>{MONTHS.map((m, i) => { const monthly = annual.filter(e => e.due_date.startsWith(`${year}-${String(i + 1).padStart(2, '0')}-`)); return <td key={m} className="px-2 py-3 text-center whitespace-nowrap">{monthly.length ? formatBRL(monthly.reduce((sum, e) => sum + e.expected_cents, 0)) : '—'}</td>; })}<td className="px-3 py-3 text-right whitespace-nowrap">{formatBRL(annualSummary.expected)}</td></tr></tfoot></table></div><Button className="mt-4" variant="outline" onClick={() => setNewOpen(true)}><Plus />Nova fonte de renda</Button></>}
 
       {mode === 'history' && <>{!history.length && <p className="mt-10 text-center text-muted-foreground">Nenhum recebimento confirmado encontrado.</p>}{groups.map(g => { const list = history.filter(e => e.due_date.startsWith(g)); return <section key={g} className="mt-6 border-t pt-4"><div className="mb-3 flex flex-wrap items-center justify-between gap-2"><h2 className="text-lg font-bold">{monthLabel(g)}</h2><span className="text-sm text-success">{list.length} recebimentos • {formatBRL(list.reduce((sum, e) => sum + (e.received_cents ?? 0), 0))}</span></div><RevenueTable entries={list} onReceive={setSelected} onFiles={fileButton} /></section>; })}{events.some(e => e.kind === 'correção') && <section className="mt-6 border-t pt-5"><h2 className="text-lg font-bold">Registro de alterações</h2><div className="mt-3 divide-y text-sm">{events.filter(e => e.kind === 'correção').map(e => <div key={e.id} className="py-3"><strong>{entries.find(r => r.id === e.entry_id)?.title}</strong><span className="ml-2 text-muted-foreground">{new Date(e.created_at).toLocaleString('pt-BR')}</span><p className="mt-1">{e.reason}</p></div>)}</div></section>}</>}
 
@@ -183,6 +207,17 @@ export function RevenueWorkspace({ mode = 'registration', detailContractId, asRe
       </Dialog>
     )}
 
+
+    {forecast && <Dialog open onOpenChange={open => !open && !forecastBusy && setForecast(null)}>
+      <DialogContent className="max-w-md">
+        <DialogHeader><DialogTitle>Reajustar renda mensal</DialogTitle><DialogDescription>{forecast.title} · {monthLabel(forecast.due_date.slice(0, 7))}. O reajuste altera somente este mês e não modifica recebimentos confirmados.</DialogDescription></DialogHeader>
+        <div className="space-y-4">
+          <label className="block space-y-1 text-sm font-medium"><span>Novo valor previsto (R$)</span><Input inputMode="decimal" value={forecastValue} onChange={e => setForecastValue(e.target.value)} /></label>
+          <label className="block space-y-1 text-sm font-medium"><span>Motivo do reajuste</span><Input value={forecastReason} maxLength={1000} placeholder="Ex.: reajuste salarial" onChange={e => setForecastReason(e.target.value)} /></label>
+          <div className="flex justify-end gap-2"><Button variant="outline" disabled={forecastBusy} onClick={() => setForecast(null)}>Cancelar</Button><Button variant="brand" disabled={forecastBusy} onClick={saveForecast}>{forecastBusy ? 'Salvando…' : 'Salvar reajuste'}</Button></div>
+        </div>
+      </DialogContent>
+    </Dialog>}
     {selected && <ReceiveDialog entry={selected} onClose={() => setSelected(null)} onSaved={saved} />}
     {adjust && currentContract && <AdjustmentDialog entry={adjust} contract={currentContract} onClose={() => setAdjust(null)} onSaved={saved} onDocument={setDocument} />}
     {attachment && <Dialog open onOpenChange={o => !o && !fileBusy && setAttachment(null)}><DialogContent><DialogHeader><DialogTitle>Comprovantes e arquivos</DialogTitle><DialogDescription>Documentos vinculados ao registro.</DialogDescription></DialogHeader><div className="space-y-2">{files.filter(f => attachment.entryId ? f.entry_id === attachment.entryId : f.contract_id === attachment.contractId).map(f => <Button key={f.id} variant="outline" className="w-full justify-start" onClick={() => openAttachment(f.id)}><Paperclip />{f.name}</Button>)}</div>{fileBusy ? <p className="mt-3 text-sm text-muted-foreground">Enviando…</p> : <FileInput onChange={attach} />}</DialogContent></Dialog>}
