@@ -104,14 +104,17 @@ export const getMonthExpenses = createServerFn({ method: "POST" })
     const reviewFlags: string[] = [];
 
     // Sincronização anual → contas do mês (idempotente)
-    const { data: rows } = await supabase.from("annual_expenses").select("id, creditor, due_day").eq("year", y).order("position");
+    const { data: rows, error: rowError } = await supabase.from("annual_expenses").select("id, creditor, due_day").eq("year", y).order("position");
+    if (rowError) throw new Error(rowError.message);
     const rowIds = (rows ?? []).map((r: any) => r.id);
-    const { data: monthCells } = rowIds.length
+    const { data: monthCells, error: monthError } = rowIds.length
       ? await supabase.from("annual_expense_months").select("annual_expense_id, expected_cents").in("annual_expense_id", rowIds).eq("month", m)
-      : { data: [] };
+      : { data: [], error: null };
+    if (monthError) throw new Error(monthError.message);
     const cellByRow = new Map<string, number | null>((monthCells ?? []).map((c: any) => [c.annual_expense_id as string, c.expected_cents as number | null]));
 
-    const { data: existing } = await supabase.from("finance_bills").select("*").gte("due_date", start).lt("due_date", end);
+    const { data: existing, error: billError } = await supabase.from("finance_bills").select("*").gte("due_date", start).lt("due_date", end);
+    if (billError) throw new Error(billError.message);
     const bills = (existing ?? []) as any[];
     const linkedAnnual = new Set(bills.filter((b) => b.source_annual_id).map((b) => `${b.source_annual_id}:${b.source_period}`));
     const linkedInst = new Set(bills.filter((b) => b.contract_id).map((b) => `${b.contract_id}:${b.installment_number}`));
@@ -168,13 +171,37 @@ export const getMonthExpenses = createServerFn({ method: "POST" })
     }
     if (created > 0) await audit(supabase, "ensure_month", "period", period, null, { created });
 
-    const { data: finalBills } = await supabase.from("finance_bills").select("*").gte("due_date", start).lt("due_date", end);
+    const { data: finalBills, error: finalBillError } = await supabase.from("finance_bills").select("*").gte("due_date", start).lt("due_date", end);
+    if (finalBillError) throw new Error(finalBillError.message);
     const list = ((finalBills ?? []) as any[]).sort((a, b) => a.due_date.localeCompare(b.due_date) || a.creditor.localeCompare(b.creditor));
 
+    // Inclui as parcelas desta competência sem criar cópias de finance_bills.
+    // A baixa das parcelas virtuais usa a função canônica pay_installment.
+    const { data: monthInstallments, error: installmentError } = await supabase
+      .from("installment_entries").select("contract_id,number,expected_cents,paid_date,paid_cents,due_date,note")
+      .gte("due_date", start).lt("due_date", end);
+    if (installmentError) throw new Error(installmentError.message);
+    const { data: contractRows, error: contractError } = await supabase
+      .from("installment_contracts").select("id,name");
+    if (contractError) throw new Error(contractError.message);
+    const contractNames = new Map<string, string>((contractRows ?? []).map((r: any) => [r.id, r.name]));
+    const represented = new Set(list.filter(b => b.contract_id && b.installment_number != null)
+      .map(b => `${b.contract_id}:${b.installment_number}`));
+    for (const inst of monthInstallments ?? []) {
+      const key = `${inst.contract_id}:${inst.number}`;
+      if (represented.has(key) || !contractNames.has(inst.contract_id)) continue;
+      list.push({
+        id: `installment:${key}`, kind: "installment", contract_id: inst.contract_id,
+        installment_number: inst.number, creditor: contractNames.get(inst.contract_id),
+        due_date: inst.due_date, expected_cents: inst.expected_cents,
+        paid_date: inst.paid_date, paid_cents: inst.paid_cents, paid_note: inst.note,
+      });
+    }
+    list.sort((a, b) => a.due_date.localeCompare(b.due_date) || a.creditor.localeCompare(b.creditor));
     const kpis = {
       expected: list.reduce((s, b) => s + b.expected_cents, 0),
-      paid: list.filter((b) => b.paid_date).reduce((s, b) => s + (b.paid_cents ?? 0), 0),
-      open: list.filter((b) => !b.paid_date).reduce((s, b) => s + b.expected_cents, 0),
+      paid: list.reduce((s, b) => s + (b.paid_cents ?? 0), 0),
+      open: list.reduce((s, b) => s + Math.max(0, b.expected_cents - (b.paid_cents ?? 0)), 0),
       count: list.length,
     };
     return { bills: list, kpis, reviewFlags };
@@ -668,4 +695,162 @@ export const getAttachmentUrl = createServerFn({ method: "POST" })
     const { data: signed, error } = await supabase.storage.from("comprovantes").createSignedUrl(row.storage_path, 300);
     if (error || !signed) throw new Error("Não foi possível gerar o link do comprovante.");
     return { url: signed.signedUrl };
+  });
+
+
+// Consolidado de obrigações: não depende da competência selecionada na tela.
+// Contratos e despesas anuais são fontes canônicas; suas contas espelhadas não são somadas novamente.
+export const getGlobalDebtTotals = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { supabase, userId } = context as Ctx;
+    const loadAll = async (table: string, columns: string) => {
+      const records: any[] = [];
+      for (let from = 0; ; from += 1000) {
+        const { data, error } = await supabase.from(table).select(columns)
+          .eq("user_id", userId).range(from, from + 999);
+        if (error) throw new Error(`Falha ao consultar ${table}: ${error.message}`);
+        const page = (data ?? []) as any[];
+        records.push(...page);
+        if (page.length < 1000) break;
+      }
+      return records;
+    };
+    const [bills, annual, contracts, installments] = await Promise.all([
+      loadAll("finance_bills", "id,creditor,due_date,expected_cents,paid_date,paid_cents,source_annual_id,source_period,contract_id,installment_number"),
+      loadAll("annual_expenses", "id,year"),
+      loadAll("installment_contracts", "id"),
+      loadAll("installment_entries", "contract_id,number,expected_cents,paid_date,paid_cents"),
+    ]);
+    const { data: cardLinks, error: cardLinksError } = await supabase.from("finance_card_debt_links")
+      .select("liability_key,card_id").eq("user_id", userId);
+    if (cardLinksError) throw new Error(`Não foi possível consultar conciliação de cartões: ${cardLinksError.message}. Aplique a migração 0008.`);
+    const links = (cardLinks ?? []) as Array<{ liability_key: string; card_id: string }>;
+    const candidates: Array<{ key: string; label: string; open: number }> = [];
+    const annualIds = new Set(annual.map(row => row.id as string));
+    const contractIds = new Set(contracts.map(row => row.id as string));
+    const annualMonths: any[] = [];
+    const annualIdList = [...annualIds];
+    for (let i = 0; i < annualIdList.length; i += 100) {
+      const { data, error } = await supabase.from("annual_expense_months")
+        .select("annual_expense_id,month,expected_cents")
+        .in("annual_expense_id", annualIdList.slice(i, i + 100));
+      if (error) throw new Error(`Falha ao consultar despesas anuais: ${error.message}`);
+      annualMonths.push(...(data ?? []));
+    }
+    const paid = (r: any) => Math.max(0, Number(r.paid_cents) || 0);
+    const amount = (r: any) => Math.max(0, Number(r.expected_cents) || 0);
+    const linkedAnnual = new Map<string, any>();
+    const linkedInstallments = new Map<string, any>();
+    for (const bill of bills) {
+      if (bill.source_annual_id && bill.source_period) {
+        const key = `${bill.source_annual_id}:${bill.source_period}`;
+        if (linkedAnnual.has(key)) throw new Error(`Há contas anuais duplicadas para ${key}. Revise os lançamentos antes de consolidar.`);
+        linkedAnnual.set(key, bill);
+      }
+      if (bill.contract_id && bill.installment_number != null) {
+        const key = `${bill.contract_id}:${bill.installment_number}`;
+        if (linkedInstallments.has(key)) throw new Error(`Há parcelas duplicadas para ${key}. Revise os lançamentos antes de consolidar.`);
+        linkedInstallments.set(key, bill);
+      }
+    }
+    let total = 0;
+    let totalPaid = 0;
+    let standalone = 0;
+    let contractsTotal = 0;
+    let annualTotal = 0;
+    for (const entry of installments) {
+      if (!contractIds.has(entry.contract_id)) continue;
+      const linked = linkedInstallments.get(`${entry.contract_id}:${entry.number}`);
+      const value = amount(entry);
+      total += value;
+      contractsTotal += value;
+      // Uma baixa da parcela pode existir no contrato ou no espelho financeiro.
+      const settled = Math.max(paid(entry), paid(linked ?? {}));
+      totalPaid += settled;
+      const open = Math.max(0, value - settled);
+      if (open > 0) candidates.push({ key: `contract:${entry.contract_id}:${entry.number}`, label: `Contrato ${entry.contract_id} · Parcela ${entry.number}`, open });
+    }
+    const installmentKeys = new Set(installments.filter(e => contractIds.has(e.contract_id))
+      .map(e => `${e.contract_id}:${e.number}`));
+    for (const cell of annualMonths) {
+      if (!annualIds.has(cell.annual_expense_id)) continue;
+      const year = annual.find(a => a.id === cell.annual_expense_id)?.year;
+      const period = `${year}-${String(cell.month).padStart(2, "0")}`;
+      const bill = linkedAnnual.get(`${cell.annual_expense_id}:${period}`);
+      // Valores anuais que já representam parcelas contratadas são contados pelo contrato.
+      if (bill?.contract_id && installmentKeys.has(`${bill.contract_id}:${bill.installment_number}`)) continue;
+      const value = amount(cell);
+      total += value;
+      annualTotal += value;
+      const settled = paid(bill ?? {});
+      totalPaid += settled;
+      const open = Math.max(0, value - settled);
+      if (open > 0) candidates.push({ key: `annual:${cell.annual_expense_id}:${cell.month}`, label: `Despesa anual ${year} · Mês ${cell.month} · ${bill?.creditor ?? cell.annual_expense_id}`, open });
+    }
+    for (const bill of bills) {
+      if (bill.contract_id && installmentKeys.has(`${bill.contract_id}:${bill.installment_number}`)) continue;
+      const annualKey = `${bill.source_annual_id}:${bill.source_period}`;
+      if (bill.source_annual_id && linkedAnnual.get(annualKey) === bill &&
+          annualIds.has(bill.source_annual_id)) {
+        const year = annual.find(a => a.id === bill.source_annual_id)?.year;
+        const month = Number(bill.source_period?.slice(5, 7));
+        if (annualMonths.some(c => c.annual_expense_id === bill.source_annual_id &&
+          c.month === month && year === Number(bill.source_period?.slice(0, 4)))) continue;
+      }
+      total += amount(bill);
+      totalPaid += paid(bill);
+      standalone += amount(bill);
+      const open = Math.max(0, amount(bill) - paid(bill));
+      if (open > 0) candidates.push({ key: `bill:${bill.id}`, label: `${bill.creditor} · ${bill.due_date}`, open });
+    }
+    return { expected: total, paid: totalPaid, open: Math.max(0, total - totalPaid),
+      contracts: contractsTotal, annual: annualTotal, standalone, candidates, links };
+  });
+
+
+// Conciliação manual e explícita: nunca inferir duplicidade só por nome ou valor.
+// A ligação não modifica a despesa nem o saldo fornecido pelo banco.
+export const setCardDebtLink = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) => z.object({
+    key: z.string().min(3).max(160).regex(/^(bill|annual|contract):/),
+    cardId: z.string().min(1).max(160).nullable(),
+  }).parse(input))
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context as Ctx;
+    const [kind, entityId, part] = data.key.split(":");
+    if (kind === "bill") {
+      const { data: bill, error } = await supabase.from("finance_bills").select("id").eq("user_id", userId).eq("id", entityId).maybeSingle();
+      if (error) throw new Error(error.message);
+      if (!bill) throw new Error("Despesa não encontrada");
+    } else if (kind === "contract") {
+      const number = Number(part);
+      if (!Number.isInteger(number) || number < 1) throw new Error("Parcela inválida");
+      const { data: inst, error } = await supabase.from("installment_entries").select("number").eq("user_id", userId).eq("contract_id", entityId).eq("number", number).maybeSingle();
+      if (error) throw new Error(error.message);
+      if (!inst) throw new Error("Parcela não encontrada");
+    } else if (kind === "annual") {
+      const month = Number(part);
+      if (!Number.isInteger(month) || month < 1 || month > 12) throw new Error("Mês inválido");
+      const { data: annual, error } = await supabase.from("annual_expenses").select("id").eq("user_id", userId).eq("id", entityId).maybeSingle();
+      if (error) throw new Error(error.message);
+      if (!annual) throw new Error("Despesa anual não encontrada");
+    } else throw new Error("Origem inválida");
+    if (data.cardId) {
+      const { data: connected, error } = await supabase.from("pluggy_items").select("item_id").eq("user_id", userId);
+      if (error) throw new Error(error.message);
+      if (!connected?.length) throw new Error("Não há cartões conectados para conciliação");
+      // O ID bancário só afeta o total quando também está presente na carteira autenticada.
+      const { error: writeError } = await supabase.from("finance_card_debt_links").upsert({
+        user_id: userId, liability_key: data.key, card_id: data.cardId, updated_at: new Date().toISOString(),
+      }, { onConflict: "user_id,liability_key" });
+      if (writeError) throw new Error(writeError.message);
+    } else {
+      const { error } = await supabase.from("finance_card_debt_links").delete()
+        .eq("user_id", userId).eq("liability_key", data.key);
+      if (error) throw new Error(error.message);
+    }
+    await audit(supabase, "reconcile_card_debt", "card_debt_link", data.key, null, { cardLinked: Boolean(data.cardId) });
+    return { ok: true };
   });

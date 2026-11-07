@@ -122,6 +122,7 @@ export const getFinances = createServerFn({ method: "GET" })
     }
     const accounts: FinanceAccount[] = [];
     const transactions: FinanceTx[] = [];
+    const accountErrors: string[] = [];
     const from = new Date(Date.now() - 60 * 86400000).toISOString().slice(0, 10);
     for (const it of items) {
       try {
@@ -165,12 +166,12 @@ export const getFinances = createServerFn({ method: "GET" })
             });
           }
         }
-      } catch {
-        // item com erro: ignora
+      } catch (error) {
+        accountErrors.push(error instanceof Error ? error.message : "Erro ao consultar conta conectada");
       }
     }
     transactions.sort((a, b) => b.date.localeCompare(a.date));
-    return { accounts, transactions: transactions.slice(0, 40), error: null };
+    return { accounts, transactions: transactions.slice(0, 40), error: accountErrors.length ? `Não foi possível consultar ${accountErrors.length} conexão(ões) bancária(s). Atualize ou reconecte os bancos antes de calcular o consolidado.` : null };
   });
 
 export const getCredentialStatus = createServerFn({ method: "GET" })
