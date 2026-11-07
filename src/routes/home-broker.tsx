@@ -249,19 +249,47 @@ function HomeBroker() {
         </div>
       </section>
       <section className="rounded-2xl border bg-card p-4 shadow-soft">
-        <div className="mb-3 flex items-center justify-between"><h2 className="font-bold">Cartões — limite utilizado</h2>
-          <Link to="/painel" className="text-sm font-semibold text-primary underline">Abrir Carteira</Link></div>
-        {wallet.error && <p className="text-sm text-destructive">Dados dos cartões indisponíveis.</p>}
-        {cards.length === 0 && !wallet.isLoading && <p className="text-sm text-muted-foreground">Nenhum cartão disponível.</p>}
-        <div className="space-y-3">
-          {cards.map(card => { const used = Math.max(0, card.creditLimit - card.available); const percentage = card.creditLimit ? Math.min(100, used / card.creditLimit * 100) : 0;
-            return <div className="grid gap-2 border-t pt-3 sm:grid-cols-4" key={card.id}>
-              <strong className="truncate">{card.name}</strong><span>Limite: {formatBRL(Math.round(card.creditLimit * 100))}</span>
-              <span>Usado: {formatBRL(Math.round(used * 100))}</span>
-              <div className="flex items-center gap-2"><div className="h-2 flex-1 rounded-full bg-muted"><div className="h-full rounded-full bg-primary" style={{width: `${percentage}%`}} /></div><span className="text-xs">{percentage.toFixed(0)}%</span></div>
-            </div>; })}
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <h2 className="font-bold">Cartões — limite utilizado</h2>
+            <button type="button" aria-label={cardsUnlocked ? "Bloquear edição dos cartões" : "Desbloquear edição dos cartões"} title={cardsUnlocked ? "Bloquear edição" : "Liberar edição manual"} aria-pressed={cardsUnlocked} onClick={unlockCards} className="rounded-full border p-2 hover:bg-muted focus-visible:ring-2 focus-visible:ring-primary">
+              {cardsUnlocked ? <Unlock className="size-4" /> : <Lock className="size-4" />}
+            </button>
+          </div>
+          <Link to="/painel" className="text-sm font-semibold text-primary underline">Abrir Carteira</Link>
         </div>
-        <div className="mt-3 border-t pt-3 text-sm font-semibold">Limite total: {formatBRL(Math.round(limits.limit * 100))} · Utilizado: {formatBRL(Math.round(limits.used * 100))}</div>
+        {wallet.error && <p role="alert" className="text-sm text-destructive">Dados dos cartões indisponíveis.</p>}
+        {overrides.error && <p role="alert" className="text-sm text-destructive">Ajustes manuais indisponíveis: {overrides.error.message}</p>}
+        {cards.length === 0 && !wallet.isLoading && <p className="text-sm text-muted-foreground">Nenhum cartão disponível.</p>}
+        {cardsUnlocked && <p className="mb-3 text-xs text-muted-foreground">Edite e salve cada cartão. Os ajustes manuais ficam separados dos valores bancários até você restaurar a origem Open Finance.</p>}
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[720px] text-sm">
+            <thead className="bg-muted text-left text-xs uppercase text-muted-foreground">
+              <tr><th className="p-3">Cartão</th><th className="p-3">Limite</th><th className="p-3">Utilizado</th><th className="p-3">Disponível</th><th className="p-3">% utilizado</th>{cardsUnlocked && <th className="p-3">Ações</th>}</tr>
+            </thead>
+            <tbody className="divide-y">
+              {cards.map(card => {
+                const value = effective(card);
+                const available = Math.max(0, value.limit - value.used);
+                const percentage = value.limit > 0 ? Math.min(100, 100 * value.used / value.limit) : 0;
+                const draft = cardDrafts[card.id] ?? { limit: (value.limit / 100).toFixed(2), used: (value.used / 100).toFixed(2) };
+                return <tr key={card.id}>
+                  <td className="p-3 font-semibold">{card.name}{value.manual && <span className="ml-2 text-xs font-normal text-muted-foreground">Ajuste manual</span>}</td>
+                  <td className="p-3">{cardsUnlocked ? <input aria-label={`Limite do cartão ${card.name}`} className="w-28 rounded-md border bg-background p-2" inputMode="decimal" value={draft.limit} onChange={e => setCardDrafts(prev => ({...prev, [card.id]: {...draft, limit: e.target.value}}))} /> : formatBRL(value.limit)}</td>
+                  <td className="p-3">{cardsUnlocked ? <input aria-label={`Valor utilizado do cartão ${card.name}`} className="w-28 rounded-md border bg-background p-2" inputMode="decimal" value={draft.used} onChange={e => setCardDrafts(prev => ({...prev, [card.id]: {...draft, used: e.target.value}}))} /> : formatBRL(value.used)}</td>
+                  <td className="p-3">{formatBRL(available)}</td>
+                  <td className="p-3"><div className="flex items-center gap-2"><div className="h-2 w-20 rounded-full bg-muted"><div className="h-full rounded-full bg-primary" style={{ width: `${percentage}%` }} /></div><span>{percentage.toFixed(1)}%</span></div></td>
+                  {cardsUnlocked && <td className="p-3"><div className="flex flex-wrap gap-1"><Button size="sm" disabled={savingCard === card.id || !!overrides.error} onClick={() => void saveCard(card.id)}>Salvar</Button>{value.manual && <Button size="sm" variant="outline" disabled={savingCard === card.id} onClick={() => void restoreCard(card.id)}>Restaurar Open Finance</Button>}</div></td>}
+                </tr>;
+              })}
+            </tbody>
+            <tfoot className="bg-muted font-semibold"><tr>
+              <td className="p-3">Total</td><td className="p-3">{formatBRL(limits.limit)}</td><td className="p-3">{formatBRL(limits.used)}</td>
+              <td className="p-3">{formatBRL(Math.max(0, limits.limit - limits.used))}</td>
+              <td className="p-3">{limits.limit ? (100 * limits.used / limits.limit).toFixed(1) : "0,0"}%</td>{cardsUnlocked && <td />}
+            </tr></tfoot>
+          </table>
+        </div>
       </section>
     </div>
     <PayDialog target={target} onClose={() => setTarget(null)} onSaved={refresh} />
