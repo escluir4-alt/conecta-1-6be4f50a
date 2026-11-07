@@ -21,6 +21,7 @@ import { Route as CrediarioRouteImport } from './routes/crediario'
 import { Route as DespesasRouteImport } from './routes/despesas'
 import { Route as HistoricoPagamentosRouteImport } from './routes/historico-pagamentos'
 import { Route as HistoricoReceitasRouteImport } from './routes/historico-receitas'
+import { Route as HomeBrokerRouteImport } from './routes/home-broker'
 import { Route as MoedasRouteImport } from './routes/moedas'
 import { Route as NotasRouteImport } from './routes/notas'
 import { Route as NotasFiscaisRouteImport } from './routes/notas-fiscais'
@@ -28,6 +29,7 @@ import { Route as NuvemRouteImport } from './routes/nuvem'
 import { Route as PainelRouteImport } from './routes/painel'
 import { Route as PerfilRouteImport } from './routes/perfil'
 import { Route as ReceitasRouteImport } from './routes/receitas'
+import { Route as RelogioRouteImport } from './routes/relogio'
 import { Route as ViagensRouteImport } from './routes/viagens'
 import { Route as ContratosReceitasContractIdRouteImport } from './routes/contratos-receitas.$contractId'
 import { Route as CotacoesTickerRouteImport } from './routes/cotacoes_.$ticker'
@@ -94,6 +96,11 @@ const HistoricoReceitasRoute = HistoricoReceitasRouteImport.update({
   path: '/historico-receitas',
   getParentRoute: () => rootRouteImport,
 } as any)
+const HomeBrokerRoute = HomeBrokerRouteImport.update({
+  id: '/home-broker',
+  path: '/home-broker',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const MoedasRoute = MoedasRouteImport.update({
   id: '/moedas',
   path: '/moedas',
@@ -127,6 +134,11 @@ const PerfilRoute = PerfilRouteImport.update({
 const ReceitasRoute = ReceitasRouteImport.update({
   id: '/receitas',
   path: '/receitas',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RelogioRoute = RelogioRouteImport.update({
+  id: '/relogio',
+  path: '/relogio',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ViagensRoute = ViagensRouteImport.update({
@@ -169,6 +181,7 @@ export interface FileRoutesByFullPath {
   '/despesas': typeof DespesasRouteWithChildren
   '/historico-pagamentos': typeof HistoricoPagamentosRoute
   '/historico-receitas': typeof HistoricoReceitasRoute
+  '/home-broker': typeof HomeBrokerRoute
   '/moedas': typeof MoedasRoute
   '/notas': typeof NotasRoute
   '/notas-fiscais': typeof NotasFiscaisRoute
@@ -176,6 +189,7 @@ export interface FileRoutesByFullPath {
   '/painel': typeof PainelRoute
   '/perfil': typeof PerfilRoute
   '/receitas': typeof ReceitasRoute
+  '/relogio': typeof RelogioRoute
   '/viagens': typeof ViagensRoute
   '/contratos-receitas/$contractId': typeof ContratosReceitasContractIdRoute
   '/cotacoes/$ticker': typeof CotacoesTickerRoute
@@ -195,6 +209,7 @@ export interface FileRoutesByTo {
   '/despesas': typeof DespesasRouteWithChildren
   '/historico-pagamentos': typeof HistoricoPagamentosRoute
   '/historico-receitas': typeof HistoricoReceitasRoute
+  '/home-broker': typeof HomeBrokerRoute
   '/moedas': typeof MoedasRoute
   '/notas': typeof NotasRoute
   '/notas-fiscais': typeof NotasFiscaisRoute
@@ -202,6 +217,7 @@ export interface FileRoutesByTo {
   '/painel': typeof PainelRoute
   '/perfil': typeof PerfilRoute
   '/receitas': typeof ReceitasRoute
+  '/relogio': typeof RelogioRoute
   '/viagens': typeof ViagensRoute
   '/contratos-receitas/$contractId': typeof ContratosReceitasContractIdRoute
   '/cotacoes/$ticker': typeof CotacoesTickerRoute
@@ -222,6 +238,7 @@ export interface FileRoutesById {
   '/despesas': typeof DespesasRouteWithChildren
   '/historico-pagamentos': typeof HistoricoPagamentosRoute
   '/historico-receitas': typeof HistoricoReceitasRoute
+  '/home-broker': typeof HomeBrokerRoute
   '/moedas': typeof MoedasRoute
   '/notas': typeof NotasRoute
   '/notas-fiscais': typeof NotasFiscaisRoute
@@ -229,6 +246,7 @@ export interface FileRoutesById {
   '/painel': typeof PainelRoute
   '/perfil': typeof PerfilRoute
   '/receitas': typeof ReceitasRoute
+  '/relogio': typeof RelogioRoute
   '/viagens': typeof ViagensRoute
   '/contratos-receitas/$contractId': typeof ContratosReceitasContractIdRoute
   '/cotacoes_/$ticker': typeof CotacoesTickerRoute
@@ -250,6 +268,7 @@ export interface FileRouteTypes {
     | '/despesas'
     | '/historico-pagamentos'
     | '/historico-receitas'
+    | '/home-broker'
     | '/moedas'
     | '/notas'
     | '/notas-fiscais'
@@ -257,6 +276,7 @@ export interface FileRouteTypes {
     | '/painel'
     | '/perfil'
     | '/receitas'
+    | '/relogio'
     | '/viagens'
     | '/contratos-receitas/$contractId'
     | '/cotacoes/$ticker'
@@ -276,6 +296,7 @@ export interface FileRouteTypes {
     | '/despesas'
     | '/historico-pagamentos'
     | '/historico-receitas'
+    | '/home-broker'
     | '/moedas'
     | '/notas'
     | '/notas-fiscais'
@@ -283,6 +304,7 @@ export interface FileRouteTypes {
     | '/painel'
     | '/perfil'
     | '/receitas'
+    | '/relogio'
     | '/viagens'
     | '/contratos-receitas/$contractId'
     | '/cotacoes/$ticker'
@@ -302,6 +324,7 @@ export interface FileRouteTypes {
     | '/despesas'
     | '/historico-pagamentos'
     | '/historico-receitas'
+    | '/home-broker'
     | '/moedas'
     | '/notas'
     | '/notas-fiscais'
@@ -309,6 +332,7 @@ export interface FileRouteTypes {
     | '/painel'
     | '/perfil'
     | '/receitas'
+    | '/relogio'
     | '/viagens'
     | '/contratos-receitas/$contractId'
     | '/cotacoes_/$ticker'
@@ -329,6 +353,7 @@ export interface RootRouteChildren {
   DespesasRoute: typeof DespesasRouteWithChildren
   HistoricoPagamentosRoute: typeof HistoricoPagamentosRoute
   HistoricoReceitasRoute: typeof HistoricoReceitasRoute
+  HomeBrokerRoute: typeof HomeBrokerRoute
   MoedasRoute: typeof MoedasRoute
   NotasRoute: typeof NotasRoute
   NotasFiscaisRoute: typeof NotasFiscaisRoute
@@ -336,6 +361,7 @@ export interface RootRouteChildren {
   PainelRoute: typeof PainelRoute
   PerfilRoute: typeof PerfilRoute
   ReceitasRoute: typeof ReceitasRoute
+  RelogioRoute: typeof RelogioRoute
   ViagensRoute: typeof ViagensRoute
   ContratosReceitasContractIdRoute: typeof ContratosReceitasContractIdRoute
   CotacoesTickerRoute: typeof CotacoesTickerRoute
@@ -427,6 +453,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof HistoricoReceitasRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/home-broker': {
+      id: '/home-broker'
+      path: '/home-broker'
+      fullPath: '/home-broker'
+      preLoaderRoute: typeof HomeBrokerRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/moedas': {
       id: '/moedas'
       path: '/moedas'
@@ -474,6 +507,13 @@ declare module '@tanstack/react-router' {
       path: '/receitas'
       fullPath: '/receitas'
       preLoaderRoute: typeof ReceitasRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/relogio': {
+      id: '/relogio'
+      path: '/relogio'
+      fullPath: '/relogio'
+      preLoaderRoute: typeof RelogioRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/viagens': {
@@ -541,6 +581,7 @@ const rootRouteChildren: RootRouteChildren = {
   DespesasRoute: DespesasRouteWithChildren,
   HistoricoPagamentosRoute: HistoricoPagamentosRoute,
   HistoricoReceitasRoute: HistoricoReceitasRoute,
+  HomeBrokerRoute: HomeBrokerRoute,
   MoedasRoute: MoedasRoute,
   NotasRoute: NotasRoute,
   NotasFiscaisRoute: NotasFiscaisRoute,
@@ -548,6 +589,7 @@ const rootRouteChildren: RootRouteChildren = {
   PainelRoute: PainelRoute,
   PerfilRoute: PerfilRoute,
   ReceitasRoute: ReceitasRoute,
+  RelogioRoute: RelogioRoute,
   ViagensRoute: ViagensRoute,
   ContratosReceitasContractIdRoute: ContratosReceitasContractIdRoute,
   CotacoesTickerRoute: CotacoesTickerRoute,
