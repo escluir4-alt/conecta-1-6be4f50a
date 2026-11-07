@@ -6,13 +6,13 @@ export const Route = createFileRoute("/receitas")({
   head: () => ({
     meta: [
       { title: "Receitas — Axion" },
-      { name: "description", content: "Cadastro e acompanhamento das suas receitas." },
+      { name: "description", content: "Controle anual de receitas previstas, recebidas e pendentes." },
       { property: "og:title", content: "Receitas — Axion" },
       { property: "og:description", content: "Cadastro e acompanhamento das suas receitas." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
     ],
   }),
-  component: RevenueWorkspace,
+  component: () => <RevenueWorkspace mode="annual" asReceitas />,
 });
 
