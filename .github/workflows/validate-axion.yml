@@ -3,7 +3,7 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [fix/consolidado-dividas-registro-20261107]
+    branches: [main]
 jobs:
   check:
     runs-on: ubuntu-latest
