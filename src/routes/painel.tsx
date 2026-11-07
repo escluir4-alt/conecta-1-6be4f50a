@@ -16,8 +16,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { AppShell } from "@/components/AppShell";
 import {
-  createConnectToken, getCredentialStatus, getFinances, getStatement, removeItem, saveItem, updateCredentials,
-  type FinanceAccount,
+  createConnectToken, getFinances, removeItem, saveItem,
+  type FinanceAccount, type PluggySlot,
 } from "@/lib/pluggy.functions";
 import { getFinanceAccountProfiles, saveFinanceAccountProfile, recordClosedCardInvoice, syncProviderClosedCardInvoices } from "@/lib/finance/card-profile.functions";
 import { getAnnualYear } from "@/lib/finance/finance.functions";
@@ -63,7 +63,8 @@ function Painel() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [user, setUser] = useState<{ email: string; name: string } | null>(null);
-  const [secretOpen, setSecretOpen] = useState(false);
+  const [pluggySlot, setPluggySlot] = useState<PluggySlot>("primary");
+  const [originFilter,setOriginFilter] = useState<"all"|PluggySlot>("all");
   const [statementAcc, setStatementAcc] = useState<FinanceAccount | null>(null);
   const [historyAccountId, setHistoryAccountId] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -135,8 +136,9 @@ function Painel() {
     }).catch(() => setSyncMessage("Sincronização de faturas indisponível; dados anteriores preservados."));
     return undefined;
   }, [user, q.data, q.dataUpdatedAt, profilesQuery.data, profilesQuery.dataUpdatedAt, syncProvider, qc]);
-  const accounts = q.data?.accounts ?? [];
-  const txs = q.data?.transactions ?? [];
+  const allAccounts = q.data?.accounts ?? [];
+  const accounts = originFilter === "all" ? allAccounts : allAccounts.filter(a=>a.connectionSlot===originFilter);
+  const txs = originFilter === "all" ? (q.data?.transactions ?? []) : (q.data?.transactions ?? []).filter(t=>t.connectionSlot===originFilter);
   const banks = accounts.filter((a) => a.type === "BANK");
   const cards = accounts.filter((a) => a.type === "CREDIT");
 
@@ -165,14 +167,14 @@ function Painel() {
     } catch (e) { toast.error((e as Error).message); }
   }
 
-  async function connect() {
+  async function connect(slot: PluggySlot = pluggySlot) {
     try {
-      const [{ connectToken }] = await Promise.all([tokenFn(), loadPluggyScript()]);
+      const [{ connectToken }] = await Promise.all([tokenFn({data:{slot}}), loadPluggyScript()]);
       const widget = new window.PluggyConnect!({
         connectToken,
         includeSandbox: true,
         onSuccess: async (data: { item: { id: string; connector?: { name?: string } } }) => {
-          await saveFn({ data: { itemId: data.item.id, connectorName: data.item.connector?.name ?? "" } });
+          await saveFn({ data: { itemId: data.item.id, connectorName: data.item.connector?.name ?? "", slot } });
           toast.success("Banco conectado! Sincronizando seus dados…");
           qc.invalidateQueries({ queryKey: ["finances"] });
         },
@@ -184,8 +186,8 @@ function Painel() {
     }
   }
 
-  async function disconnect(itemId: string) {
-    await removeFn({ data: { itemId } });
+  async function disconnect(itemId: string, slot: PluggySlot) {
+    await removeFn({ data: { itemId, slot } });
     toast.success("Conexão removida.");
     qc.invalidateQueries({ queryKey: ["finances"] });
   }
@@ -208,9 +210,10 @@ function Painel() {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-60">
               <DropdownMenuLabel>Ações</DropdownMenuLabel>
-              <DropdownMenuItem onClick={connect}><Plus />Conectar banco</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => void connect("primary")}><Plus />Conectar pelo Meu Pluggy 01</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => void connect("secondary")}><Plus />Conectar pelo Meu Pluggy 02</DropdownMenuItem>
               <DropdownMenuItem onClick={() => qc.invalidateQueries({ queryKey: ["finances"] })}><RefreshCw />Atualizar dados</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setSecretOpen(true)}><KeyRound />Alterar Client Secret</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => navigate({to:"/configuracoes/open-finance"})}><KeyRound />Configurar credenciais Pluggy</DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={signOut}><LogOut />Sair</DropdownMenuItem>
             </DropdownMenuContent>
@@ -226,17 +229,30 @@ function Painel() {
               <h1 className="text-3xl font-extrabold">Contas e Cartões</h1>
               <p className="text-sm text-muted-foreground">Suas contas, cartões e movimentações financeiras em um só lugar.</p>
             </div>
-            <Button variant="brand" className="h-11" onClick={connect}><Plus />Adicionar conta ou cartão</Button>
+            <div className="flex flex-wrap items-center gap-2">
+              <select aria-label="Selecionar aplicação Pluggy" className="h-11 rounded-xl border bg-card px-3 text-sm" value={pluggySlot} onChange={e=>setPluggySlot(e.target.value as PluggySlot)}>
+                <option value="primary">Meu Pluggy 01</option><option value="secondary">Meu Pluggy 02</option>
+              </select>
+              <Button variant="brand" className="h-11" onClick={() => void connect()}><Plus />Adicionar conta ou cartão</Button>
+            </div>
           </div>
 
           {syncMessage && <p role="status" className="mt-3 text-xs text-muted-foreground">{syncMessage}</p>}
           {q.data?.error && (
             <div className="mt-6 rounded-xl border border-destructive/30 bg-danger-soft p-4 text-sm">
               {q.data.error}{" "}
-              <button className="font-semibold underline" onClick={() => setSecretOpen(true)}>Alterar credenciais</button>
+              <button className="font-semibold underline" onClick={() => navigate({to:"/configuracoes/open-finance"})}>Configurar credenciais</button>
             </div>
           )}
 
+          <div className="mt-5 flex items-center gap-2">
+            <label htmlFor="wallet-origin" className="text-xs font-medium text-muted-foreground">Origem</label>
+            <select id="wallet-origin" className="rounded-xl border bg-card px-3 py-2 text-xs" value={originFilter} onChange={e=>setOriginFilter(e.target.value as "all"|PluggySlot)}>
+              <option value="all">Todas as conexões</option>
+              <option value="primary">Meu Pluggy 01</option>
+              <option value="secondary">Meu Pluggy 02</option>
+            </select>
+          </div>
           <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <Kpi icon={Wallet} label="Saldo total" value={brl(stats.saldo)} sub={`em ${banks.length} contas`} />
             <Kpi icon={CreditCard} label="Limite total (cartões)" value={brl(stats.limite)} sub={`em ${cards.length} cartões`} />
@@ -261,7 +277,7 @@ function Painel() {
               <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
                 Pelo Open Finance você autoriza o acesso com segurança e vê saldos, cartões e movimentações aqui.
               </p>
-              <Button variant="brand" className="mt-6 h-11" onClick={connect}><Plus />Conectar banco</Button>
+              <Button variant="brand" className="mt-6 h-11" onClick={() => void connect()}><Plus />Conectar banco</Button>
             </div>
           ) : (
             <div className="mt-6 grid gap-6 xl:grid-cols-3">
@@ -337,7 +353,7 @@ function Painel() {
       </Dialog>
       <MovementHistoryDialog open={historyOpen} initialAccount={historyAccountId} accounts={accounts} labelFor={titleFor} onClose={() => setHistoryOpen(false)} />
       <CardStatementDialog acc={statementAcc} name={statementAcc ? titleFor(statementAcc) : ""} brand={statementAcc ? brandFor(statementAcc) : ""} onClose={() => setStatementAcc(null)} />
-      <SecretDialog open={secretOpen} onOpenChange={setSecretOpen} onSaved={() => qc.invalidateQueries({ queryKey: ["finances"] })} />
+      
     </AppShell>
   );
 }
@@ -419,62 +435,6 @@ function Row({ acc, title, sub, right, onClick, onRemove, onHistory }: { acc: Fi
       {right}
       <button type="button" onClick={e=>{e.stopPropagation();onRemove();}} aria-label={`Editar ${title}`} title="Editar nomenclatura" className="text-muted-foreground opacity-0 transition group-hover:opacity-100 focus-visible:opacity-100 hover:text-primary"><Pencil className="size-4" /></button>
     </div>
-  );
-}
-
-function SecretDialog({ open, onOpenChange, onSaved }: { open: boolean; onOpenChange: (o: boolean) => void; onSaved: () => void }) {
-  const statusFn = useServerFn(getCredentialStatus);
-  const updateFn = useServerFn(updateCredentials);
-  const status = useQuery({ queryKey: ["cred-status"], queryFn: () => statusFn(), enabled: open });
-  const [clientId, setClientId] = useState("");
-  const [secret, setSecret] = useState("");
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    if (status.data) setClientId(status.data.clientId);
-  }, [status.data]);
-
-  async function save() {
-    setSaving(true);
-    try {
-      await updateFn({ data: { clientId, clientSecret: secret } });
-      toast.success("Client Secret atualizado com sucesso.");
-      setSecret("");
-      status.refetch();
-      onSaved();
-      onOpenChange(false);
-    } catch (e) {
-      toast.error((e as Error).message);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Alterar Client Secret (Pluggy)</DialogTitle>
-          <DialogDescription>
-            As credenciais são testadas na Pluggy antes de salvar. Secret atual: {status.data?.secretHint ?? "…"}
-          </DialogDescription>
-        </DialogHeader>
-        <div className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="cid">Client ID</Label>
-            <Input id="cid" value={clientId} onChange={(e) => setClientId(e.target.value)} />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="csec">Novo Client Secret</Label>
-            <Input id="csec" type="password" value={secret} onChange={(e) => setSecret(e.target.value)} placeholder="Cole o novo Client Secret" />
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
-          <Button variant="brand" onClick={save} disabled={saving || !secret}>{saving ? "Validando…" : "Salvar"}</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }
 
