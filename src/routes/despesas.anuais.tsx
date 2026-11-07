@@ -132,7 +132,8 @@ function AnuaisPage() {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Link to="/despesas"><Button variant="outline"><ArrowLeft />Despesas do Mês</Button></Link>
-            <Link to="/despesas/parceladas"><Button variant="brand">Despesas parceladas <ArrowRight /></Button></Link>
+            <Link to="/despesas/parceladas"><Button variant="brand">Contratos parcelados <ArrowRight /></Button></Link>
+            <Link to="/historico-pagamentos"><Button variant="outline">Histórico de pagamentos</Button></Link>
           </div>
         </div>
 
