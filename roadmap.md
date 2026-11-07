@@ -1,5 +1,11 @@
 # Roadmap — Módulo Despesas Axion
 
+## Registro integrado e Painel Financeiro — novembro/2026
+- [ ] Unificar leitura de obrigações anuais, avulsas e parcelas, sem importação automática ou dupla contagem.
+- [ ] Reutilizar o único registro nos dois destinos, com modalidades Despesas/Receitas, CSV, erros de leitura e baixa auditada.
+- [ ] Validar parciais, concorrência, idempotência, vínculos e atualização dos históricos/painel; não publicar.
+- [ ] Executar testes/lint disponíveis, conferir preview e registrar resultado e limitações.
+
 ## Receitas / contas a receber
 - [x] Corrigir confirmação na grade anual com histórico e quitação da parcela correspondente; receita e contrato verificados com sessão real.
 - [x] Abrir cadastro preenchido para editar a fonte de renda, preservando recebimentos já confirmados; leitura após salvar verificada.
