@@ -98,7 +98,8 @@ function HomeBroker() {
     <div className="space-y-6 p-5 lg:p-8">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div><h1 className="text-3xl font-extrabold">Painel Financeiro</h1>
-          <p className="text-sm text-muted-foreground">Visão consolidada do Conecta, sem importar ou substituir cadastros.</p>
+          <p className="text-sm text-muted-foreground">Visão consolidada do Axion, sem importar ou substituir cadastros.</p>
+          <p className="mt-1 text-xs text-muted-foreground" data-release="github-sync-20261107-3">Versão GitHub: 2026.11.07.3</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Link to="/receitas"><Button variant="outline">Receitas <ArrowUpRight className="size-4" /></Button></Link>
