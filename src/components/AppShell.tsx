@@ -10,8 +10,6 @@ import {
   CarFront,
   FileText,
   FolderArchive,
-  Bot,
-  CreditCard,
   History,
   Layers,
   LineChart,
@@ -165,7 +163,6 @@ export function AppShell({
         <NavLink to="/despesas/parceladas" icon={Layers} label="Contratos parcelados" active={active === "parceladas"} indent onNavigate={onNavigate} />
         <NavLink to="/historico-pagamentos" icon={History} label="Histórico de pagamentos" active={active === "historico"} indent onNavigate={onNavigate} />
       </div>
-      <NavLink to="/painel" icon={CreditCard} label="Carteira — contas e cartões" active={false} indent={indent} onNavigate={onNavigate} />
       <NavLink to="/cotacoes" icon={LineChart} label="Bolsa de valores" active={active === "cotacoes"} indent={indent} onNavigate={onNavigate} />
       <NavLink to="/moedas" icon={LineChart} label="Moedas" active={active === "moedas"} indent={indent} onNavigate={onNavigate} />
       <div className="px-3 pt-5 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Organização pessoal</div>
