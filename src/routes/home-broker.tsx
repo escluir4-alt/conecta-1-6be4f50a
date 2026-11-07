@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
+import { toast } from "sonner";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { RefreshCw, ArrowUpRight } from "lucide-react";
@@ -8,8 +9,9 @@ import { PayDialog, type PayTarget } from "@/components/finance/PayDialog";
 import { AttachmentButton } from "@/components/finance/AttachmentButton";
 import { Button } from "@/components/ui/button";
 import { formatBRL, formatDateBR } from "@/lib/finance/money";
-import { getMonthExpenses, getContracts, getGlobalDebtTotals } from "@/lib/finance/finance.functions";
+import { getMonthExpenses, getContracts, getGlobalDebtTotals, setCardDebtLink } from "@/lib/finance/finance.functions";
 import { getFinances } from "@/lib/pluggy.functions";
+import { calculateCardDebtOverlap } from "@/lib/finance/card-debt-reconciliation";
 import { getRevenue } from "@/lib/finance/revenue.functions";
 import { ReceiveDialog } from "@/components/finance/RevenueForms";
 import type { RevenueEntry } from "@/lib/finance/revenue";
@@ -43,6 +45,8 @@ function HomeBroker() {
   const walletFn = useServerFn(getFinances);
   const contractsFn = useServerFn(getContracts);
   const globalDebtFn = useServerFn(getGlobalDebtTotals);
+  const linkCardFn = useServerFn(setCardDebtLink);
+  const [linkSaving, setLinkSaving] = useState<string | null>(null);
   const revenueFn = useServerFn(getRevenue);
   const expenses = useQuery({ queryKey: ["month-expenses", period], queryFn: () => monthFn({ data: { period } }), enabled: !!user });
   const revenue = useQuery({ queryKey: ["revenue", user?.email, period], queryFn: () => revenueFn({ data: { month: period } }), enabled: !!user });
@@ -61,10 +65,26 @@ function HomeBroker() {
   const stats = expenses.data?.kpis ?? { expected: 0, paid: 0, open: 0, count: 0 };
   const cardUsedCents = Math.round(limits.used * 100);
   const financialReady = !!globalDebt.data && !!wallet.data && !wallet.data.error && !wallet.error;
-  const debtTotal = (globalDebt.data?.expected ?? 0) + cardUsedCents;
+  const reconciliation = calculateCardDebtOverlap(
+    globalDebt.data?.candidates ?? [], globalDebt.data?.links ?? [],
+    cards.map(card => ({ id: card.id, usedCents: Math.round(Math.max(0, card.creditLimit - card.available) * 100) })),
+  );
+  const debtTotal = (globalDebt.data?.expected ?? 0) + cardUsedCents - reconciliation.overlap;
   const debtPaid = globalDebt.data?.paid ?? 0;
   const debtOpen = Math.max(0, debtTotal - debtPaid);
   const pct = debtTotal > 0 ? Math.min(100, Math.round(debtPaid / debtTotal * 100)) : 0;
+  const reconcileCard = async (key: string, cardId: string) => {
+    setLinkSaving(key);
+    try {
+      await linkCardFn({ data: { key, cardId: cardId || null } });
+      await client.invalidateQueries({ queryKey: ["global-debt-totals"] });
+      toast.success(cardId ? "Vínculo registrado; dívida conciliada." : "Vínculo removido.");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Não foi possível conciliar a dívida.");
+    } finally {
+      setLinkSaving(null);
+    }
+  };
   const refresh = () => {
     void client.invalidateQueries({ queryKey: ["month-expenses", period] });
     void client.invalidateQueries({ queryKey: ["history"] });
@@ -93,7 +113,35 @@ function HomeBroker() {
         <Kpi label="% quitado" value={financialReady ? `${pct}%` : "—"} />
       </div>
       {(globalDebt.error || wallet.error || wallet.data?.error) && <p role="alert" className="rounded-lg border border-destructive/30 p-3 text-sm text-destructive">Consolidado indisponível: {globalDebt.error?.message || wallet.error?.message || wallet.data?.error}. Não foi exibido um total incompleto como se fosse zero.</p>}
-      {financialReady && <p className="text-xs text-muted-foreground">Consolidado de todos os períodos: contratos {formatBRL(globalDebt.data!.contracts)}, despesas anuais {formatBRL(globalDebt.data!.annual)}, demais contas {formatBRL(globalDebt.data!.standalone)} e limites utilizados dos cartões {formatBRL(cardUsedCents)}. Se compras no cartão também tiverem sido lançadas como despesas independentes, confira possíveis sobreposições.</p>}
+      {financialReady && <p className="text-xs text-muted-foreground">Consolidado de todos os períodos: contratos {formatBRL(globalDebt.data!.contracts)}, despesas anuais {formatBRL(globalDebt.data!.annual)}, demais contas {formatBRL(globalDebt.data!.standalone)} e limites utilizados dos cartões {formatBRL(cardUsedCents)}, menos obrigações vinculadas já contidas nos cartões {formatBRL(reconciliation.overlap)}.</p>}
+      <section className="rounded-2xl border bg-card p-4 shadow-soft">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="font-bold">Conciliação de dívidas com cartões</h2>
+            <p className="text-xs text-muted-foreground">Associe somente despesas realmente incluídas no limite utilizado do cartão. O sistema desconta a parcela ainda devida, sem duplicar a dívida. Nenhum vínculo é presumido.</p>
+          </div>
+          <span className="text-sm font-semibold">Sobreposição abatida: {formatBRL(reconciliation.overlap)}</span>
+        </div>
+        {reconciliation.unmatchedLinked > 0 && <p role="status" className="mb-3 text-sm text-amber-700">{reconciliation.unmatchedLinked} vínculo(s) referem-se a cartão não disponível. Eles não foram abatidos.</p>}
+        {financialReady && cards.length === 0 && <p className="text-sm text-muted-foreground">Conecte um cartão de crédito para conciliar lançamentos.</p>}
+        {financialReady && cards.length > 0 && (
+          <div className="max-h-80 space-y-2 overflow-y-auto">
+            {(globalDebt.data?.candidates ?? []).map(item => (
+              <div key={item.key} className="grid items-center gap-2 border-b py-2 text-sm sm:grid-cols-[minmax(0,1fr)_auto_220px]">
+                <span className="truncate" title={item.label}>{item.label}</span>
+                <strong>{formatBRL(item.open)}</strong>
+                <select aria-label={`Cartão vinculado a ${item.label}`} className="rounded-md border bg-background p-2 text-sm"
+                  disabled={linkSaving === item.key}
+                  value={globalDebt.data?.links.find(link => link.liability_key === item.key)?.card_id ?? ""}
+                  onChange={event => { void reconcileCard(item.key, event.target.value); }}>
+                  <option value="">Não vinculado</option>
+                  {cards.map(card => <option key={card.id} value={card.id}>{card.institution} · {card.name} ({card.number})</option>)}
+                </select>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
       <section className="rounded-2xl border bg-card p-4 shadow-soft">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div><h2 className="text-lg font-bold">Registro de pagamento</h2>
