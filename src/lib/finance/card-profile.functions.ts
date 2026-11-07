@@ -108,3 +108,21 @@ export const syncProviderClosedCardInvoices = createServerFn({ method: "POST" })
     }
     return { updated, unchanged, skipped, errors };
   });
+
+/** Correspondências confirmadas (por ID técnico e competência) para abater dupla contagem. */
+export const getConfirmedCardInvoiceLinks = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const today = new Date();
+    const earliest = new Date(today.getTime() - 62*86400000).toISOString().slice(0,10);
+    const latest = new Date(today.getTime() + 31*86400000).toISOString().slice(0,10);
+    const { data, error } = await (context.supabase as any).from("finance_card_closed_invoices")
+      .select("account_id,annual_expense_id,period,amount_cents")
+      .eq("user_id", context.userId).gte("due_date",earliest).lte("due_date",latest);
+    if (error) throw new Error(error.message);
+    return (data ?? []).filter((x:{annual_expense_id:string|null;period:string})=>x.annual_expense_id && /^[0-9]{4}-(0[1-9]|1[0-2])$/.test(x.period))
+      .map((x:{account_id:string;annual_expense_id:string;period:string;amount_cents:number})=>({
+        card_id:x.account_id, liability_key:`annual:${x.annual_expense_id}:${Number(x.period.slice(5,7))}`,
+        amount_cents:Number(x.amount_cents),
+      })) as Array<{card_id:string;liability_key:string;amount_cents:number}>;
+  });
