@@ -9,9 +9,9 @@ import { PayDialog, type PayTarget } from "@/components/finance/PayDialog";
 import { AttachmentButton } from "@/components/finance/AttachmentButton";
 import { Button } from "@/components/ui/button";
 import { formatBRL, formatDateBR } from "@/lib/finance/money";
-import { getMonthExpenses, getContracts, getGlobalDebtTotals, getCardLimitOverrides, saveCardLimitOverride, clearCardLimitOverride } from "@/lib/finance/finance.functions";
+import { getMonthExpenses, getContracts, getGlobalDebtTotals, addManualBill, getCardLimitOverrides, saveCardLimitOverride, clearCardLimitOverride } from "@/lib/finance/finance.functions";
 import { getFinances } from "@/lib/pluggy.functions";
-import { getRevenue } from "@/lib/finance/revenue.functions";
+import { getRevenue, createRevenue } from "@/lib/finance/revenue.functions";
 import { ReceiveDialog } from "@/components/finance/RevenueForms";
 import type { RevenueEntry } from "@/lib/finance/revenue";
 
@@ -39,6 +39,11 @@ function HomeBroker() {
   const [target, setTarget] = useState<PayTarget | null>(null);
   const [receiving, setReceiving] = useState<RevenueEntry | null>(null);
   const [registerType, setRegisterType] = useState<"despesas" | "receitas">("despesas");
+  const [oneOffOpen, setOneOffOpen] = useState(false);
+  const [oneOffName, setOneOffName] = useState("");
+  const [oneOffAmount, setOneOffAmount] = useState("");
+  const [oneOffDue, setOneOffDue] = useState(new Date().toISOString().slice(0, 10));
+  const [oneOffSaving, setOneOffSaving] = useState(false);
   const period = `${year}-${String(month).padStart(2, "0")}`;
   const monthFn = useServerFn(getMonthExpenses);
   const walletFn = useServerFn(getFinances);
@@ -91,6 +96,30 @@ function HomeBroker() {
     finally { setSavingCard(null); }
   };
   const revenueFn = useServerFn(getRevenue);
+  const createManualBillFn = useServerFn(addManualBill);
+  const createRevenueFn = useServerFn(createRevenue);
+  const createOneOff = async () => {
+    const amount = Number(oneOffAmount.replace(",", "."));
+    if (!oneOffName.trim() || !Number.isFinite(amount) || amount <= 0 || !/^\\d{4}-\\d{2}-\\d{2}$/.test(oneOffDue)) {
+      toast.error("Informe nome, valor positivo e data válida."); return;
+    }
+    setOneOffSaving(true);
+    try {
+      const cents = Math.round(amount * 100);
+      if (registerType === "despesas") {
+        await createManualBillFn({ data: { creditor: oneOffName.trim(), description: "Conta avulsa", dueDate: oneOffDue, expectedCents: cents } });
+      } else {
+        await createRevenueFn({ data: {
+          title: oneOffName.trim(), category: "Outros Rendimentos", expected_cents: cents,
+          first_due: oneOffDue, recurring: false, details: { axion_one_off: "true" },
+        } });
+      }
+      setOneOffOpen(false); setOneOffName(""); setOneOffAmount("");
+      refresh();
+      toast.success("Conta avulsa criada. Confirme o pagamento ou recebimento na lista; depois ficará no histórico.");
+    } catch (e) { toast.error(e instanceof Error ? e.message : "Não foi possível cadastrar a conta."); }
+    finally { setOneOffSaving(false); }
+  };
   const expenses = useQuery({ queryKey: ["month-expenses", period], queryFn: () => monthFn({ data: { period } }), enabled: !!user });
   const revenue = useQuery({ queryKey: ["revenue", user?.email, period], queryFn: () => revenueFn({ data: { month: period } }), enabled: !!user });
   const incomes = (revenue.data?.entries ?? []).filter(entry => entry.due_date.startsWith(period));
@@ -162,6 +191,7 @@ function HomeBroker() {
             <select aria-label="Ano" className="rounded-md border bg-background p-2 text-sm" value={year} onChange={e => setYear(Number(e.target.value))}>
               {Array.from({ length: 11 }, (_, i) => now.getFullYear() - 5 + i).map(y => <option key={y} value={y}>{y}</option>)}
             </select>
+            <Button type="button" variant="outline" onClick={() => setOneOffOpen(true)}>+ Nova conta avulsa</Button>
           </div>
         </div>
         {registerType === "despesas" ? <>
@@ -292,6 +322,15 @@ function HomeBroker() {
         </div>
       </section>
     </div>
+    {oneOffOpen && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="presentation" onMouseDown={e => { if (e.target === e.currentTarget && !oneOffSaving) setOneOffOpen(false); }}>
+      <form role="dialog" aria-modal="true" aria-label={registerType === "despesas" ? "Nova despesa avulsa" : "Nova receita avulsa"} className="w-full max-w-md space-y-4 rounded-2xl border bg-card p-6 shadow-xl" onSubmit={e => { e.preventDefault(); void createOneOff(); }}>
+        <div><h2 className="text-lg font-bold">{registerType === "despesas" ? "Nova despesa avulsa" : "Nova receita avulsa"}</h2><p className="text-xs text-muted-foreground">Sem recorrência e sem inclusão na tabela anual. O histórico será gerado após a confirmação da operação.</p></div>
+        <label className="block text-sm font-semibold">Nome / {registerType === "despesas" ? "credor" : "fonte pagadora"}<input required maxLength={100} className="mt-1 w-full rounded-md border bg-background p-2" value={oneOffName} onChange={e => setOneOffName(e.target.value)} /></label>
+        <label className="block text-sm font-semibold">Valor (R$)<input required type="text" inputMode="decimal" className="mt-1 w-full rounded-md border bg-background p-2" placeholder="0,00" value={oneOffAmount} onChange={e => setOneOffAmount(e.target.value)} /></label>
+        <label className="block text-sm font-semibold">Data de vencimento<input required type="date" className="mt-1 w-full rounded-md border bg-background p-2" value={oneOffDue} onChange={e => setOneOffDue(e.target.value)} /></label>
+        <div className="flex justify-end gap-2"><Button type="button" variant="outline" disabled={oneOffSaving} onClick={() => setOneOffOpen(false)}>Cancelar</Button><Button type="submit" disabled={oneOffSaving}>{oneOffSaving ? "Salvando…" : "Cadastrar"}</Button></div>
+      </form>
+    </div>}
     <PayDialog target={target} onClose={() => setTarget(null)} onSaved={refresh} />
     {receiving && <ReceiveDialog entry={receiving} onClose={() => setReceiving(null)} onSaved={refresh} />}
   </AppShell>;
