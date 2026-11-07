@@ -123,3 +123,16 @@ export async function deleteFiscal(doc:FiscalDoc){
  const {error:storageError}=await supabase.storage.from(BUCKET).remove(paths);
  if(storageError)throw Error("Registro excluído; limpeza do arquivo pendente: "+storageError.message);
 }
+
+/** Ajusta somente metadados após conferência; jamais altera o PDF/original. */
+export async function updateFiscalMetadata(id:string,draft:FiscalDraft){
+ const {data:{user},error:authError}=await supabase.auth.getUser();
+ if(authError||!user)throw Error("Sessão inválida");
+ if(!draft.issuer.trim()||!checkDate(draft.issued_on))throw Error("Informe fornecedor e data válidos");
+ if(draft.access_key.trim()&&!/^\\d{44}$/.test(draft.access_key.trim()))throw Error("Chave de acesso inválida");
+ const {data,error}=await client.from("fiscal_documents").update({
+ issuer:draft.issuer.trim(),issued_on:draft.issued_on,document_number:draft.document_number.trim()||null,
+ access_key:draft.access_key.trim()||null,total_cents:parseBRL(draft.total),category:draft.category
+ }).eq("id",id).eq("user_id",user.id).select("*").single();
+ if(error)throw error;return data as FiscalDoc;
+}
