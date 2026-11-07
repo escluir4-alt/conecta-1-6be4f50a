@@ -19,7 +19,8 @@ const fmtDate=(s:string)=>s.split("-").reverse().join("/");
 const monthNumber=(s:string)=>Number(s.slice(5,7));
 export function FiscalWorkspace({view="notas"}:{view?:View}){
  const user=useRequireUser(),qc=useQueryClient();
- const picker=useRef<HTMLInputElement>(null),cameraPicker=useRef<HTMLInputElement>(null),scannerPicker=useRef<HTMLInputElement>(null);\n const [scanMode,setScanMode]=useState<"qr_code"|"ean_13">("qr_code");
+ const picker=useRef<HTMLInputElement>(null),cameraPicker=useRef<HTMLInputElement>(null),scannerPicker=useRef<HTMLInputElement>(null);
+ const [scanMode,setScanMode]=useState<"qr_code"|"ean_13">("qr_code");
  const [year,setYear]=useState(String(new Date().getFullYear()));
  const [month,setMonth]=useState("all");
  const [search,setSearch]=useState("");
@@ -29,7 +30,8 @@ export function FiscalWorkspace({view="notas"}:{view?:View}){
  const [original,setOriginal]=useState(false);
  const [openForm,setOpenForm]=useState(false),[file,setFile]=useState<File|null>(null);
  const [draft,setDraft]=useState<FiscalDraft>(emptyDraft),[reviewed,setReviewed]=useState(false);
- const [busy,setBusy]=useState(false),[page,setPage]=useState(1);\n const [editing,setEditing]=useState<FiscalDoc|null>(null);
+ const [busy,setBusy]=useState(false),[page,setPage]=useState(1);
+ const [editing,setEditing]=useState<FiscalDoc|null>(null);
  const [items,setItems]=useState<{description:string;quantity:string;unit:string;total:string}[]>([]);
  const [marketTab,setMarketTab]=useState<"resumo"|"compras"|"produtos"|"analises">("resumo");
  const [report,setReport]=useState<"mensal"|"anual"|"supermercado"|"categoria">("mensal");
@@ -80,14 +82,17 @@ export function FiscalWorkspace({view="notas"}:{view?:View}){
   try{
    const rows=items.filter(x=>x.description.trim()).map(x=>({description:x.description.trim(),quantity:Number(x.quantity.replace(",",".")),unit_price_cents:parseBRL(x.unit),total_cents:parseBRL(x.total)}));
    if(rows.some(x=>!Number.isFinite(x.quantity)||x.quantity<=0))throw Error("Quantidade de produto inválida");
-   if(editing){ const updated=await updateFiscalMetadata(editing.id,draft);setSelected(updated); }else if(file) await saveDocument(file,draft,rows);\n   await qc.invalidateQueries({queryKey:["axion-fiscal"]});setOpenForm(false);setFile(null);setEditing(null);toast.success(editing?"Informações atualizadas":"Nota fiscal arquivada com sucesso");
+   if(editing){ const updated=await updateFiscalMetadata(editing.id,draft);setSelected(updated); }else if(file) await saveDocument(file,draft,rows);
+   await qc.invalidateQueries({queryKey:["axion-fiscal"]});setOpenForm(false);setFile(null);setEditing(null);toast.success(editing?"Informações atualizadas":"Nota fiscal arquivada com sucesso");
   }catch(e){toast.error(e instanceof Error?e.message:"Erro ao salvar nota")}finally{setBusy(false)}
  };
- const beginEdit=(d:FiscalDoc)=>{setEditing(d);setFile(null);setDraft({issuer:d.issuer,issued_on:d.issued_on,document_number:d.document_number??"",access_key:d.access_key??"",total:(d.total_cents/100).toFixed(2).replace(".",","),category:d.category});setReviewed(false);setOpenForm(true)};\n const remove=async(d:FiscalDoc)=>{if(!window.confirm("Excluir esta nota e seus arquivos? Esta ação não pode ser desfeita."))return;try{await deleteFiscal(d);setSelected(null);await qc.invalidateQueries({queryKey:["axion-fiscal"]});toast.success("Nota excluída")}catch(e){toast.error(e instanceof Error?e.message:"Falha ao excluir")}};
+ const beginEdit=(d:FiscalDoc)=>{setEditing(d);setFile(null);setDraft({issuer:d.issuer,issued_on:d.issued_on,document_number:d.document_number??"",access_key:d.access_key??"",total:(d.total_cents/100).toFixed(2).replace(".",","),category:d.category});setReviewed(false);setOpenForm(true)};
+ const remove=async(d:FiscalDoc)=>{if(!window.confirm("Excluir esta nota e seus arquivos? Esta ação não pode ser desfeita."))return;try{await deleteFiscal(d);setSelected(null);await qc.invalidateQueries({queryKey:["axion-fiscal"]});toast.success("Nota excluída")}catch(e){toast.error(e instanceof Error?e.message:"Falha ao excluir")}};
  const open=(d:FiscalDoc)=>{setOriginal(false);setSelected(d)};
  const buttons=<div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
    <input ref={cameraPicker} type="file" accept="image/*" capture="environment" className="hidden" onChange={e=>{choose(e.target.files?.[0]);e.target.value=""}}/>
-   <input ref={scannerPicker} type="file" accept="image/*" capture="environment" className="hidden" onChange={e=>{void scanImage(e.target.files?.[0]);e.target.value=""}}/>\n   <input ref={picker} type="file" accept="application/pdf,image/png,image/jpeg,image/webp" className="hidden" onChange={e=>{choose(e.target.files?.[0]);e.target.value=""}}/>
+   <input ref={scannerPicker} type="file" accept="image/*" capture="environment" className="hidden" onChange={e=>{void scanImage(e.target.files?.[0]);e.target.value=""}}/>
+   <input ref={picker} type="file" accept="application/pdf,image/png,image/jpeg,image/webp" className="hidden" onChange={e=>{choose(e.target.files?.[0]);e.target.value=""}}/>
    <Button className="h-14 gap-2 bg-primary text-primary-foreground shadow-soft hover:bg-primary/90" onClick={()=>cameraPicker.current?.click()}><Camera className="size-5"/>Fotografar nota</Button>
    <Button variant="outline" className="h-14 gap-2" onClick={()=>{setScanMode("qr_code");scannerPicker.current?.click()}}><ScanLine className="size-5"/>Ler QR Code</Button>
    <Button variant="outline" className="h-14 gap-2" onClick={()=>{setScanMode("ean_13");scannerPicker.current?.click()}}><ScanLine className="size-5"/>Ler código de barras</Button>
