@@ -8,6 +8,13 @@ const money = z.number().int().min(1).max(999999999999);
 export const getRevenue = createServerFn({ method: 'POST' }).middleware([requireSupabaseAuth]).inputValidator((v: unknown) => z.object({ month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/) }).parse(v)).handler(async ({ data, context }) => {
   const { error: syncError } = await context.supabase.rpc('revenue_sync', { p_month: `${data.month}-01` });
   if (syncError) throw new Error(syncError.message);
+  // A grade anual precisa também dos lançamentos de dezembro, mesmo antes desse mês.
+  // O RPC é idempotente e preserva recebimentos já registrados.
+  const yearEnd = `${data.month.slice(0, 4)}-12-01`;
+  if (data.month.slice(5) !== '12') {
+    const { error: yearSyncError } = await context.supabase.rpc('revenue_sync', { p_month: yearEnd });
+    if (yearSyncError) throw new Error(yearSyncError.message);
+  }
   const [entries, contracts, events, files, sources] = await Promise.all([
     context.supabase.from('revenue_entries').select('*').order('due_date'),
     context.supabase.from('revenue_contracts').select('*').order('created_at', { ascending: false }),
@@ -83,3 +90,34 @@ export const openRevenueFile = createServerFn({ method:'POST' }).middleware([req
   if (error || !link) throw new Error('Não foi possível abrir o arquivo');
   return { url:link.signedUrl };
 });
+/** Ajusta apenas a previsão de um mês, sem alterar a fonte recorrente ou valores recebidos. */
+export const updateRevenueForecast = createServerFn({ method: 'POST' }).middleware([requireSupabaseAuth])
+  .inputValidator((v: unknown) => z.object({
+    id: z.string().uuid(), cents: money, previousCents: money,
+    reason: z.string().trim().min(3).max(1000),
+  }).parse(v))
+  .handler(async ({ data, context }) => {
+    const { data: entry, error: readError } = await context.supabase.from('revenue_entries')
+      .select('*').eq('id', data.id).eq('user_id', context.userId).single();
+    if (readError || !entry) throw new Error('Receita não encontrada.');
+    if (entry.contract_id || !entry.source_id) throw new Error('Use o módulo de contratos para modificar parcelas.');
+    if (entry.received_date) throw new Error('Não é possível alterar a previsão de uma receita já recebida.');
+    if (entry.expected_cents !== data.previousCents) throw new Error('O valor foi alterado por outra operação. Recarregue a página.');
+    if (entry.expected_cents === data.cents) return { ok: true };
+    const { data: updated, error: updateError } = await context.supabase.from('revenue_entries')
+      .update({ expected_cents: data.cents }).eq('id', data.id).eq('user_id', context.userId)
+      .eq('expected_cents', data.previousCents).is('received_date', null).select('id').maybeSingle();
+    if (updateError || !updated) throw new Error(updateError?.message ?? 'Não foi possível atualizar a receita.');
+    const { error: eventError } = await context.supabase.from('revenue_events').insert({
+      entry_id: data.id, user_id: context.userId, kind: 'correção', reason: data.reason,
+      before_data: { expected_cents: entry.expected_cents, due_date: entry.due_date },
+      after_data: { expected_cents: data.cents, due_date: entry.due_date },
+    });
+    if (eventError) {
+      await context.supabase.from('revenue_entries')
+        .update({ expected_cents: entry.expected_cents }).eq('id', data.id).eq('user_id', context.userId)
+        .eq('expected_cents', data.cents).is('received_date', null);
+      throw new Error('Não foi possível registrar a auditoria do reajuste. Verifique e tente novamente.');
+    }
+    return { ok: true };
+  });
