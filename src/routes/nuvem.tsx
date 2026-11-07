@@ -495,10 +495,10 @@ function NuvemPage() {
                       : "Digite a senha exclusiva do cofre para acessar seus documentos."}
                 </p>
 
-                {lockReason === "inactivity" && vault?.passwordPolicy.lockMinutes > 0 && (
+                {lockReason === "inactivity" && (vault?.passwordPolicy?.lockMinutes ?? 0) > 0 && (
                   <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-xs font-semibold text-amber-700">
                     <Lock className="size-3.5" />
-                    Bloqueio automático a cada {vault.passwordPolicy.lockMinutes} min sem uso
+                    Bloqueio automático a cada {vault?.passwordPolicy?.lockMinutes ?? 0} min sem uso
                   </div>
                 )}
 
