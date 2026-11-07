@@ -216,6 +216,7 @@ export type CardStatementResult = {
   balance: number;
   source: "open-finance" | "saved";
   capturedAt: string | null;
+  historyAvailable: boolean;
   invoice: { amount: number; closingDate: string | null; dueDate: string | null; id: string | null } | null;
   limits: { total: number | null; available: number | null; used: number | null } | null;
 };
@@ -242,7 +243,8 @@ export const getStatement = createServerFn({ method: "GET" })
     const saved = await (context.supabase as any).from("finance_card_month_snapshots")
       .select("*").eq("user_id", context.userId).eq("account_id", data.accountId)
       .eq("period", data.month).maybeSingle();
-    if (saved.error) throw new Error("Histórico de cartões indisponível: aplique a migração de snapshots.");
+    // Compatibilidade durante implantação: a falta da migration não bloqueia consulta ao banco.
+    const historyAvailable = !saved.error;
     try {
       const all: PTx[] = [];
       for (let page = 1; page <= 10; page++) {
@@ -269,7 +271,7 @@ export const getStatement = createServerFn({ method: "GET" })
       const isCurrent = data.month === new Date().toISOString().slice(0,7);
       const limits = credit && isCurrent ? { total, available,
         used: total !== null && available !== null ? Math.max(0,total-available) : null } : null;
-      if (credit && (transactions.length > 0 || invoice)) {
+      if (credit && historyAvailable && (transactions.length > 0 || invoice)) {
         const { error } = await (context.supabase as any).from("finance_card_month_snapshots").upsert({
           user_id: context.userId, account_id: data.accountId, period: data.month,
           transactions, total_limit_cents: limits?.total == null ? saved.data?.total_limit_cents ?? null : Math.round(limits.total*100),
@@ -284,7 +286,7 @@ export const getStatement = createServerFn({ method: "GET" })
         if (error) throw new Error("Falha ao preservar o histórico: "+error.message);
       }
       if (!transactions.length && !invoice && saved.data) throw new Error("Dados indisponíveis no provedor.");
-      return { transactions, balance: acc.balance, source:"open-finance", capturedAt: new Date().toISOString(),
+      return { transactions, balance: acc.balance, source:"open-finance", capturedAt: new Date().toISOString(), historyAvailable,
         invoice: invoice ?? (saved.data?.invoice_cents != null ? {
           amount: saved.data.invoice_cents/100, closingDate: saved.data.closing_date,
           dueDate: saved.data.due_date, id: saved.data.provider_invoice_id } : null),
@@ -294,7 +296,7 @@ export const getStatement = createServerFn({ method: "GET" })
     } catch (e) {
       if (!saved.data) throw e;
       return { transactions: saved.data.transactions as CardStatementTransaction[],
-        balance: acc.balance, source:"saved", capturedAt:saved.data.captured_at,
+        balance: acc.balance, source:"saved", capturedAt:saved.data.captured_at, historyAvailable,
         invoice: saved.data.invoice_cents == null ? null : {
           amount: saved.data.invoice_cents/100, closingDate: saved.data.closing_date,
           dueDate: saved.data.due_date, id: saved.data.provider_invoice_id },
