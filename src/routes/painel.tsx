@@ -244,13 +244,12 @@ function Painel() {
                           <div className="break-words text-sm font-semibold">{t.description}</div>
                           <div className="mt-1 flex min-w-0 items-center gap-1">
                             <span className="truncate text-xs text-muted-foreground">{visibleName}{linked?.number ? " •••• "+linked.number : ""}</span>
-
                           </div>
                           <div className="text-xs text-muted-foreground">{relDate(t.date)} • {credit ? "Cartão" : "Conta"}</div>
                         </div>
                         <div className="flex shrink-0 flex-col items-end gap-1">
                           <div className={`text-sm font-bold ${income ? "text-blue-600 dark:text-blue-400" : "text-red-600 dark:text-red-400"}`}>{income ? "+ " : "- "}{brl(Math.abs(t.amount))}</div>
-                          <span className={`rounded-md px-2 py-0.5 text-[10px] font-medium ${income ? "bg-success-soft text-blue-600 dark:text-blue-400" : "text-red-600 dark:text-red-400"}`}>{income ? "Entrada" : credit ? "Cartão" : "Saída"}</span>
+                          <span className={`rounded-md px-2 py-0.5 text-[10px] font-medium ${income ? "bg-blue-50 text-blue-700 dark:bg-blue-950/30 dark:text-blue-400" : "bg-red-50 text-red-700 dark:bg-red-950/30 dark:text-red-400"}`}>{income ? "Entrada" : credit ? "Cartão" : "Saída"}</span>
                         </div>
                       </div>
                     );
