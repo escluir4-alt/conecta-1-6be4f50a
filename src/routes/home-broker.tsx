@@ -12,6 +12,7 @@ import { formatBRL, formatDateBR } from "@/lib/finance/money";
 import { getMonthExpenses, getContracts, getGlobalDebtTotals, addManualBill, getCardLimitOverrides, saveCardLimitOverride, clearCardLimitOverride } from "@/lib/finance/finance.functions";
 import { getFinances } from "@/lib/pluggy.functions";
 import { getFinanceAccountProfiles, getConfirmedCardInvoiceLinks } from "@/lib/finance/card-profile.functions";
+import { globalPanelIndicators } from "@/lib/finance/global-debt";
 import { calculateCardDebtOverlap } from "@/lib/finance/card-debt-reconciliation";
 import { getRevenue, createRevenue } from "@/lib/finance/revenue.functions";
 import { ReceiveDialog } from "@/components/finance/RevenueForms";
@@ -150,12 +151,11 @@ function HomeBroker() {
     [...(globalDebt.data?.links ?? []), ...(invoiceLinks.data ?? []).map(item => ({ liability_key:item.liability_key,card_id:item.card_id }))],
     cardBalances,
   );
-  const financialReady = !!globalDebt.data && !!wallet.data && !!profiles.data && !!invoiceLinks.data &&
-    !wallet.data.error && !wallet.error && !profiles.error && !invoiceLinks.error;
-  const debtTotal = Math.max(0, (globalDebt.data?.expected ?? 0) + limits.used - overlap.overlap);
-  const debtPaid = globalDebt.data?.paid ?? 0;
-  const debtOpen = Math.max(0, debtTotal - debtPaid);
-  const pct = debtTotal > 0 ? Math.min(100, Math.round(debtPaid / debtTotal * 100)) : 0;
+  // Indicadores globais e vitalícios: nunca dependem do mês/ano da tabela.
+  const financialReady = !!globalDebt.data && !globalDebt.error;
+  const cardsReady = !!wallet.data && !wallet.data.error && !wallet.error && !!invoiceLinks.data && !invoiceLinks.error;
+  const { total: debtTotal, paid: debtPaid, open: debtOpen, pct } = globalPanelIndicators(
+    globalDebt.data ?? { expected: 0, paid: 0 }, cardsReady ? limits.used : 0, cardsReady ? overlap.overlap : 0);
   const refresh = () => {
     void client.invalidateQueries({ queryKey: ["month-expenses", period] });
     void client.invalidateQueries({ queryKey: ["history"] });
@@ -182,13 +182,14 @@ function HomeBroker() {
         </div>
       </div>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <Kpi label="Dívidas + cartões conciliados" value={financialReady ? formatBRL(debtTotal) : "—"} emphasis />
+        <Kpi label="Valor total das dívidas" value={financialReady ? formatBRL(debtTotal) : "—"} emphasis />
         <Kpi label="Total já pago" value={financialReady ? formatBRL(debtPaid) : "—"} />
-        <Kpi label="Saldo devedor estimado" value={financialReady ? formatBRL(debtOpen) : "—"} />
-        <Kpi label="% quitado" value={financialReady ? `${pct}%` : "—"} />
+        <Kpi label="Saldo devedor total" value={financialReady ? formatBRL(debtOpen) : "—"} />
+        <Kpi label="% quitado (global)" value={financialReady ? `${pct}%` : "—"} />
       </div>
-      {(globalDebt.error || wallet.error || wallet.data?.error || profiles.error || invoiceLinks.error) && <p role="alert" className="rounded-lg border border-destructive/30 p-3 text-sm text-destructive">Consolidado indisponível: {globalDebt.error?.message || wallet.error?.message || wallet.data?.error || profiles.error?.message || invoiceLinks.error?.message}. Não foi exibido um total incompleto como se fosse zero.</p>}
-      {financialReady && <p className="text-xs text-muted-foreground">Conciliação por ID do cartão e obrigação confirmada. Abatimento de duplicidades: {formatBRL(overlap.overlap)}. Valores sem vínculo permanecem separados.</p>}
+      {globalDebt.error && <p role="alert" className="rounded-lg border border-destructive/30 p-3 text-sm text-destructive">Consolidado indisponível: {globalDebt.error.message}. Não foi exibido um total incompleto como se fosse zero.</p>}
+      {financialReady && !cardsReady && <p className="text-xs text-muted-foreground">Cartões bancários não carregados ({wallet.error?.message || wallet.data?.error || invoiceLinks.error?.message || "carregando"}); indicadores mostram apenas as obrigações cadastradas.</p>}
+      {financialReady && cardsReady && <p className="text-xs text-muted-foreground">Conciliação por ID do cartão e obrigação confirmada. Abatimento de duplicidades: {formatBRL(overlap.overlap)}. Valores sem vínculo permanecem separados.</p>}
 
       <section className="rounded-2xl border bg-card p-4 shadow-soft">
         <div className="flex flex-wrap items-center justify-between gap-3">

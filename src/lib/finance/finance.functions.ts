@@ -1,3 +1,4 @@
+import { consolidateGlobalDebt } from "@/lib/finance/global-debt";
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
@@ -735,74 +736,8 @@ export const getGlobalDebtTotals = createServerFn({ method: "GET" })
       if (error) throw new Error(`Falha ao consultar despesas anuais: ${error.message}`);
       annualMonths.push(...(data ?? []));
     }
-    const paid = (r: any) => Math.max(0, Number(r.paid_cents) || 0);
-    const amount = (r: any) => Math.max(0, Number(r.expected_cents) || 0);
-    const linkedAnnual = new Map<string, any>();
-    const linkedInstallments = new Map<string, any>();
-    for (const bill of bills) {
-      if (bill.source_annual_id && bill.source_period) {
-        const key = `${bill.source_annual_id}:${bill.source_period}`;
-        if (linkedAnnual.has(key)) throw new Error(`Há contas anuais duplicadas para ${key}. Revise os lançamentos antes de consolidar.`);
-        linkedAnnual.set(key, bill);
-      }
-      if (bill.contract_id && bill.installment_number != null) {
-        const key = `${bill.contract_id}:${bill.installment_number}`;
-        if (linkedInstallments.has(key)) throw new Error(`Há parcelas duplicadas para ${key}. Revise os lançamentos antes de consolidar.`);
-        linkedInstallments.set(key, bill);
-      }
-    }
-    let total = 0;
-    let totalPaid = 0;
-    let standalone = 0;
-    let contractsTotal = 0;
-    let annualTotal = 0;
-    for (const entry of installments) {
-      if (!contractIds.has(entry.contract_id)) continue;
-      const linked = linkedInstallments.get(`${entry.contract_id}:${entry.number}`);
-      const value = amount(entry);
-      total += value;
-      contractsTotal += value;
-      // Uma baixa da parcela pode existir no contrato ou no espelho financeiro.
-      const settled = Math.max(paid(entry), paid(linked ?? {}));
-      totalPaid += settled;
-      const open = Math.max(0, value - settled);
-      if (open > 0) candidates.push({ key: `contract:${entry.contract_id}:${entry.number}`, label: `Contrato ${entry.contract_id} · Parcela ${entry.number}`, open });
-    }
-    const installmentKeys = new Set(installments.filter(e => contractIds.has(e.contract_id))
-      .map(e => `${e.contract_id}:${e.number}`));
-    for (const cell of annualMonths) {
-      if (!annualIds.has(cell.annual_expense_id)) continue;
-      const year = annual.find(a => a.id === cell.annual_expense_id)?.year;
-      const period = `${year}-${String(cell.month).padStart(2, "0")}`;
-      const bill = linkedAnnual.get(`${cell.annual_expense_id}:${period}`);
-      // Valores anuais que já representam parcelas contratadas são contados pelo contrato.
-      if (bill?.contract_id && installmentKeys.has(`${bill.contract_id}:${bill.installment_number}`)) continue;
-      const value = amount(cell);
-      total += value;
-      annualTotal += value;
-      const settled = paid(bill ?? {});
-      totalPaid += settled;
-      const open = Math.max(0, value - settled);
-      if (open > 0) candidates.push({ key: `annual:${cell.annual_expense_id}:${cell.month}`, label: `Despesa anual ${year} · Mês ${cell.month} · ${bill?.creditor ?? cell.annual_expense_id}`, open });
-    }
-    for (const bill of bills) {
-      if (bill.contract_id && installmentKeys.has(`${bill.contract_id}:${bill.installment_number}`)) continue;
-      const annualKey = `${bill.source_annual_id}:${bill.source_period}`;
-      if (bill.source_annual_id && linkedAnnual.get(annualKey) === bill &&
-          annualIds.has(bill.source_annual_id)) {
-        const year = annual.find(a => a.id === bill.source_annual_id)?.year;
-        const month = Number(bill.source_period?.slice(5, 7));
-        if (annualMonths.some(c => c.annual_expense_id === bill.source_annual_id &&
-          c.month === month && year === Number(bill.source_period?.slice(0, 4)))) continue;
-      }
-      total += amount(bill);
-      totalPaid += paid(bill);
-      standalone += amount(bill);
-      const open = Math.max(0, amount(bill) - paid(bill));
-      if (open > 0) candidates.push({ key: `bill:${bill.id}`, label: `${bill.creditor} · ${bill.due_date}`, open });
-    }
-    return { expected: total, paid: totalPaid, open: Math.max(0, total - totalPaid),
-      contracts: contractsTotal, annual: annualTotal, standalone, candidates, links };
+    const result = consolidateGlobalDebt({ bills, annual, annualMonths, contractIds: [...contractIds], installments });
+    return { ...result, links };
   });
 
 
