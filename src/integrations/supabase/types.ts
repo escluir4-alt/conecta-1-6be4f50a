@@ -497,6 +497,27 @@ export type Database = {
           },
         ]
       }
+      finance_card_debt_links: {
+        Row: {
+          card_id: string
+          liability_key: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          card_id: string
+          liability_key: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          card_id?: string
+          liability_key?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       finance_contract_comments: {
         Row: {
           author: string | null
