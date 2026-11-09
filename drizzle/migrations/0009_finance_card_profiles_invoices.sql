@@ -184,4 +184,11 @@ $$;
 REVOKE ALL ON FUNCTION public.apply_closed_card_invoice(text,text,date,date,bigint,text,text) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.apply_closed_card_invoice(text,text,date,date,bigint,text,text) TO authenticated;
 
+-- Lovable Cloud pode criar objetos com privilégios ampliados por padrão.
+-- TRUNCATE ignora RLS; authenticated deve possuir apenas operações de linha.
+REVOKE TRUNCATE, REFERENCES, TRIGGER ON TABLE
+  public.finance_account_profiles,
+  public.finance_card_closed_invoices
+FROM authenticated;
+
 NOTIFY pgrst, 'reload schema';
