@@ -64,12 +64,16 @@ function Painel() {
   const getProfiles = useServerFn(getFinanceAccountProfiles);
   const saveProfile = useServerFn(saveFinanceAccountProfile);
   const profilesQuery = useQuery({ queryKey: ["finance-profiles"], queryFn: () => getProfiles(), enabled: !!user });
-  const profileFor = (id: string) => (profilesQuery.data ?? []).find(p => p.account_id === id);
+  const profileFor = (id: string) => (profilesQuery.data?.profiles ?? []).find(p => p.account_id === id);
   const titleFor = (acc: FinanceAccount) => profileFor(acc.id)?.display_name || acc.name;
   const brandFor = (acc: FinanceAccount) => profileFor(acc.id)?.card_brand || acc.brand || "";
   const edit = (acc: FinanceAccount) => { setEditAcc(acc); setAlias(titleFor(acc)); setBrand(brandFor(acc).toUpperCase()); setAnnualId(profileFor(acc.id)?.annual_expense_id ?? ""); };
   const saveEdit = async () => {
     if (!editAcc) return;
+    if (profilesQuery.data?.available !== true) {
+      toast.error("Personalização indisponível: falta a tabela finance_account_profiles no banco.");
+      return;
+    }
     try {
       await saveProfile({ data: { accountId: editAcc.id, displayName: alias.trim() || null,
         cardBrand: editAcc.type === "BANK" ? null : (["VISA","MASTERCARD","ELO","AMEX","HIPERCARD","OTHER"].includes(brand) ? brand : null) as "VISA" | "MASTERCARD" | "ELO" | "AMEX" | "HIPERCARD" | "OTHER" | null,
@@ -94,11 +98,11 @@ function Painel() {
 
   const q = useQuery({ queryKey: ["finances"], queryFn: () => fetchFin(), enabled: !!user });
   useEffect(() => {
-    if (!user || !q.data || !profilesQuery.data || q.data.error) return;
+    if (!user || !q.data || profilesQuery.data?.available !== true || q.data.error) return;
     const key = `${q.dataUpdatedAt}-${profilesQuery.dataUpdatedAt}`;
     if (lastSyncKey.current === key) return;
     lastSyncKey.current = key;
-    if (!profilesQuery.data.some(p => p.annual_expense_id)) return;
+    if (!profilesQuery.data.profiles.some(p => p.annual_expense_id)) return;
     void syncProvider().then(result => {
       if (result.updated) {
         setSyncMessage(`${result.updated} fatura(s) fechada(s) atualizada(s) nas Despesas Anuais.`);
@@ -125,6 +129,9 @@ function Painel() {
   }, [banks, cards]);
 
   async function registerClosedInvoice() {
+    if (profilesQuery.data?.available !== true) {
+      toast.error("Vínculos de cartão indisponíveis até aplicar a migração 20261107140000.");return;
+    }
     if (!editAcc || !annualId || profileFor(editAcc.id)?.annual_expense_id !== annualId) {
       toast.error("Salve primeiro o vínculo com o credor anual."); return;
     }
@@ -179,6 +186,10 @@ function Painel() {
             <Button variant="brand" className="h-11" onClick={() => navigate({to:"/configuracoes/open-finance"})}><Plus />Adicionar conta ou cartão</Button>
           </div>
 
+          {profilesQuery.data?.available === false && <p role="alert" className="mt-3 rounded-lg border border-amber-500/40 p-3 text-sm">
+            As contas e os extratos continuam disponíveis, mas a personalização e a conciliação de cartões exigem
+            a migração 20261107140000_finance_card_profiles_invoices.sql neste banco.
+          </p>}
           {syncMessage && <p role="status" className="mt-3 text-xs text-muted-foreground">{syncMessage}</p>}
           {q.data?.error && (
             <div className="mt-6 rounded-xl border border-destructive/30 bg-danger-soft p-4 text-sm">
@@ -279,9 +290,9 @@ function Painel() {
                 <div><Label>Fechamento</Label><Input type="date" value={closedAt} onChange={e => setClosedAt(e.target.value)} /></div>
                 <div><Label>Vencimento</Label><Input type="date" value={invoiceDue} onChange={e => setInvoiceDue(e.target.value)} /></div>
               </div>
-              <Button variant="outline" className="w-full" disabled={!annualId} onClick={registerClosedInvoice}>Conciliar fatura</Button>
+              <Button variant="outline" className="w-full" disabled={!annualId || profilesQuery.data?.available !== true} onClick={registerClosedInvoice}>Conciliar fatura</Button>
             </div></>}
-            <DialogFooter><Button variant="outline" onClick={() => setEditAcc(null)}>Cancelar</Button><Button variant="brand" onClick={saveEdit}>Salvar</Button></DialogFooter>
+            <DialogFooter><Button variant="outline" onClick={() => setEditAcc(null)}>Cancelar</Button><Button variant="brand" onClick={saveEdit} disabled={profilesQuery.data?.available !== true}>Salvar</Button></DialogFooter>
           </div>
         </DialogContent>
       </Dialog>
