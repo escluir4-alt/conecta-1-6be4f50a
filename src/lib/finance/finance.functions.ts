@@ -334,7 +334,8 @@ export const getAnnualYear = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const { supabase } = context as Ctx;
     const { data: yearRow } = await supabase.from("annual_years").select("*").eq("year", data.year).maybeSingle();
-    const { data: rows } = await supabase.from("annual_expenses").select("*").eq("year", data.year).order("position");
+    const { data: rows, error: annualError } = await supabase.from("annual_expenses").select("*").eq("year", data.year).order("position");
+    if(annualError) throw new Error("Falha ao consultar Despesas Anuais: " + annualError.message);
     const ids = (rows ?? []).map((r: any) => r.id);
     const { data: months } = ids.length
       ? await supabase.from("annual_expense_months").select("*").in("annual_expense_id", ids)
@@ -349,9 +350,12 @@ export const getAnnualYear = createServerFn({ method: "POST" })
       paidMonths[b.source_annual_id] = [...new Set([...(paidMonths[b.source_annual_id] ?? []), mm])];
     }
     const { data: years } = await supabase.from("annual_years").select("year, archived_at").order("year", { ascending: false });
-    const { data: yearBills } = await supabase
-      .from("finance_bills").select("expected_cents, paid_cents, paid_date")
-      .gte("due_date", `${data.year}-01-01`).lt("due_date", `${data.year + 1}-01-01`);
+    const { data: yearBills, error: yearBillsError } = ids.length ? await supabase
+      .from("finance_bills").select("expected_cents, paid_cents, paid_date, source_period")
+      .in("source_annual_id", ids).gte("source_period", `${data.year}-01`)
+      .lte("source_period", `${data.year}-12`)
+      : {data:[],error:null};
+    if(yearBillsError) throw new Error("Falha ao consultar baixas das Despesas Anuais: "+yearBillsError.message);
     const paidYearBills = (yearBills ?? []).filter((b: any) => b.paid_date);
     const stats = {
       paidCents: paidYearBills.reduce((s: number, b: any) => s + (b.paid_cents ?? 0), 0),
@@ -369,7 +373,8 @@ export const getAnnualYear = createServerFn({ method: "POST" })
       creditor: alias.get(row.id) || row.creditor,
       creditor_original: row.creditor,
     }));
-    return { year: yearRow ?? null, rows: visibleRows, months: months ?? [], paidMonths, years: years ?? [], stats };
+    return { year: yearRow ?? null, rows: visibleRows, months: months ?? [], paidMonths, years: years ?? [], stats,
+      migrationRequired: visibleRows.some((row:any)=>row.expense_kind === undefined || row.expense_source === undefined) };
   });
 
 async function assertYearOpen(supabase: any, year: number) {
@@ -400,15 +405,26 @@ export const addCreditor = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data: unknown) =>
     z.object({ year: z.number().int(), creditor: z.string().trim().min(1).max(100), dueDay: z.number().int().min(1).max(31).nullable(),
-      expenseKind: z.enum(["debt", "consumption"]).default("debt"), consumptionValueType: z.enum(["fixed", "variable"]).default("fixed") }).parse(data))
+      expenseKind: z.enum(["debt", "consumption"]).default("debt"), consumptionValueType: z.enum(["fixed", "variable"]).default("fixed"),
+      expenseSource: z.enum(["manual","contract","card","consumption"]).default("manual"),
+      sourceContractId: z.string().min(1).max(120).nullable().default(null) }).parse(data))
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context as Ctx;
+
     await assertYearOpen(supabase, data.year);
+    if ((data.expenseSource === "consumption") !== (data.expenseKind === "consumption")) throw new Error("Classificação inconsistente.");
+    if (data.expenseSource === "contract" && !data.sourceContractId) throw new Error("Selecione um contrato parcelado.");
+    if (data.sourceContractId) {
+      const {data:owned,error:ownedError}=await supabase.from("installment_contracts").select("id")
+        .eq("user_id",userId).eq("id",data.sourceContractId).maybeSingle();
+      if(ownedError || !owned) throw new Error("Contrato não encontrado neste cadastro.");
+    }
     const { data: maxPos } = await supabase.from("annual_expenses").select("position").eq("year", data.year).order("position", { ascending: false }).limit(1);
     const position = (maxPos?.[0]?.position ?? -1) + 1;
     const { data: inserted, error } = await supabase.from("annual_expenses")
       .insert({ user_id: userId, year: data.year, creditor: data.creditor, due_day: data.dueDay, position,
-        expense_kind: data.expenseKind, consumption_value_type: data.consumptionValueType })
+        expense_kind: data.expenseKind, consumption_value_type: data.consumptionValueType,
+        expense_source:data.expenseSource, source_contract_id: data.expenseSource === "contract" ? data.sourceContractId : null })
       .select("id").single();
     if (error) throw new Error(error.message.includes("annual_expenses_creditor_uniq") ? "Já existe um credor com esse nome neste exercício." : error.message);
     await supabase.from("annual_years").upsert({ user_id: userId, year: data.year }, { onConflict: "user_id,year", ignoreDuplicates: true });
@@ -420,14 +436,25 @@ export const updateCreditor = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data: unknown) =>
     z.object({ expenseId: z.string().uuid(), creditor: z.string().trim().min(1).max(100), dueDay: z.number().int().min(1).max(31).nullable(),
-      expenseKind: z.enum(["debt", "consumption"]).default("debt"), consumptionValueType: z.enum(["fixed", "variable"]).default("fixed") }).parse(data))
+      expenseKind: z.enum(["debt", "consumption"]).default("debt"), consumptionValueType: z.enum(["fixed", "variable"]).default("fixed"),
+      expenseSource: z.enum(["manual","contract","card","consumption"]).default("manual"),
+      sourceContractId: z.string().min(1).max(120).nullable().default(null) }).parse(data))
   .handler(async ({ data, context }) => {
-    const { supabase } = context as Ctx;
-    const { data: row } = await supabase.from("annual_expenses").select("year, creditor, due_day").eq("id", data.expenseId).single();
+    const { supabase, userId } = context as Ctx;
+    const { data: row } = await supabase.from("annual_expenses").select("*").eq("user_id",userId).eq("id", data.expenseId).single();
     if (!row) throw new Error("Credor não encontrado");
     await assertYearOpen(supabase, row.year);
+    if((data.expenseSource === "consumption") !== (data.expenseKind === "consumption")) throw new Error("Classificação inconsistente.");
+    if(data.expenseSource === "contract" && !data.sourceContractId) throw new Error("Selecione o contrato parcelado.");
+    if(data.sourceContractId) {
+      const {data:owned,error:ownedError}=await supabase.from("installment_contracts").select("id")
+        .eq("user_id",userId).eq("id",data.sourceContractId).maybeSingle();
+      if(ownedError || !owned) throw new Error("Contrato não encontrado neste cadastro.");
+    }
     const { error } = await supabase.from("annual_expenses").update({ creditor: data.creditor, due_day: data.dueDay, expense_kind: data.expenseKind,
-      consumption_value_type: data.consumptionValueType, updated_at: new Date().toISOString() }).eq("id", data.expenseId);
+      consumption_value_type: data.consumptionValueType, expense_source:data.expenseSource,
+      source_contract_id:data.expenseSource === "contract" ? data.sourceContractId : null,
+      updated_at: new Date().toISOString() }).eq("id", data.expenseId).eq("user_id",userId);
     if (error) throw new Error(error.message.includes("annual_expenses_creditor_uniq") ? "Já existe um credor com esse nome neste exercício." : error.message);
     await audit(supabase, "update_creditor", "annual_expense", data.expenseId, row, data);
     return { ok: true };
@@ -719,13 +746,26 @@ export const getAnnualDebtTotals = createServerFn({ method: "GET" })
     }
 
     const rows: any[] = [];
+    let migrationRequired = false;
     for (let start = 0; ; start += 1000) {
       const { data, error } = await supabase.from("annual_expenses")
-        .select("id,year,expense_kind").eq("user_id", userId).eq("year", year)
+        .select("id,year,expense_kind,source_contract_id").eq("user_id", userId).eq("year", year)
         .range(start, start + 999);
-      if (error) throw new Error("Falha ao consultar Despesas Anuais: " + error.message);
-      rows.push(...(data ?? []));
-      if ((data ?? []).length < 1000) break;
+      if(error) {
+        // O app segue consultável enquanto a migração SQL aguarda aplicação.
+        // Sem classificação efetiva não é correto exibir Consumo Apurado/Pago como zero.
+        if (!/expense_kind|source_contract_id|PGRST204|42703|schema cache/i.test(error.message))
+          throw new Error("Falha ao consultar Despesas Anuais: "+error.message);
+        migrationRequired = true;
+        const {data:legacy,error:legacyError}=await supabase.from("annual_expenses")
+          .select("id,year").eq("user_id",userId).eq("year",year).range(start,start+999);
+        if(legacyError) throw new Error("Falha ao consultar Despesas Anuais: "+legacyError.message);
+        rows.push(...(legacy ?? []).map((x:any)=>({...x,expense_kind:"debt",source_contract_id:null})));
+        if((legacy??[]).length < 1000) break;
+      } else {
+        rows.push(...(data??[]));
+        if((data??[]).length < 1000) break;
+      }
     }
 
     const cells: any[] = [];
@@ -752,7 +792,38 @@ export const getAnnualDebtTotals = createServerFn({ method: "GET" })
       }
     }
 
-    return consolidateAnnualDashboard({ year, currentMonth, rows, cells, payments });
+    // Baixas de parcelas entram exclusivamente quando a parcela estiver ligada
+    // a uma linha de Despesas Anuais deste exercício. Não adicionam dívidas avulsas.
+    const contractRows = rows.filter(row => !!row.source_contract_id);
+    const contractIds = [...new Set(contractRows.map((r:any)=>r.source_contract_id as string))];
+    const installments: any[] = [];
+    for(let i=0;i<contractIds.length;i+=50) {
+      const chunk=contractIds.slice(i,i+50);
+      for(let from=0;;from+=1000){
+        const {data,error}=await supabase.from("installment_entries")
+          .select("contract_id,due_date,paid_date,paid_cents")
+          .eq("user_id",userId).in("contract_id",chunk)
+          .gte("due_date",`${year}-01-01`).lt("due_date",`${year+1}-01-01`)
+          .range(from,from+999);
+        if(error) throw new Error("Falha ao verificar pagamentos de contratos: "+error.message);
+        installments.push(...(data??[]));
+        if((data??[]).length<1000)break;
+      }
+    }
+    for(const row of contractRows){
+      const months = new Map<number,number>();
+      for(const inst of installments) {
+        if(inst.contract_id !== row.source_contract_id || !inst.paid_date) continue;
+        const month=Number(inst.due_date.slice(5,7));
+        months.set(month,(months.get(month)??0)+Math.max(0,Number(inst.paid_cents)||0));
+      }
+      for(const [month,paidCents] of months){
+        payments.push({source_annual_id:row.id,source_period:`${year}-${String(month).padStart(2,"0")}`,
+          paid_cents:paidCents,paid_date:`${year}-${String(month).padStart(2,"0")}-01`});
+      }
+    }
+    const totals=consolidateAnnualDashboard({ year, currentMonth, rows, cells, payments });
+    return {...totals,migrationRequired};
   });
 
 
