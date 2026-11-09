@@ -155,3 +155,40 @@ export const projectFixedAnnualConsumption = createServerFn({method:"POST"})
   });
   return outcome;
 });
+
+/** Ao cadastrar financiamento mais longo, amplia somente consumos fixos já ativados para projeção.
+ * Nunca altera competências anteriores, valores pagos ou cobranças variáveis.
+ */
+export async function extendFixedConsumptionsForNewContract(supabase:any,userId:string,throughYear:number) {
+  if(!Number.isInteger(throughYear) || throughYear > 2100) return {extended:0,warnings:["Horizonte do contrato inválido."]};
+  const {data:rows,error}=await supabase.from("annual_expenses")
+    .select("id,year,creditor,due_day,consumption_value_type,source_template_id,expense_source,expense_kind")
+    .eq("user_id",userId).eq("expense_kind","consumption")
+    .eq("consumption_value_type","fixed").not("source_template_id","is",null)
+    .order("year",{ascending:false});
+  if(error) throw new Error(error.message);
+  const latest = new Map<string,any>();
+  for(const row of rows??[]) {
+    const root=row.source_template_id as string;
+    if(!latest.has(root))latest.set(root,row);
+  }
+  let extended=0;
+  const warnings:string[]=[];
+  for(const row of latest.values()){
+    if(row.year >= throughYear)continue;
+    const {data:monthly,error:monthError}=await supabase.from("annual_expense_months")
+      .select("month,expected_cents").eq("annual_expense_id",row.id)
+      .order("month",{ascending:false}).limit(12);
+    if(monthError){warnings.push(row.creditor+": "+monthError.message);continue;}
+    const cents=(monthly??[]).find((m:any)=>Number(m.expected_cents)>0)?.expected_cents;
+    if(!Number.isSafeInteger(Number(cents)) || Number(cents)<=0){
+      warnings.push(row.creditor+": mensalidade não identificada; projeção mantida sem alterações.");continue;
+    }
+    try{
+      const plan=fixedConsumptionProjection(row.year+1,throughYear,Number(cents));
+      const result=await materialize(supabase,userId,row,plan,"consumption");
+      extended+=result.created;
+    }catch(e){warnings.push(row.creditor+": "+(e instanceof Error?e.message:"Falha de projeção"));}
+  }
+  return {extended,warnings};
+}
