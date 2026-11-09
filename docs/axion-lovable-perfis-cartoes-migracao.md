@@ -56,3 +56,26 @@ Consultar também contagens e totais de `annual_expenses`, `annual_expense_month
 - Nenhuma nova hospedagem, publicação ou alteração visual.
 
 **Nota:** aplicar migração do banco é uma operação distinta do merge no GitHub. Não declarar sucesso até a aplicação e a verificação no banco vinculado ao Axion.
+
+## Resultado da execução direta em 2026-11-09
+
+A conexão do Lovable autorizada no ChatGPT permitiu executar a migração SQL diretamente no banco do projeto `65a672c4-5b72-40df-9a2f-ac50a2c55ca0`.
+O banco confirmou a criação de `public.finance_account_profiles`, `public.finance_card_closed_invoices` e da função `public.apply_closed_card_invoice`.
+A consulta posterior confirmou RLS ativo e políticas por titular nas duas tabelas. Contagens antes e depois: 21 despesas anuais, 231 competências, 58 contas, 4 contratos, 155 parcelas; as duas tabelas novas estavam vazias. As migrações 0005/0006 permaneceram intactas.
+
+**Pendência de segurança:** o catálogo PostgreSQL mostrou privilégios extras de `TRUNCATE`, `REFERENCES` e `TRIGGER` para o papel `authenticated` nas duas tabelas novas, apesar de a migração originalmente solicitar somente SELECT/INSERT/UPDATE/DELETE. O SQL de revogação já está incluído ao final do script 0009 atualizado no PR.
+
+A execução da revogação direta foi **recusada pela limitação temporária de operações de banco do Lovable** (a chamada não executou). Repetir apenas esta instrução assim que o acesso retornar:
+
+```sql
+REVOKE TRUNCATE, REFERENCES, TRIGGER
+ON TABLE public.finance_account_profiles, public.finance_card_closed_invoices
+FROM authenticated;
+```
+
+Confirmar depois usando `has_table_privilege('authenticated', 'public.finance_account_profiles', 'TRUNCATE')` e equivalente para invoices (ambas devem ser `false`). Conferir que SELECT/INSERT/UPDATE/DELETE continuam autorizados. A RPC deve permitir EXECUTE a authenticated, negar anon e usar SECURITY INVOKER.
+
+**Histórico Drizzle:** a consulta após criar as tabelas ainda registrava somente **7 migrações**. O SQL executado diretamente não se registra automaticamente no histórico. Não declarar a etapa de migração Drizzle concluída sem conciliar a entrada correspondente. O PR #26 permanece aberto, sem publicar.
+
+**Validação pendente:** operações reais com sessão autenticada, persistência de vínculo após recarregar e reconciliação de fatura fechada ainda não foram verificadas; não usar os dados financeiros reais para fazer um teste destrutivo.
+
