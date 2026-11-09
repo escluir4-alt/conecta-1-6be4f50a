@@ -36,7 +36,7 @@ function AnuaisPage() {
   const qc = useQueryClient();
   const [year, setYear] = useState(2026);
   const [editCell, setEditCell] = useState<{ id: string; month: number; value: string } | null>(null);
-  const [editCreditor, setEditCreditor] = useState<{ id: string; creditor: string; dueDay: string } | null>(null);
+  const [editCreditor, setEditCreditor] = useState<{ id: string; creditor: string; dueDay: string; expenseKind: "debt" | "consumption"; consumptionValueType: "fixed" | "variable" } | null>(null);
   const [addOpen, setAddOpen] = useState(false);
 
   const getFn = useServerFn(getAnnualYear);
@@ -101,7 +101,7 @@ function AnuaisPage() {
       return;
     }
     try {
-      await updCredFn({ data: { expenseId: editCreditor.id, creditor: editCreditor.creditor.trim(), dueDay } });
+      await updCredFn({ data: { expenseId: editCreditor.id, creditor: editCreditor.creditor.trim(), dueDay, expenseKind: editCreditor.expenseKind, consumptionValueType: editCreditor.consumptionValueType } });
       toast.success("Credor atualizado.");
       setEditCreditor(null);
       refresh();
@@ -164,7 +164,7 @@ function AnuaisPage() {
           <Summary label="Total geral previsto" value={formatBRL(grandTotal)} />
           <Summary label="Valor pago no ano" value={formatBRL(stats.paidCents)} tone="text-success" />
           <Summary label="A pagar no ano" value={formatBRL(aPagar)} tone={aPagar > 0 ? "text-destructive" : undefined} />
-          <Summary label="Credores registrados" value={String(rows.length)} />
+          <Summary label="Despesas cadastradas" value={String(rows.length)} />
           <Summary label="Status do exercício" value={archived ? "Arquivo" : "Em andamento"} />
         </div>
 
@@ -193,9 +193,10 @@ function AnuaisPage() {
                       <button
                         className="text-left font-semibold hover:text-primary disabled:cursor-default"
                         disabled={archived}
-                        onClick={() => setEditCreditor({ id: r.id, creditor: r.creditor, dueDay: r.due_day ? String(r.due_day) : "" })}
+                        onClick={() => setEditCreditor({ id: r.id, creditor: r.creditor, dueDay: r.due_day ? String(r.due_day) : "", expenseKind: r.expense_kind === "consumption" ? "consumption" : "debt", consumptionValueType: r.consumption_value_type === "variable" ? "variable" : "fixed" })}
                       >
                         {r.creditor}
+                        {r.expense_kind === "consumption" && <span className="ml-2 rounded-full bg-success-soft px-2 py-0.5 text-[10px] text-success">Consumo</span>}
                       </button>
                     </td>
                     <td className="px-2 py-1.5 text-center text-muted-foreground">{r.due_day ?? "—"}</td>
@@ -249,13 +250,13 @@ function AnuaisPage() {
         </div>
 
         {!archived && (
-          <Button variant="outline" className="mt-4" onClick={() => setAddOpen(true)}><Plus />Novo credor</Button>
+          <Button variant="outline" className="mt-4" onClick={() => setAddOpen(true)}><Plus />Cadastrar despesa</Button>
         )}
       </div>
 
       <Dialog open={!!editCreditor} onOpenChange={(o) => !o && setEditCreditor(null)}>
         <DialogContent className="max-w-sm">
-          <DialogHeader><DialogTitle>Editar credor</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>Editar despesa / credor</DialogTitle></DialogHeader>
           {editCreditor && (
             <div className="space-y-4">
               <div className="space-y-2">
@@ -266,6 +267,21 @@ function AnuaisPage() {
                 <Label htmlFor="ec-day">Dia de vencimento (1 a 31, opcional)</Label>
                 <Input id="ec-day" inputMode="numeric" value={editCreditor.dueDay} onChange={(e) => setEditCreditor({ ...editCreditor, dueDay: e.target.value })} />
               </div>
+              <div className="space-y-2">
+                <Label htmlFor="ec-kind">Classificação no Resumo Anual</Label>
+                <select id="ec-kind" className="h-10 w-full rounded-md border bg-background px-2 text-sm" value={editCreditor.expenseKind}
+                  onChange={e => setEditCreditor({ ...editCreditor, expenseKind: e.target.value as "debt" | "consumption" })}>
+                  <option value="debt">Dívida / obrigação</option>
+                  <option value="consumption">Despesa de consumo</option>
+                </select>
+              </div>
+              {editCreditor.expenseKind === "consumption" && <div className="space-y-2">
+                <Label htmlFor="ec-value-type">Valor do consumo</Label>
+                <select id="ec-value-type" className="h-10 w-full rounded-md border bg-background px-2 text-sm" value={editCreditor.consumptionValueType}
+                  onChange={e => setEditCreditor({ ...editCreditor, consumptionValueType: e.target.value as "fixed" | "variable" })}>
+                  <option value="fixed">Fixo</option><option value="variable">Variável</option>
+                </select>
+              </div>}
             </div>
           )}
           <DialogFooter className="flex items-center justify-between sm:justify-between">
@@ -298,6 +314,8 @@ function AddCreditorDialog({ open, onOpenChange, year, onSaved }: { open: boolea
   const addFn = useServerFn(addCreditor);
   const [name, setName] = useState("");
   const [day, setDay] = useState("");
+  const [kind, setKind] = useState<"debt" | "consumption">("debt");
+  const [valueType, setValueType] = useState<"fixed" | "variable">("fixed");
   const [saving, setSaving] = useState(false);
 
   async function save() {
@@ -308,9 +326,9 @@ function AddCreditorDialog({ open, onOpenChange, year, onSaved }: { open: boolea
     }
     setSaving(true);
     try {
-      await addFn({ data: { year, creditor: name.trim(), dueDay } });
+      await addFn({ data: { year, creditor: name.trim(), dueDay, expenseKind: kind, consumptionValueType: valueType } });
       toast.success("Credor adicionado.");
-      setName(""); setDay("");
+      setName(""); setDay(""); setKind("debt"); setValueType("fixed");
       onSaved();
       onOpenChange(false);
     } catch (e) {
@@ -323,7 +341,7 @@ function AddCreditorDialog({ open, onOpenChange, year, onSaved }: { open: boolea
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-sm">
-        <DialogHeader><DialogTitle>Novo credor em {year}</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>Cadastrar despesa em {year}</DialogTitle></DialogHeader>
         <div className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="ac-name">Nome</Label>
@@ -333,10 +351,26 @@ function AddCreditorDialog({ open, onOpenChange, year, onSaved }: { open: boolea
             <Label htmlFor="ac-day">Dia de vencimento (opcional)</Label>
             <Input id="ac-day" inputMode="numeric" value={day} onChange={(e) => setDay(e.target.value)} />
           </div>
+          <div className="space-y-2">
+            <Label htmlFor="ac-kind">Classificação no Resumo Anual</Label>
+            <select id="ac-kind" className="h-10 w-full rounded-md border bg-background px-2 text-sm"
+              value={kind} onChange={e => setKind(e.target.value as "debt" | "consumption")}>
+              <option value="debt">Dívida / obrigação</option>
+              <option value="consumption">Despesa de consumo</option>
+            </select>
+          </div>
+          {kind === "consumption" && <div className="space-y-2">
+            <Label htmlFor="ac-type">O valor de consumo é fixo ou variável?</Label>
+            <select id="ac-type" className="h-10 w-full rounded-md border bg-background px-2 text-sm" value={valueType}
+              onChange={e => setValueType(e.target.value as "fixed" | "variable")}>
+              <option value="fixed">Fixo mensal</option><option value="variable">Variável mensal</option>
+            </select>
+            <p className="text-xs text-muted-foreground">Preencha os valores por competência na grade anual. Apenas os meses apurados entram no indicador anual.</p>
+          </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
-          <Button variant="brand" onClick={save} disabled={saving}>{saving ? "Salvando…" : "Adicionar"}</Button>
+          <Button variant="brand" onClick={save} disabled={saving}>{saving ? "Salvando…" : "Cadastrar"}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
