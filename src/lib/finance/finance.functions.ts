@@ -409,13 +409,15 @@ export const addCreditor = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) =>
     z.object({ year: z.number().int(), creditor: z.string().trim().min(1).max(100), dueDay: z.number().int().min(1).max(31).nullable(),
       expenseKind: z.enum(["debt", "consumption"]).default("debt"), consumptionValueType: z.enum(["fixed", "variable"]).default("fixed"),
-      expenseSource: z.enum(["manual","contract","card","consumption"]).default("manual"),
+      expenseSource: z.enum(["manual","contract","card","consumption","annual_tax"]).default("manual"),
+      annualTaxKind: z.enum(["iptu","ipva","other"]).nullable().default(null),
       sourceContractId: z.string().min(1).max(120).nullable().default(null) }).parse(data))
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context as Ctx;
 
     await assertYearOpen(supabase, data.year);
     if ((data.expenseSource === "consumption") !== (data.expenseKind === "consumption")) throw new Error("Classificação inconsistente.");
+    if((data.expenseSource==="annual_tax") !== (data.annualTaxKind!==null)) throw new Error("Informe se o tributo anual é IPTU, IPVA ou outro.");
     if (data.expenseSource === "contract" && !data.sourceContractId) throw new Error("Selecione um contrato parcelado.");
     if (data.sourceContractId) {
       const {data:owned,error:ownedError}=await supabase.from("installment_contracts").select("id")
@@ -427,7 +429,8 @@ export const addCreditor = createServerFn({ method: "POST" })
     const { data: inserted, error } = await supabase.from("annual_expenses")
       .insert({ user_id: userId, year: data.year, creditor: data.creditor, due_day: data.dueDay, position,
         expense_kind: data.expenseKind, consumption_value_type: data.consumptionValueType,
-        expense_source:data.expenseSource, source_contract_id: data.expenseSource === "contract" ? data.sourceContractId : null })
+        expense_source:data.expenseSource, annual_tax_kind: data.annualTaxKind,
+        source_contract_id: data.expenseSource === "contract" ? data.sourceContractId : null })
       .select("id").single();
     if (error) throw new Error(error.message.includes("annual_expenses_creditor_uniq") ? "Já existe um credor com esse nome neste exercício." : error.message);
     await supabase.from("annual_years").upsert({ user_id: userId, year: data.year }, { onConflict: "user_id,year", ignoreDuplicates: true });
@@ -440,7 +443,8 @@ export const updateCreditor = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) =>
     z.object({ expenseId: z.string().uuid(), creditor: z.string().trim().min(1).max(100), dueDay: z.number().int().min(1).max(31).nullable(),
       expenseKind: z.enum(["debt", "consumption"]).default("debt"), consumptionValueType: z.enum(["fixed", "variable"]).default("fixed"),
-      expenseSource: z.enum(["manual","contract","card","consumption"]).default("manual"),
+      expenseSource: z.enum(["manual","contract","card","consumption","annual_tax"]).default("manual"),
+      annualTaxKind: z.enum(["iptu","ipva","other"]).nullable().default(null),
       sourceContractId: z.string().min(1).max(120).nullable().default(null) }).parse(data))
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context as Ctx;
@@ -448,6 +452,7 @@ export const updateCreditor = createServerFn({ method: "POST" })
     if (!row) throw new Error("Credor não encontrado");
     await assertYearOpen(supabase, row.year);
     if((data.expenseSource === "consumption") !== (data.expenseKind === "consumption")) throw new Error("Classificação inconsistente.");
+    if((data.expenseSource==="annual_tax") !== (data.annualTaxKind!==null)) throw new Error("Informe se o tributo anual é IPTU, IPVA ou outro.");
     if(data.expenseSource === "contract" && !data.sourceContractId) throw new Error("Selecione o contrato parcelado.");
     if(data.sourceContractId) {
       const {data:owned,error:ownedError}=await supabase.from("installment_contracts").select("id")
@@ -456,7 +461,7 @@ export const updateCreditor = createServerFn({ method: "POST" })
     }
     const { error } = await supabase.from("annual_expenses").update({ creditor: data.creditor, due_day: data.dueDay, expense_kind: data.expenseKind,
       consumption_value_type: data.consumptionValueType, expense_source:data.expenseSource,
-      source_contract_id:data.expenseSource === "contract" ? data.sourceContractId : null,
+      annual_tax_kind:data.annualTaxKind, source_contract_id:data.expenseSource === "contract" ? data.sourceContractId : null,
       updated_at: new Date().toISOString() }).eq("id", data.expenseId).eq("user_id",userId);
     if (error) throw new Error(error.message.includes("annual_expenses_creditor_uniq") ? "Já existe um credor com esse nome neste exercício." : error.message);
     await audit(supabase, "update_creditor", "annual_expense", data.expenseId, row, data);
