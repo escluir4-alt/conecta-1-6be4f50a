@@ -7,7 +7,7 @@ import { lovable } from "@/integrations/lovable/index";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { AxionMark, Logo } from "@/components/Logo";
+import { Logo } from "@/components/Logo";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -77,60 +77,37 @@ function AuthPage() {
   }
 
   return (
-    <div className="grid min-h-screen lg:grid-cols-2">
-      <section className="relative hidden overflow-hidden bg-hero px-16 py-14 text-hero-foreground lg:flex lg:flex-col">
-        <Logo tone="light" />
-        <div className="mt-20 max-w-xl">
-          <h1 className="text-5xl font-semibold leading-tight">
-            Mais controle hoje,
-            <br />
-            <span className="text-gold-gradient">mais tranquilidade amanhã.</span>
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-hero px-5 py-12 text-hero-foreground">
+      <svg viewBox="0 0 600 300" className="pointer-events-none absolute inset-x-0 bottom-0 w-full text-gold opacity-25" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+        <path d="M0 200 C150 150 250 260 400 230 S560 170 600 180" />
+        <path d="M0 240 C180 200 300 290 600 220" opacity="0.6" />
+      </svg>
+      <div className="relative w-full max-w-md">
+        <div className="mb-8 flex justify-center"><Logo tone="light" /></div>
+        <div className="axion-login-glass rounded-3xl p-8 sm:p-10">
+          <h1 className="text-center text-3xl font-semibold">
+            {mode === "login" ? <>Bem-vindo <span className="text-gold-gradient">de volta</span></> : "Crie sua conta"}
           </h1>
-          <p className="mt-6 text-hero-foreground/85">
-            Acompanhe suas receitas, despesas e contas em um só lugar.
-          </p>
-        </div>
-        <svg viewBox="0 0 600 300" className="pointer-events-none mt-auto w-full text-gold" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-          <path d="M0 200 C150 150 250 260 400 230 S560 170 600 180" opacity="0.6" />
-          <path d="M0 240 C180 200 300 290 600 220" opacity="0.35" />
-          <path d="M260 120 L380 20 L500 120 M290 100 V230 M470 100 V230 M440 50 V30 H460 V68" />
-          <rect x="365" y="70" width="12" height="12" fill="currentColor" stroke="none" /><rect x="381" y="70" width="12" height="12" fill="currentColor" stroke="none" />
-          <rect x="365" y="86" width="12" height="12" fill="currentColor" stroke="none" /><rect x="381" y="86" width="12" height="12" fill="currentColor" stroke="none" />
-          <rect x="330" y="190" width="22" height="40" rx="3" /><rect x="365" y="165" width="22" height="65" rx="3" /><rect x="400" y="140" width="22" height="90" rx="3" /><rect x="435" y="115" width="22" height="115" rx="3" />
-        </svg>
-        <div className="mt-8 flex items-center gap-6 text-sm">
-          {features.map((f, i) => (
-            <div key={f.title} className={`flex items-center gap-2 ${i ? "border-l border-gold/40 pl-6" : ""}`}>
-              <f.icon className="size-5 text-gold" />{f.title}
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="flex items-center justify-center bg-card px-6 py-12">
-        <div className="w-full max-w-md">
-          <div className="flex justify-center"><AxionMark className="h-12 w-16" /></div>
-          <h2 className="mt-6 text-center text-3xl font-semibold">{mode === "login" ? "Bem-vindo de volta" : "Crie sua conta"}</h2>
-          <p className="mt-1 text-center text-sm text-muted-foreground">
+          <p className="mt-2 text-center text-sm text-hero-foreground/60">
             {mode === "login" ? "Entre na sua conta para continuar." : "Leva menos de um minuto."}
           </p>
 
           <form onSubmit={submit} className="mt-8 space-y-5">
             {mode === "signup" && (
               <div className="space-y-2">
-                <Label htmlFor="name">Nome</Label>
+                <Label className="text-hero-foreground/80" htmlFor="name">Nome</Label>
                 <Input id="name" className="h-11" value={name} onChange={(e) => setName(e.target.value)} required placeholder="Seu nome" />
               </div>
             )}
             <div className="space-y-2">
-              <Label htmlFor="email">E-mail</Label>
+              <Label className="text-hero-foreground/80" htmlFor="email">E-mail</Label>
               <div className="relative">
                 <Mail className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                 <Input id="email" type="email" className="h-11 pl-10" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="seu@email.com" />
               </div>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="pw">Senha</Label>
+              <Label className="text-hero-foreground/80" htmlFor="pw">Senha</Label>
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                 <Input id="pw" type={show ? "text" : "password"} minLength={6} className="h-11 px-10" value={password} onChange={(e) => setPassword(e.target.value)} required placeholder="Digite sua senha" />
@@ -144,21 +121,24 @@ function AuthPage() {
             </Button>
           </form>
 
-          <div className="my-6 flex items-center gap-3 text-xs text-muted-foreground">
-            <div className="h-px flex-1 bg-border" />ou<div className="h-px flex-1 bg-border" />
+          <div className="my-6 flex items-center gap-3 text-xs text-hero-foreground/50">
+            <div className="h-px flex-1 bg-gold/25" />ou<div className="h-px flex-1 bg-gold/25" />
           </div>
-          <Button variant="outline" className="h-11 w-full" onClick={google}>
+          <Button variant="outline" className="h-11 w-full border-gold/30 bg-transparent text-hero-foreground hover:bg-gold/10 hover:text-hero-foreground" onClick={google}>
             <GoogleIcon /> Continuar com Google
           </Button>
 
-          <p className="mt-8 text-center text-sm text-muted-foreground">
+          <p className="mt-8 text-center text-sm text-hero-foreground/60">
             {mode === "login" ? "Não tem uma conta? " : "Já tem conta? "}
-            <button className="font-semibold text-primary" onClick={() => setMode(mode === "login" ? "signup" : "login")}>
+            <button className="font-semibold text-gold" onClick={() => setMode(mode === "login" ? "signup" : "login")}>
               {mode === "login" ? "Criar conta grátis" : "Entrar"}
             </button>
           </p>
         </div>
-      </section>
+        <div className="mt-8 flex justify-center gap-6 text-xs text-hero-foreground/55">
+          {features.map((f) => <span key={f.title} className="flex items-center gap-1.5"><f.icon className="size-3.5 text-gold" />{f.title}</span>)}
+        </div>
+      </div>
     </div>
   );
 }
