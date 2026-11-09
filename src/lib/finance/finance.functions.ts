@@ -129,7 +129,9 @@ export const getMonthExpenses = createServerFn({ method: "POST" })
       if (linkedAnnual.has(`${row.id}:${period}`)) continue;
 
       const dueDate = clampDueDate(y, m, row.due_day ?? 1);
-      const contractId = contractForCreditor(row.creditor);
+      // Vínculo explícito do cadastro prevalece. Heurística legada somente para linhas ainda não classificadas.
+      const contractId = row.expense_source === "contract" ? (row.source_contract_id ?? null)
+        : row.expense_source === "manual" || !row.expense_source ? contractForCreditor(row.creditor) : null;
 
       // Parcela única do contrato nesta competência
       let inst: any = null;
