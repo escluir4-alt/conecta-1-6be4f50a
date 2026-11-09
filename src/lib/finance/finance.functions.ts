@@ -1,4 +1,4 @@
-import { consolidateAnnualDashboard } from "@/lib/finance/annual-dashboard";
+import { consolidateAnnualDashboard, summarizeConsumptionForPeriod } from "@/lib/finance/annual-dashboard";
 import { extendFixedConsumptionsForNewContract } from "@/lib/finance/annual-projections.functions";
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
@@ -751,6 +751,40 @@ export const getAttachmentUrl = createServerFn({ method: "POST" })
 // Resumo anual: fonte ÚNICA de valores previstos = tabela Despesas Anuais.
 // As baixas vêm somente das contas explicitamente vinculadas à linha e competência anual.
 // Não soma diretamente contratos, limites de cartão ou contas avulsas.
+/**
+ * Consumo registrado na competência escolhida no Registro de Pagamento.
+ * Independente do resumo anual (que continua restrito ao ano vigente).
+ * Não cria lançamentos e não inventa valores para consumo variável.
+ */
+export const getConsumptionForPeriod = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) => z.object({
+    year: z.number().int().min(2000).max(2100),
+    month: z.number().int().min(1).max(12),
+  }).parse(input))
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context as Ctx;
+    const rows: Array<{ id: string; creditor: string }> = [];
+    for (let start = 0; ; start += 1000) {
+      const { data: page, error } = await supabase.from("annual_expenses")
+        .select("id,creditor").eq("user_id", userId).eq("year", data.year)
+        .eq("expense_kind", "consumption").order("position").range(start, start + 999);
+      if (error) throw new Error("Falha ao consultar credores de consumo: " + error.message);
+      rows.push(...(page ?? []));
+      if ((page ?? []).length < 1000) break;
+    }
+    const cells: Array<{ annual_expense_id: string; expected_cents: number | null }> = [];
+    for (let i = 0; i < rows.length; i += 50) {
+      const ids = rows.slice(i, i + 50).map(row => row.id);
+      const { data: page, error } = await supabase.from("annual_expense_months")
+        .select("annual_expense_id,expected_cents")
+        .in("annual_expense_id", ids).eq("month", data.month);
+      if (error) throw new Error("Falha ao consultar valores de consumo: " + error.message);
+      cells.push(...(page ?? []));
+    }
+    return { year: data.year, month: data.month, ...summarizeConsumptionForPeriod({ rows, cells }) };
+  });
+
 export const getAnnualDebtTotals = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
