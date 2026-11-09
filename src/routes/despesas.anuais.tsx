@@ -366,7 +366,7 @@ function AddCreditorDialog({ open, onOpenChange, year, onSaved }: { open: boolea
               <option value="fixed">Fixo mensal</option><option value="variable">Variável mensal</option>
             </select>
             <p className="text-xs text-muted-foreground">Preencha os valores por competência na grade anual. Apenas os meses apurados entram no indicador anual.</p>
-          </div>
+          </div>}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
