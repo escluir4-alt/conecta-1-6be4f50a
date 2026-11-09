@@ -75,7 +75,8 @@ function AnuaisPage() {
   const cardProfileQuery = useQuery({queryKey:["finance-profiles"],queryFn:()=>profileFn(),enabled:!!user});
   const cardChoices: CardChoice[] = [...new Map((walletQuery.data?.accounts ?? [])
     .filter(a=>a.type === "CREDIT").map(a=>[a.id,{id:a.id,name:a.name}])).values()];
-  const profiles: CardProfile[] = cardProfileQuery.data ?? [];
+  const profiles: CardProfile[] = cardProfileQuery.data?.profiles ?? [];
+  const cardProfilesAvailable = cardProfileQuery.data?.available === true;
 
 
   const q = useQuery({ queryKey: ["annual", year], queryFn: () => getFn({ data: { year } }), enabled: !!user });
@@ -130,6 +131,10 @@ function AnuaisPage() {
   }
 
   async function syncCards() {
+    if (!cardProfilesAvailable) {
+      toast.error("Vínculos de cartão indisponíveis: falta a migração 20261107140000 no banco conectado.");
+      return;
+    }
     setSyncingCards(true);
     try {
       const result = await syncCardsFn();
@@ -164,6 +169,10 @@ function AnuaisPage() {
     }
     if(editCreditor.expenseSource==="contract" && !editCreditor.sourceContractId) {
       toast.error("Selecione o contrato parcelado cadastrado.");return;
+    }
+    if(editCreditor.expenseSource==="card" && !cardProfilesAvailable) {
+      toast.error("Não é possível salvar o vínculo enquanto a tabela finance_account_profiles estiver indisponível.");
+      return;
     }
     if(editCreditor.expenseSource==="card" && !editCreditor.cardAccountId) {
       toast.error("Selecione um cartão conectado ao Open Finance.");return;
@@ -244,13 +253,23 @@ function AnuaisPage() {
               ))}
             </select>
           </div>
-          <Button variant="outline" size="sm" disabled={syncingCards} onClick={()=>void syncCards()}><RefreshCcw className="size-4" /> {syncingCards?"Atualizando...":"Sincronizar faturas"}</Button>
+          <Button variant="outline" size="sm" disabled={syncingCards || !cardProfilesAvailable} onClick={()=>void syncCards()}><RefreshCcw className="size-4" /> {syncingCards?"Atualizando...":"Sincronizar faturas"}</Button>
           <Button variant="outline" size="sm" onClick={toggleArchive}>
             {archived ? <><ArchiveRestore />Reabrir exercício</> : <><Archive />Arquivar exercício</>}
           </Button>
         </div>
 
         {q.error && <p role="alert" className="mt-3 rounded-lg border border-destructive/30 p-3 text-sm text-destructive">Falha ao carregar Despesas Anuais: {q.error.message}</p>}
+        {cardProfileQuery.data?.available === false && (
+          <p role="alert" className="mt-3 rounded-lg border border-amber-500/40 p-3 text-sm">
+            Vínculos e sincronização de cartões temporariamente indisponíveis: falta a tabela
+            finance_account_profiles no banco. Aplicar a migração 20261107140000 antes de conectar
+            cartões. Os demais credores continuam disponíveis; nenhum dado foi excluído.
+          </p>
+        )}
+        {cardProfileQuery.error && <p role="alert" className="mt-3 rounded-lg border border-destructive/30 p-3 text-sm text-destructive">
+          Falha ao consultar perfis de cartão: {cardProfileQuery.error.message}
+        </p>}
         {q.data?.migrationRequired && <p role="alert" className="mt-3 rounded-lg border border-amber-500/30 p-3 text-sm">A classificação dos credores ainda depende das migrações SQL 20261109010000 e 20261109020000 no banco vinculado. O GitHub não aplica essas migrações automaticamente.</p>}
         {archived && (
           <div className="mt-4 rounded-xl border border-amber-300 bg-amber-100 p-3 text-sm font-medium text-amber-900">
@@ -388,7 +407,7 @@ function AnuaisPage() {
                     expenseSource:e.target.value as SourceKind})}>
                   <option value="manual">Despesa avulsa / outra obrigação</option>
                   <option value="contract">Contrato parcelado</option>
-                  <option value="card">Cartão de crédito — Open Finance</option>
+                  <option value="card" disabled={!cardProfilesAvailable}>Cartão de crédito — Open Finance</option>
                   <option value="consumption">Despesa de consumo</option>
                 </select>
               </div>
@@ -409,6 +428,9 @@ function AnuaisPage() {
                   {cardChoices.map(card=><option key={card.id} value={card.id}>{card.name}</option>)}
                 </select>
                 <p className="text-xs text-muted-foreground">Somente faturas fechadas confirmadas pelo Open Finance serão atualizadas no exercício correspondente.</p>
+                {!cardProfilesAvailable && <p role="alert" className="text-xs text-amber-700">
+                  O vínculo não pode ser alterado antes da migração da tabela finance_account_profiles.
+                </p>}
               </div>}
               {editCreditor.expenseSource==="consumption" && <>
                 <div className="space-y-2">
@@ -441,7 +463,7 @@ function AnuaisPage() {
         </DialogContent>
       </Dialog>
 
-      <AddCreditorDialog open={addOpen} onOpenChange={setAddOpen} year={year} onSaved={refresh} contracts={contractsQuery.data??[]} cards={cardChoices} profiles={profiles} />
+      <AddCreditorDialog open={addOpen} onOpenChange={setAddOpen} year={year} onSaved={refresh} contracts={contractsQuery.data??[]} cards={cardChoices} profiles={profiles} cardProfilesAvailable={cardProfilesAvailable} />
     </AppShell>
   );
 }
@@ -456,10 +478,10 @@ function Summary({ label, value, tone }: { label: string; value: string; tone?: 
 }
 
 function AddCreditorDialog({
-  open,onOpenChange,year,onSaved,contracts,cards,profiles,
+  open,onOpenChange,year,onSaved,contracts,cards,profiles,cardProfilesAvailable,
 }:{
   open:boolean;onOpenChange:(o:boolean)=>void;year:number;onSaved:()=>void;
-  contracts:ContractChoice[];cards:CardChoice[];profiles:CardProfile[];
+  contracts:ContractChoice[];cards:CardChoice[];profiles:CardProfile[];cardProfilesAvailable:boolean;
 }) {
   const addFn=useServerFn(addCreditor);
   const contractFn=useServerFn(projectAnnualContract);
@@ -486,6 +508,10 @@ function AddCreditorDialog({
       toast.error("Informe um nome e dia de vencimento válido.");return;
     }
     if(source==="contract" && !contractId){toast.error("Selecione um contrato.");return;}
+    if(source==="card" && !cardProfilesAvailable){
+      toast.error("Cadastro de cartão indisponível até aplicar a migração 20261107140000.");
+      return;
+    }
     if(source==="card" && !cardId){toast.error("Selecione um cartão conectado.");return;}
     const cents=source==="consumption" && valueType==="fixed" ? parseBRL(fixedValue) : null;
     if(source==="consumption" && valueType==="fixed" && (cents===null || cents<=0)){
@@ -546,7 +572,7 @@ function AddCreditorDialog({
             value={source} onChange={e=>setSource(e.target.value as SourceKind)}>
             <option value="manual">Despesa avulsa / outra obrigação</option>
             <option value="contract">Contrato parcelado</option>
-            <option value="card">Cartão de crédito / Open Finance</option>
+            <option value="card" disabled={!cardProfilesAvailable}>Cartão de crédito / Open Finance</option>
             <option value="consumption">Consumo</option>
           </select>
         </div>
@@ -567,6 +593,9 @@ function AddCreditorDialog({
             {cards.map(card=><option key={card.id} value={card.id}>{card.name}</option>)}
           </select>
           <p className="text-xs text-muted-foreground">As faturas confirmadas serão sincronizadas pelas Carteiras.</p>
+          {!cardProfilesAvailable && <p role="alert" className="text-xs text-amber-700">
+            Primeiro aplique a migração da tabela finance_account_profiles.
+          </p>}
         </div>}
         {source==="consumption" && <>
           <div className="space-y-1">
