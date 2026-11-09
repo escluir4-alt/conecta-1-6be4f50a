@@ -20,8 +20,10 @@ export type AnnualDashboardTotals = {
   consumption: { apurado: number; pago: number; month: number };
 };
 
-const cents = (value: number | null | undefined) =>
-  Number.isFinite(value) ? Math.max(0, Math.round(value ?? 0)) : 0;
+const cents = (value: number | null | undefined) => {
+  const amount = Number(value ?? 0);
+  return Number.isFinite(amount) ? Math.max(0, Math.round(amount)) : 0;
+};
 
 export function consolidateAnnualDashboard(input: {
   year: number; currentMonth: number; rows: AnnualDashboardRow[];
