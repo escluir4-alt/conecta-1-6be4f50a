@@ -73,3 +73,32 @@ export function consolidateAnnualDashboard(input: {
     consumption: { apurado, pago: consumoPago, month: consumoMes },
   };
 }
+
+
+/**
+ * Indicador mensal do Registro de Pagamento.
+ * Fonte exclusiva: credores classificados como consumo e células do mês/ano selecionado.
+ * Valores ausentes ou zero não são substituídos por médias ou projeções fictícias.
+ */
+export function summarizeConsumptionForPeriod(input: {
+  rows: Array<{ id: string; creditor: string }>;
+  cells: Array<{ annual_expense_id: string; expected_cents: number | null }>;
+}): { total: number; missing: string[]; creditorCount: number } {
+  const known = new Set(input.rows.map(row => row.id));
+  const amounts = new Map<string, number>();
+  for (const cell of input.cells) {
+    if (!known.has(cell.annual_expense_id)) continue;
+    if (amounts.has(cell.annual_expense_id)) {
+      throw new Error(`Competência de consumo duplicada: ${cell.annual_expense_id}`);
+    }
+    amounts.set(cell.annual_expense_id, cents(cell.expected_cents));
+  }
+  const missing: string[] = [];
+  let total = 0;
+  for (const row of input.rows) {
+    const value = amounts.get(row.id) ?? 0;
+    total += value;
+    if (value === 0) missing.push(row.creditor);
+  }
+  return { total, missing, creditorCount: input.rows.length };
+}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { consolidateAnnualDashboard } from "@/lib/finance/annual-dashboard";
+import { consolidateAnnualDashboard, summarizeConsumptionForPeriod } from "@/lib/finance/annual-dashboard";
 
 const row = (id: string, year: number, expense_kind: "debt" | "consumption" = "debt") =>
   ({ id, year, expense_kind });
@@ -71,6 +71,53 @@ describe("Resumo Anual — fonte exclusiva Despesas Anuais", () => {
     expect(() => consolidateAnnualDashboard({
       year: 2026, currentMonth: 1, rows: [row("a", 2026)],
       cells: [cell("a", 1, 1000), cell("a", 1, 1000)], payments: [],
+    })).toThrow(/duplicada/);
+  });
+});
+
+describe("Consumo do mês selecionado — Despesas Anuais", () => {
+  const rows = [
+    { id: "caesb", creditor: "Caesb" },
+    { id: "neo", creditor: "Neo Energia" },
+    { id: "oi", creditor: "OI" },
+  ];
+
+  it("inclui CAESB, Neo Energia e Oi na competência de setembro, sem usar novembro", () => {
+    const result = summarizeConsumptionForPeriod({
+      rows,
+      cells: [
+        { annual_expense_id: "caesb", expected_cents: 10427 },
+        { annual_expense_id: "neo", expected_cents: 23466 },
+        { annual_expense_id: "oi", expected_cents: 8185 },
+      ],
+    });
+    expect(result).toEqual({ total: 42078, missing: [], creditorCount: 3 });
+  });
+
+  it("não inventa valores de consumo variável sem lançamento em novembro", () => {
+    const result = summarizeConsumptionForPeriod({
+      rows,
+      cells: [
+        { annual_expense_id: "caesb", expected_cents: 0 },
+        { annual_expense_id: "neo", expected_cents: 0 },
+        { annual_expense_id: "oi", expected_cents: 7990 },
+      ],
+    });
+    expect(result).toEqual({
+      total: 7990, missing: ["Caesb", "Neo Energia"], creditorCount: 3,
+    });
+  });
+
+  it("não soma lançamentos de outros credores e não duplica competência", () => {
+    const data = { rows, cells: [
+      { annual_expense_id: "caesb", expected_cents: 10000 },
+      { annual_expense_id: "emprestimo", expected_cents: 999999 },
+    ] };
+    expect(summarizeConsumptionForPeriod(data)).toEqual({
+      total: 10000, missing: ["Neo Energia", "OI"], creditorCount: 3,
+    });
+    expect(() => summarizeConsumptionForPeriod({
+      rows, cells: [data.cells[0]!, data.cells[0]!],
     })).toThrow(/duplicada/);
   });
 });

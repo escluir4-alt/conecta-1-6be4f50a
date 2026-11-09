@@ -9,7 +9,7 @@ import { PayDialog, type PayTarget } from "@/components/finance/PayDialog";
 import { AttachmentButton } from "@/components/finance/AttachmentButton";
 import { Button } from "@/components/ui/button";
 import { formatBRL, formatDateBR } from "@/lib/finance/money";
-import { getMonthExpenses, getContracts, getAnnualDebtTotals, addManualBill, getCardLimitOverrides, saveCardLimitOverride, clearCardLimitOverride } from "@/lib/finance/finance.functions";
+import { getMonthExpenses, getContracts, getAnnualDebtTotals, getConsumptionForPeriod, addManualBill, getCardLimitOverrides, saveCardLimitOverride, clearCardLimitOverride } from "@/lib/finance/finance.functions";
 import { getFinances } from "@/lib/pluggy.functions";
 import { getFinanceAccountProfiles } from "@/lib/finance/card-profile.functions";
 import { MicroBar, MicroRing } from "@/components/finance/MicroChart";
@@ -58,6 +58,7 @@ function HomeBroker() {
   const walletFn = useServerFn(getFinances);
   const contractsFn = useServerFn(getContracts);
   const annualDebtFn = useServerFn(getAnnualDebtTotals);
+  const consumptionPeriodFn = useServerFn(getConsumptionForPeriod);
   const overrideFn = useServerFn(getCardLimitOverrides);
   const saveOverrideFn = useServerFn(saveCardLimitOverride);
   const clearOverrideFn = useServerFn(clearCardLimitOverride);
@@ -139,6 +140,11 @@ function HomeBroker() {
   const profileFn = useServerFn(getFinanceAccountProfiles);
   const profiles = useQuery({ queryKey: ["finance-profiles"], queryFn: () => profileFn(), enabled: !!user });
   const annualDebt = useQuery({ queryKey: ["annual-debt-totals", user?.email, currentExercise], queryFn: () => annualDebtFn(), enabled: !!user });
+  const consumptionPeriod = useQuery({
+    queryKey: ["consumption-period", user?.email, period],
+    queryFn: () => consumptionPeriodFn({ data: { year, month } }),
+    enabled: !!user && registerType === "despesas",
+  });
   const bills = expenses.data?.bills ?? [];
   const cards = [...new Map((wallet.data?.accounts?.filter(a => a.type === "CREDIT") ?? []).map(card => [card.id, card])).values()];
   const limits = useMemo(() => cards.reduce((acc, card) => {
@@ -157,7 +163,6 @@ function HomeBroker() {
   const debtOpen = annualDebt.data?.open ?? 0;
   const pct = annualDebt.data?.pct ?? 0;
   const consumption = annualDebt.data?.consumption;
-  const consumptionMonth = annualDebt.data?.currentMonth ?? now.getMonth() + 1;
   const paidCount = bills.filter(b => b.expected_cents > 0 && (b.paid_cents ?? 0) >= b.expected_cents).length;
   const incomePaidCount = incomes.filter(entry => entry.expected_cents > 0 && (entry.received_cents ?? 0) >= entry.expected_cents).length;
   const incomePct = incomeExpected > 0 ? Math.min(100, Math.round(incomeReceived / incomeExpected * 100)) : 0;
@@ -170,6 +175,7 @@ function HomeBroker() {
     void client.invalidateQueries({ queryKey: ["revenue"] });
     void client.invalidateQueries({ queryKey: ["home-broker-contracts"] });
     void client.invalidateQueries({ queryKey: ["annual-debt-totals"] });
+    void client.invalidateQueries({ queryKey: ["consumption-period"] });
     void client.invalidateQueries({ queryKey: ["finance-profiles"] });
   };
   return <AppShell active="home-broker" user={user}>
@@ -265,11 +271,19 @@ function HomeBroker() {
             <Kpi label="Valor pago" value={formatBRL(stats.paid)} bar={stats.expected > 0 ? Math.round(stats.paid / stats.expected * 100) : 0} />
             <Kpi label="Em aberto" value={formatBRL(stats.open)} bar={stats.expected > 0 ? Math.round(stats.open / stats.expected * 100) : 0} />
             <div className="rounded-2xl border bg-success-soft/30 p-3">
-              <p className="axion-kpi-label">Consumo do mês atual</p>
+              <p className="axion-kpi-label">Consumo do mês selecionado</p>
               <p className="mt-2 text-lg font-extrabold tracking-tight xl:text-xl">
-                {consumptionReady ? formatBRL(consumption?.month ?? 0) : "—"}
+                {consumptionPeriod.data && !consumptionPeriod.error ? formatBRL(consumptionPeriod.data.total) : "—"}
               </p>
-              <p className="mt-1 text-xs text-muted-foreground">{MONTHS[consumptionMonth - 1]} de {currentExercise}</p>
+              <p className="mt-1 text-xs text-muted-foreground">{MONTHS[month - 1]} de {year}</p>
+              {!!consumptionPeriod.data?.missing.length && (
+                <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+                  Sem valor lançado: {consumptionPeriod.data.missing.join(", ")}
+                </p>
+              )}
+              {consumptionPeriod.error && <p role="alert" className="mt-1 text-xs text-destructive">
+                Falha ao consultar consumo: {consumptionPeriod.error.message}
+              </p>}
             </div>
             <div className="rounded-2xl border bg-success-soft/20 p-3">
               <p className="text-sm font-bold">Resumo do mês — {MONTHS[month - 1]}/{year}</p>
