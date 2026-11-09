@@ -385,7 +385,7 @@ function HomeBroker() {
                 const percentage = value.limit > 0 ? Math.min(100, 100 * value.used / value.limit) : 0;
                 const draft = cardDrafts[card.id] ?? { limit: (value.limit / 100).toFixed(2), used: (value.used / 100).toFixed(2) };
                 return <tr key={card.id}>
-                  <td className="p-3 font-semibold">{profiles.data?.find(p => p.account_id === card.id)?.display_name || card.name}{value.manual && <span className="ml-2 text-xs font-normal text-muted-foreground">Ajuste manual</span>}</td>
+                  <td className="p-3 font-semibold">{profiles.data?.profiles.find(p => p.account_id === card.id)?.display_name || card.name}{value.manual && <span className="ml-2 text-xs font-normal text-muted-foreground">Ajuste manual</span>}</td>
                   <td className="p-3">{cardsUnlocked ? <input aria-label={`Limite do cartão ${card.name}`} className="w-28 rounded-md border bg-background p-2" inputMode="decimal" value={draft.limit} onChange={e => setCardDrafts(prev => ({...prev, [card.id]: {...draft, limit: e.target.value}}))} /> : formatBRL(value.limit)}</td>
                   <td className="p-3">{cardsUnlocked ? <input aria-label={`Valor utilizado do cartão ${card.name}`} className="w-28 rounded-md border bg-background p-2" inputMode="decimal" value={draft.used} onChange={e => setCardDrafts(prev => ({...prev, [card.id]: {...draft, used: e.target.value}}))} /> : formatBRL(value.used)}</td>
                   <td className="p-3">{formatBRL(available)}</td>
