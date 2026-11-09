@@ -12,6 +12,7 @@ import { formatBRL, formatDateBR } from "@/lib/finance/money";
 import { getMonthExpenses, getContracts, getGlobalDebtTotals, addManualBill, getCardLimitOverrides, saveCardLimitOverride, clearCardLimitOverride } from "@/lib/finance/finance.functions";
 import { getFinances } from "@/lib/pluggy.functions";
 import { getFinanceAccountProfiles, getConfirmedCardInvoiceLinks } from "@/lib/finance/card-profile.functions";
+import { MicroBar, MicroRing } from "@/components/finance/MicroChart";
 import { globalPanelIndicators } from "@/lib/finance/global-debt";
 import { calculateCardDebtOverlap } from "@/lib/finance/card-debt-reconciliation";
 import { getRevenue, createRevenue } from "@/lib/finance/revenue.functions";
@@ -26,10 +27,16 @@ export const Route = createFileRoute("/home-broker")({
 
 const MONTHS = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
 
-function Kpi({ label, value, emphasis }: { label: string; value: string; emphasis?: boolean }) {
+function Kpi({ label, value, emphasis, bar, ring }: { label: string; value: string; emphasis?: boolean; bar?: number | undefined; ring?: number | undefined }) {
   return <div className={`axion-kpi rounded-2xl border p-5 ${emphasis ? "axion-kpi-featured bg-primary text-primary-foreground" : "bg-card"}`}>
-    <p className="text-xs font-semibold uppercase tracking-wide opacity-70">{label}</p>
-    <p className="mt-3 text-xl font-extrabold tracking-tight md:text-2xl">{value}</p>
+    <div className="flex items-start justify-between gap-3">
+      <div className="min-w-0">
+        <p className="axion-kpi-label">{label}</p>
+        <p className="mt-3 text-xl font-extrabold tracking-tight md:text-2xl">{value}</p>
+      </div>
+      {ring != null && <MicroRing value={ring} />}
+    </div>
+    {bar != null && <MicroBar value={bar} tone={emphasis ? "light" : "gold"} />}
   </div>;
 }
 
@@ -182,10 +189,10 @@ function HomeBroker() {
         </div>
       </div>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <Kpi label="Valor total das dívidas" value={financialReady ? formatBRL(debtTotal) : "—"} emphasis />
-        <Kpi label="Total já pago" value={financialReady ? formatBRL(debtPaid) : "—"} />
-        <Kpi label="Saldo devedor total" value={financialReady ? formatBRL(debtOpen) : "—"} />
-        <Kpi label="% quitado (global)" value={financialReady ? `${pct}%` : "—"} />
+        <Kpi label="Valor total das dívidas" value={financialReady ? formatBRL(debtTotal) : "—"} emphasis bar={financialReady ? 100 - pct : undefined} />
+        <Kpi label="Total já pago" value={financialReady ? formatBRL(debtPaid) : "—"} bar={financialReady ? pct : undefined} />
+        <Kpi label="Saldo devedor total" value={financialReady ? formatBRL(debtOpen) : "—"} bar={financialReady ? 100 - pct : undefined} />
+        <Kpi label="% quitado (global)" value={financialReady ? `${pct}%` : "—"} ring={financialReady ? pct : undefined} />
       </div>
       {globalDebt.error && <p role="alert" className="rounded-lg border border-destructive/30 p-3 text-sm text-destructive">Consolidado indisponível: {globalDebt.error.message}. Não foi exibido um total incompleto como se fosse zero.</p>}
       {financialReady && !cardsReady && <p className="text-xs text-muted-foreground">Cartões bancários não carregados ({wallet.error?.message || wallet.data?.error || invoiceLinks.error?.message || "carregando"}); indicadores mostram apenas as obrigações cadastradas.</p>}
@@ -212,9 +219,9 @@ function HomeBroker() {
         </div>
         {registerType === "despesas" ? <>
           <div className="mt-4 grid gap-3 sm:grid-cols-4">
-            <Kpi label="Valor previsto" value={formatBRL(stats.expected)} />
-            <Kpi label="Valor pago" value={formatBRL(stats.paid)} />
-            <Kpi label="Em aberto" value={formatBRL(stats.open)} />
+            <Kpi label="Valor previsto" value={formatBRL(stats.expected)} bar={100} />
+            <Kpi label="Valor pago" value={formatBRL(stats.paid)} bar={(stats.expected > 0 ? Math.round(stats.paid / stats.expected * 100) : 0)} />
+            <Kpi label="Em aberto" value={formatBRL(stats.open)} bar={(stats.expected > 0 ? Math.round(stats.open / stats.expected * 100) : 0)} />
             <Kpi label="Contas do mês" value={String(stats.count)} />
           </div>
           {(expenses.data?.reviewFlags ?? []).map(message => <p className="mt-3 rounded-lg border border-amber-400/40 p-3 text-sm" key={message}>{message}</p>)}
@@ -247,9 +254,9 @@ function HomeBroker() {
           <div className="mt-3 flex flex-wrap gap-4 text-sm"><Link to="/despesas/anuais" className="text-primary underline">Despesas anuais</Link><Link to="/historico-pagamentos" className="text-primary underline">Histórico de pagamentos</Link></div>
         </> : <>
           <div className="mt-4 grid gap-3 sm:grid-cols-4">
-            <Kpi label="Previsto a receber" value={formatBRL(incomeExpected)} />
-            <Kpi label="Total recebido" value={formatBRL(incomeReceived)} />
-            <Kpi label="A receber" value={formatBRL(Math.max(0, incomeExpected - incomeReceived))} />
+            <Kpi label="Previsto a receber" value={formatBRL(incomeExpected)} bar={100} />
+            <Kpi label="Total recebido" value={formatBRL(incomeReceived)} bar={(incomeExpected > 0 ? Math.round(incomeReceived / incomeExpected * 100) : 0)} />
+            <Kpi label="A receber" value={formatBRL(Math.max(0, incomeExpected - incomeReceived))} bar={100 - (incomeExpected > 0 ? Math.round(incomeReceived / incomeExpected * 100) : 0)} />
             <Kpi label="Lançamentos" value={String(incomes.length)} />
           </div>
           {revenue.error && <p role="alert" className="mt-4 text-sm text-destructive">Não foi possível consultar as receitas: {revenue.error.message}</p>}
