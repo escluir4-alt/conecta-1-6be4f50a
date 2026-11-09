@@ -149,6 +149,8 @@ function AnuaisPage() {
     }
     if(source==="card" && selectedCardId) {
       const profile=profiles.find(p=>p.account_id===selectedCardId);
+      if(profile?.annual_expense_id && profile.annual_expense_id!==annualId)
+        throw new Error("Este cartão já está vinculado a outro credor anual. Revise o vínculo em Carteiras antes de alterá-lo.");
       await saveProfileFn({data:{accountId:selectedCardId,displayName:profile?.display_name??null,
         cardBrand:(profile?.card_brand as "VISA"|"MASTERCARD"|"ELO"|"AMEX"|"HIPERCARD"|"OTHER"|null)??null,annualExpenseId:annualId}});
     }
@@ -505,6 +507,8 @@ function AddCreditorDialog({
         toast.success(`Consumo fixo projetado até ${result.years.at(-1)}.`);
       } else if(source==="card") {
         const profile=profiles.find(p=>p.account_id===cardId);
+        if(profile?.annual_expense_id && profile.annual_expense_id!==id)
+          throw new Error("Este cartão já está vinculado a outro credor. Revise a Carteiras antes de vinculá-lo novamente.");
         await profileFn({data:{accountId:cardId,annualExpenseId:id,displayName:profile?.display_name??null,
           cardBrand:(profile?.card_brand as "VISA"|"MASTERCARD"|"ELO"|"AMEX"|"HIPERCARD"|"OTHER"|null)??null}});
         toast.success("Cartão vinculado; faturas fechadas virão do Open Finance.");
