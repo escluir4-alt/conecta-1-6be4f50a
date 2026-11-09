@@ -119,28 +119,43 @@ export type Database = {
       }
       annual_expenses: {
         Row: {
+          consumption_value_type: string
           creditor: string
           due_day: number | null
+          expense_kind: string
+          expense_source: string
           id: string
           position: number
+          source_contract_id: string | null
+          source_template_id: string | null
           updated_at: string
           user_id: string
           year: number
         }
         Insert: {
+          consumption_value_type?: string
           creditor: string
           due_day?: number | null
+          expense_kind?: string
+          expense_source?: string
           id?: string
           position?: number
+          source_contract_id?: string | null
+          source_template_id?: string | null
           updated_at?: string
           user_id: string
           year: number
         }
         Update: {
+          consumption_value_type?: string
           creditor?: string
           due_day?: number | null
+          expense_kind?: string
+          expense_source?: string
           id?: string
           position?: number
+          source_contract_id?: string | null
+          source_template_id?: string | null
           updated_at?: string
           user_id?: string
           year?: number
@@ -446,6 +461,7 @@ export type Database = {
           description: string | null
           due_date: string
           expected_cents: number
+          expense_kind: string
           id: string
           installment_number: number | null
           paid_cents: number | null
@@ -462,6 +478,7 @@ export type Database = {
           description?: string | null
           due_date: string
           expected_cents: number
+          expense_kind?: string
           id: string
           installment_number?: number | null
           paid_cents?: number | null
@@ -478,6 +495,7 @@ export type Database = {
           description?: string | null
           due_date?: string
           expected_cents?: number
+          expense_kind?: string
           id?: string
           installment_number?: number | null
           paid_cents?: number | null
