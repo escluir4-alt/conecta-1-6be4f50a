@@ -185,6 +185,13 @@ function HomeBroker() {
           <Button variant="outline" onClick={() => { refresh(); void client.invalidateQueries({ queryKey: ["finances"] }); }}><RefreshCw className="size-4" /> Atualizar</Button>
         </div>
       </div>
+      {profiles.data?.available === false && (
+        <p role="alert" className="rounded-lg border border-amber-500/40 p-3 text-sm">
+          Perfis e vínculos dos cartões indisponíveis neste banco. A migração
+          20261107140000_finance_card_profiles_invoices.sql precisa ser aplicada
+          antes da sincronização de faturas. Os demais registros permanecem acessíveis.
+        </p>
+      )}
       <section className="rounded-2xl border bg-card p-4 shadow-soft">
         <div className="mb-4 flex flex-wrap items-center gap-3">
           <CalendarDays className="size-5 text-primary" />
@@ -385,7 +392,7 @@ function HomeBroker() {
                 const percentage = value.limit > 0 ? Math.min(100, 100 * value.used / value.limit) : 0;
                 const draft = cardDrafts[card.id] ?? { limit: (value.limit / 100).toFixed(2), used: (value.used / 100).toFixed(2) };
                 return <tr key={card.id}>
-                  <td className="p-3 font-semibold">{profiles.data?.find(p => p.account_id === card.id)?.display_name || card.name}{value.manual && <span className="ml-2 text-xs font-normal text-muted-foreground">Ajuste manual</span>}</td>
+                  <td className="p-3 font-semibold">{profiles.data?.profiles.find(p => p.account_id === card.id)?.display_name || card.name}{value.manual && <span className="ml-2 text-xs font-normal text-muted-foreground">Ajuste manual</span>}</td>
                   <td className="p-3">{cardsUnlocked ? <input aria-label={`Limite do cartão ${card.name}`} className="w-28 rounded-md border bg-background p-2" inputMode="decimal" value={draft.limit} onChange={e => setCardDrafts(prev => ({...prev, [card.id]: {...draft, limit: e.target.value}}))} /> : formatBRL(value.limit)}</td>
                   <td className="p-3">{cardsUnlocked ? <input aria-label={`Valor utilizado do cartão ${card.name}`} className="w-28 rounded-md border bg-background p-2" inputMode="decimal" value={draft.used} onChange={e => setCardDrafts(prev => ({...prev, [card.id]: {...draft, used: e.target.value}}))} /> : formatBRL(value.used)}</td>
                   <td className="p-3">{formatBRL(available)}</td>
