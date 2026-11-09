@@ -1,5 +1,6 @@
 import { useEffect,useMemo,useRef,useState } from "react";
 import { Link } from "@tanstack/react-router";
+import { useServerFn } from "@tanstack/react-start";
 import { useQuery,useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { AreaChart,BarChart3,Camera,Check,ChevronLeft,ChevronRight,Download,Eye,FileText,FolderArchive,MoreVertical,Printer,Search,ShoppingCart,ScanLine,Upload,Trash2,X } from "lucide-react";
@@ -9,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog,DialogContent,DialogDescription,DialogHeader,DialogTitle } from "@/components/ui/dialog";
 import { brl,deleteFiscal,downloadFiscal,fileUrl,getDocumentItems,getDocuments,parseBRL,saveDocument,updateFiscalMetadata,type FiscalDoc,type FiscalDraft,type FiscalItem } from "@/lib/fiscal";
+import { consultarBrasil } from "@/lib/brasilapi/brasilapi.functions";
 
 const MONTHS=["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
 const today=new Date().toISOString().slice(0,10);
@@ -19,6 +21,8 @@ const fmtDate=(s:string)=>s.split("-").reverse().join("/");
 const monthNumber=(s:string)=>Number(s.slice(5,7));
 export function FiscalWorkspace({view="notas"}:{view?:View}){
  const user=useRequireUser(),qc=useQueryClient();
+ const consultBrasil=useServerFn(consultarBrasil);
+ const [companyCnpj,setCompanyCnpj]=useState(""),[lookupBusy,setLookupBusy]=useState(false);
  const picker=useRef<HTMLInputElement>(null),cameraPicker=useRef<HTMLInputElement>(null),scannerPicker=useRef<HTMLInputElement>(null);
  const [scanMode,setScanMode]=useState<"qr_code"|"ean_13">("qr_code");
  const [year,setYear]=useState(String(new Date().getFullYear()));
@@ -54,7 +58,19 @@ export function FiscalWorkspace({view="notas"}:{view?:View}){
  const displayed=visible.slice((Math.min(page,count)-1)*pageSize,Math.min(page,count)*pageSize);
  useEffect(()=>{setPage(1)},[year,month,search,type,view]);
  useEffect(()=>{let cancelled=false;setPreview("");if(!selected)return;void fileUrl(original?selected.original_path:selected.pdf_path).then(u=>{if(!cancelled)setPreview(u)}).catch(e=>toast.error(e instanceof Error?e.message:"Falha ao abrir documento"));return()=>{cancelled=true}},[selected,original]);
- const choose=(f?:File)=>{if(!f)return;setEditing(null);setFile(f);setDraft({...emptyDraft,category:view==="mercado"?"mercado":"outros"});setItems([]);setReviewed(false);setOpenForm(true)};
+ const choose=(f?:File)=>{if(!f)return;setCompanyCnpj("");setEditing(null);setFile(f);setDraft({...emptyDraft,category:view==="mercado"?"mercado":"outros"});setItems([]);setReviewed(false);setOpenForm(true)};
+ const lookupIssuer=async()=>{
+  const cnpj=companyCnpj.trim()||(/^\d{44}$/.test(draft.access_key)?draft.access_key.slice(6,20):"");
+  if(!cnpj){toast.info("Informe o CNPJ ou a chave de acesso de 44 dígitos.");return;}
+  setLookupBusy(true);
+  try{
+   const r=await consultBrasil({data:{kind:"cnpj",value:cnpj}});
+   if(r.kind!=="cnpj"||!r.data.razaoSocial)throw new Error("Razão social não disponível para esse CNPJ.");
+   setDraft(p=>({...p,issuer:r.data.razaoSocial}));
+   toast.success("Razão social sugerida pela BrasilAPI. Confira com a nota antes de salvar.");
+  }catch(error){toast.error(error instanceof Error?error.message:"Falha na consulta pública.");}
+  finally{setLookupBusy(false);}
+ };
  const scanImage=async(f?:File)=>{
   if(!f)return;
   type Detected={rawValue:string;format?:string};
@@ -140,6 +156,7 @@ export function FiscalWorkspace({view="notas"}:{view?:View}){
  <Dialog open={openForm} onOpenChange={v=>!busy&&setOpenForm(v)}><DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>{editing?"Editar informações da nota":"Arquivar nota fiscal"}</DialogTitle><DialogDescription>Revise os dados da nota antes de confirmar. Nenhum documento será enviado a serviços externos de IA.</DialogDescription></DialogHeader><div className="grid gap-3 sm:grid-cols-2">
   <p className="sm:col-span-2 rounded-lg bg-muted p-3 text-sm break-all">{editing?editing.original_name:file?.name}</p>
   <label className="space-y-1 text-sm">Fornecedor / emitente<Input value={draft.issuer} onChange={e=>setDraft({...draft,issuer:e.target.value})}/></label>
+  <div className="sm:col-span-2 grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end"><label className="space-y-1 text-sm">CNPJ do emitente (opcional)<Input placeholder="00.000.000/0001-00" maxLength={18} value={companyCnpj} onChange={e=>setCompanyCnpj(e.target.value)}/></label><Button type="button" variant="outline" disabled={lookupBusy||busy} onClick={lookupIssuer}>{lookupBusy?"Consultando…":"Consultar CNPJ"}</Button><p className="text-xs text-muted-foreground sm:col-span-2">Consulta pública pela BrasilAPI. Se o CNPJ ficar vazio, será utilizado o da chave de acesso de 44 dígitos, quando informada. Confirme o emitente com o documento.</p></div>
   <label className="space-y-1 text-sm">Data de emissão<Input type="date" value={draft.issued_on} onChange={e=>setDraft({...draft,issued_on:e.target.value})}/></label>
   <label className="space-y-1 text-sm">Número da nota<Input value={draft.document_number} onChange={e=>setDraft({...draft,document_number:e.target.value})}/></label>
   <label className="space-y-1 text-sm">Valor (ex.: 123,45)<Input value={draft.total} onChange={e=>setDraft({...draft,total:e.target.value})}/></label>
