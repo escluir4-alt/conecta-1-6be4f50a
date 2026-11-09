@@ -57,6 +57,13 @@
       "when": 1794225660000,
       "tag": "0009_finance_card_profiles_invoices",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1794225720000,
+      "tag": "0010_annual_taxes",
+      "breakpoints": true
     }
   ]
 }
