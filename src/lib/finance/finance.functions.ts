@@ -1,4 +1,5 @@
 import { consolidateAnnualDashboard } from "@/lib/finance/annual-dashboard";
+import { extendFixedConsumptionsForNewContract } from "@/lib/finance/annual-projections.functions";
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
@@ -592,7 +593,18 @@ export const createContract = createServerFn({ method: "POST" })
     const { error: eErr } = await supabase.from("installment_entries").insert(entries);
     if (eErr) throw new Error(eErr.message);
     await audit(supabase, "create_contract", "contract", id, null, { ...data, installments: data.count });
-    return { id };
+    // Extensão das projeções de consumo não pode invalidar um contrato já criado.
+    let forecastWarning: string | null = null;
+    let extendedConsumptionMonths = 0;
+    try {
+      const horizon = Number(entries[entries.length-1]?.due_date.slice(0,4) ?? 0);
+      const extended = await extendFixedConsumptionsForNewContract(supabase,userId,horizon);
+      extendedConsumptionMonths = extended.extended;
+      if(extended.warnings.length) forecastWarning = extended.warnings.join("; ").slice(0,1000);
+    } catch(e) {
+      forecastWarning = e instanceof Error?e.message:"Falha na projeção automática de consumo.";
+    }
+    return { id, extendedConsumptionMonths, forecastWarning };
   });
 
 export const addContractComment = createServerFn({ method: "POST" })
