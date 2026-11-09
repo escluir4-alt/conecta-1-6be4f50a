@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { assertUserCreditCard, assertUserFinanceAccount, fetchAuthorizedCardBills } from "@/lib/pluggy.functions";
+import { CARD_PROFILES_MIGRATION_MESSAGE, isMissingCardProfileTable } from "./card-profile-status";
 
 const profileSchema = z.object({
   accountId: z.string().min(1).max(200),
@@ -16,8 +17,16 @@ export const getFinanceAccountProfiles = createServerFn({ method: "GET" })
     const { data, error } = await (context.supabase as any).from("finance_account_profiles")
       .select("account_id,display_name,card_brand,annual_expense_id")
       .eq("user_id", context.userId);
-    if (error) throw new Error(error.message);
-    return (data ?? []) as Array<{ account_id: string; display_name: string | null; card_brand: string | null; annual_expense_id: string | null }>;
+    if (error) {
+      // Apenas a consulta de perfis pode continuar de modo degradado.
+      // Nunca apresentar um vínculo inexistente como confirmado.
+      if (isMissingCardProfileTable(error)) return { profiles: [], available: false };
+      throw new Error(error.message);
+    }
+    return { profiles: (data ?? []) as Array<{
+      account_id: string; display_name: string | null;
+      card_brand: string | null; annual_expense_id: string | null
+    }>, available: true };
   });
 
 export const saveFinanceAccountProfile = createServerFn({ method: "POST" })
@@ -38,7 +47,10 @@ export const saveFinanceAccountProfile = createServerFn({ method: "POST" })
       annual_expense_id: data.annualExpenseId,
       updated_at: new Date().toISOString(),
     }, { onConflict: "user_id,account_id" });
-    if (error) throw new Error(error.message);
+    if (error) {
+      if (isMissingCardProfileTable(error)) throw new Error(CARD_PROFILES_MIGRATION_MESSAGE);
+      throw new Error(error.message);
+    }
     return { ok: true };
   });
 
@@ -74,7 +86,10 @@ export const syncProviderClosedCardInvoices = createServerFn({ method: "POST" })
     const { supabase, userId } = context;
     const { data: profiles, error: profilesError } = await (supabase as any).from("finance_account_profiles")
       .select("account_id,annual_expense_id").eq("user_id", userId).not("annual_expense_id", "is", null);
-    if (profilesError) throw new Error(profilesError.message);
+    if (profilesError) {
+      if (isMissingCardProfileTable(profilesError)) throw new Error(CARD_PROFILES_MIGRATION_MESSAGE);
+      throw new Error(profilesError.message);
+    }
     let updated = 0, unchanged = 0, skipped = 0;
     const errors: string[] = [];
     const today = new Date().toISOString().slice(0, 10);
