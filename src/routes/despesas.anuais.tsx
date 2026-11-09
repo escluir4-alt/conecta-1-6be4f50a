@@ -175,6 +175,12 @@ function AnuaisPage() {
     if(editCreditor.expenseSource==="card" && !editCreditor.cardAccountId) {
       toast.error("Selecione um cartão conectado ao Open Finance.");return;
     }
+    if(editCreditor.expenseSource==="annual_tax" && editCreditor.taxTotal.trim()) {
+      try {
+        annualTaxSchedule({totalCents:parseBRL(editCreditor.taxTotal)??0,
+          firstMonth:editCreditor.taxFirstMonth,installments:editCreditor.taxInstallments});
+      } catch(e) {toast.error(e instanceof Error?e.message:"Parcelamento inválido.");return;}
+    }
     let fixedCents: number | null=null;
     if(editCreditor.expenseSource==="consumption" && editCreditor.consumptionValueType==="fixed" && editCreditor.fixedValue.trim()){
       fixedCents=parseBRL(editCreditor.fixedValue);
@@ -448,7 +454,7 @@ function AnuaisPage() {
                 <div className="grid grid-cols-2 gap-2">
                   <div className="space-y-1"><Label htmlFor="ec-tax-month">Primeiro vencimento</Label>
                     <select id="ec-tax-month" className="h-10 w-full rounded-md border bg-background px-2 text-sm"
-                      value={editCreditor.taxFirstMonth} onChange={e=>setEditCreditor({...editCreditor,taxFirstMonth:Number(e.target.value)})}>
+                      value={editCreditor.taxFirstMonth} onChange={e=>{const v=Number(e.target.value);setEditCreditor({...editCreditor,taxFirstMonth:v,taxInstallments:Math.min(editCreditor.taxInstallments,13-v)});}}>
                       {MONTHS_SHORT.map((label,i)=><option key={label} value={i+1}>{label}</option>)}
                     </select>
                   </div>
@@ -517,6 +523,7 @@ function AddCreditorDialog({
   const consumptionFn=useServerFn(projectFixedAnnualConsumption);
   const profileFn=useServerFn(saveFinanceAccountProfile);
   const syncProviderFn=useServerFn(syncProviderClosedCardInvoices);
+  const taxFn=useServerFn(scheduleAnnualTax);
   const [name,setName]=useState("");
   const [day,setDay]=useState("");
   const [source,setSource]=useState<SourceKind>("manual");
@@ -524,12 +531,18 @@ function AddCreditorDialog({
   const [cardId,setCardId]=useState("");
   const [valueType,setValueType]=useState<"fixed"|"variable">("fixed");
   const [fixedValue,setFixedValue]=useState("");
+  const [taxKind,setTaxKind]=useState<AnnualTaxKind>("iptu");
+  const [taxTotal,setTaxTotal]=useState("");
+  const [taxFirstMonth,setTaxFirstMonth]=useState(1);
+  const [taxInstallments,setTaxInstallments]=useState(1);
   const [saving,setSaving]=useState(false);
   const [createdId,setCreatedId]=useState<string|null>(null);
 
   function close() {
     setName("");setDay("");setSource("manual");setContractId("");setCardId("");
-    setValueType("fixed");setFixedValue("");setCreatedId(null);onOpenChange(false);
+    setValueType("fixed");setFixedValue("");
+    setTaxKind("iptu");setTaxTotal("");setTaxFirstMonth(1);setTaxInstallments(1);
+    setCreatedId(null);onOpenChange(false);
   }
   async function save(){
     const dueDay=day.trim()===""?null:Number(day);
@@ -542,17 +555,28 @@ function AddCreditorDialog({
     if(source==="consumption" && valueType==="fixed" && (cents===null || cents<=0)){
       toast.error("Informe o valor mensal do consumo fixo.");return;
     }
+    let taxCents:number|null=null;
+    if(source==="annual_tax"){
+      taxCents=parseBRL(taxTotal);
+      try { annualTaxSchedule({totalCents:taxCents??0,firstMonth:taxFirstMonth,installments:taxInstallments}); }
+      catch(e){toast.error(e instanceof Error?e.message:"Valor anual inválido.");return;}
+    }
     setSaving(true);
     try {
       let id=createdId;
       if(!id) {
         const result=await addFn({data:{year,creditor:name.trim(),dueDay,
           expenseKind:kindFromSource(source),expenseSource:source,
-          sourceContractId:source==="contract"?contractId:null,consumptionValueType:valueType}});
+          sourceContractId:source==="contract"?contractId:null,consumptionValueType:valueType,
+          annualTaxKind:source==="annual_tax"?taxKind:null}});
         id=result.id;
         setCreatedId(id);
       }
-      if(source==="contract") {
+      if(source==="annual_tax" && taxCents){
+        const result=await taxFn({data:{expenseId:id,totalCents:taxCents,
+          firstMonth:taxFirstMonth,installments:taxInstallments}});
+        toast.success(`Tributo anual registrado para ${result.year}: ${result.created} competências criadas.`);
+      } else if(source==="contract") {
         const result=await contractFn({data:{expenseId:id,contractId}});
         toast.success(`Parcelas distribuídas de ${result.years[0]} até ${result.years.at(-1)}; ${result.preserved} meses preservados.`);
       } else if(source==="consumption" && valueType==="fixed" && cents) {
@@ -599,6 +623,7 @@ function AddCreditorDialog({
             <option value="contract">Contrato parcelado</option>
             <option value="card">Cartão de crédito / Open Finance</option>
             <option value="consumption">Consumo</option>
+            <option value="annual_tax">Tributo anual — IPTU / IPVA</option>
           </select>
         </div>
         {source==="contract" && <div className="space-y-1">
@@ -618,6 +643,42 @@ function AddCreditorDialog({
             {cards.map(card=><option key={card.id} value={card.id}>{card.name}</option>)}
           </select>
           <p className="text-xs text-muted-foreground">As faturas confirmadas serão sincronizadas pelas Carteiras.</p>
+        </div>}
+        {source==="annual_tax" && <div className="space-y-3">
+          <div className="space-y-1">
+            <Label htmlFor="ac-tax-kind">Qual tributo?</Label>
+            <select id="ac-tax-kind" className="h-10 w-full rounded-md border bg-background px-2 text-sm"
+              disabled={!!createdId} value={taxKind} onChange={e=>setTaxKind(e.target.value as AnnualTaxKind)}>
+              <option value="iptu">IPTU — imóvel</option>
+              <option value="ipva">IPVA — veículo</option>
+              <option value="other">Outro tributo anual</option>
+            </select>
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="ac-tax-total">Valor anual devido (R$)</Label>
+            <Input id="ac-tax-total" inputMode="decimal" placeholder="Ex.: 1.200,00"
+              value={taxTotal} onChange={e=>setTaxTotal(e.target.value)}/>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1">
+              <Label htmlFor="ac-tax-first">Mês de início</Label>
+              <select id="ac-tax-first" className="h-10 w-full rounded-md border bg-background px-2 text-sm"
+                value={taxFirstMonth} onChange={e=>{
+                  const v=Number(e.target.value);setTaxFirstMonth(v);
+                  setTaxInstallments(Math.min(taxInstallments,13-v));
+                }}>
+                {MONTHS_SHORT.map((label,i)=><option key={label} value={i+1}>{label}</option>)}
+              </select>
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="ac-tax-installments">Pagamento</Label>
+              <select id="ac-tax-installments" className="h-10 w-full rounded-md border bg-background px-2 text-sm"
+                value={taxInstallments} onChange={e=>setTaxInstallments(Number(e.target.value))}>
+                {Array.from({length:13-taxFirstMonth},(_,i)=><option key={i+1} value={i+1}>{i===0?"À vista":`${i+1} parcelas`}</option>)}
+              </select>
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">O valor é lançado somente no exercício escolhido, sem criar dívidas futuras de IPTU/IPVA com valores não confirmados.</p>
         </div>}
         {source==="consumption" && <>
           <div className="space-y-1">
