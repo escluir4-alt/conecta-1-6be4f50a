@@ -1,4 +1,4 @@
-import { consolidateGlobalDebt } from "@/lib/finance/global-debt";
+import { consolidateAnnualDashboard } from "@/lib/finance/annual-dashboard";
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
@@ -106,7 +106,7 @@ export const getMonthExpenses = createServerFn({ method: "POST" })
     const reviewFlags: string[] = [];
 
     // Sincronização anual → contas do mês (idempotente)
-    const { data: rows, error: rowError } = await supabase.from("annual_expenses").select("id, creditor, due_day").eq("year", y).order("position");
+    const { data: rows, error: rowError } = await supabase.from("annual_expenses").select("*").eq("year", y).order("position");
     if (rowError) throw new Error(rowError.message);
     const rowIds = (rows ?? []).map((r: any) => r.id);
     const { data: monthCells, error: monthError } = rowIds.length
@@ -147,6 +147,7 @@ export const getMonthExpenses = createServerFn({ method: "POST" })
         id: `${row.id}:${period}`, user_id: userId, creditor: row.creditor,
         description: `Despesa anual · ${period}`, due_date: dueDate, expected_cents: expected,
         source_annual_id: row.id, source_period: period,
+        expense_kind: row.expense_kind ?? "debt",
         contract_id: inst ? contractId : null, installment_number: inst?.number ?? null,
         paid_date: inst?.paid_date ?? null, paid_cents: inst?.paid_cents ?? null, paid_note: inst?.note ?? null,
       });
@@ -221,13 +222,14 @@ export const addManualBill = createServerFn({ method: "POST" })
     z.object({
       creditor: z.string().trim().min(1).max(100), description: z.string().trim().max(200).optional(),
       dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), expectedCents: z.number().int().positive(),
+      expenseKind: z.enum(["debt", "consumption"]).default("debt"),
     }).parse(data))
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context as Ctx;
     const id = `manual-${crypto.randomUUID()}`;
     const { error } = await supabase.from("finance_bills").insert({
       id, user_id: userId, creditor: data.creditor, description: data.description || "Conta avulsa",
-      due_date: data.dueDate, expected_cents: data.expectedCents,
+      due_date: data.dueDate, expected_cents: data.expectedCents, expense_kind: data.expenseKind,
     });
     if (error) throw new Error(error.message);
     await audit(supabase, "add_bill", "bill", id, null, data);
@@ -360,7 +362,7 @@ export const getAnnualYear = createServerFn({ method: "POST" })
     const { data: accountNames, error: accountNamesError } = await (supabase as any)
       .from("finance_account_profiles").select("annual_expense_id,display_name")
       .not("annual_expense_id","is",null);
-    if (accountNamesError) throw new Error("Não foi possível carregar nomes de cartões: " + accountNamesError.message);
+    if (accountNamesError && !/finance_account_profiles|PGRST205|42P01|schema cache/i.test(accountNamesError.message)) throw new Error("Não foi possível carregar nomes de cartões: " + accountNamesError.message);
     const alias = new Map<string,string>((accountNames ?? []).filter((p: {annual_expense_id:string;display_name:string|null})=>!!p.display_name)
       .map((p: {annual_expense_id:string;display_name:string})=>[p.annual_expense_id,p.display_name]));
     const visibleRows = (rows ?? []).map((row: any) => ({ ...row,
@@ -397,14 +399,16 @@ export const updateAnnualCell = createServerFn({ method: "POST" })
 export const addCreditor = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data: unknown) =>
-    z.object({ year: z.number().int(), creditor: z.string().trim().min(1).max(100), dueDay: z.number().int().min(1).max(31).nullable() }).parse(data))
+    z.object({ year: z.number().int(), creditor: z.string().trim().min(1).max(100), dueDay: z.number().int().min(1).max(31).nullable(),
+      expenseKind: z.enum(["debt", "consumption"]).default("debt"), consumptionValueType: z.enum(["fixed", "variable"]).default("fixed") }).parse(data))
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context as Ctx;
     await assertYearOpen(supabase, data.year);
     const { data: maxPos } = await supabase.from("annual_expenses").select("position").eq("year", data.year).order("position", { ascending: false }).limit(1);
     const position = (maxPos?.[0]?.position ?? -1) + 1;
     const { data: inserted, error } = await supabase.from("annual_expenses")
-      .insert({ user_id: userId, year: data.year, creditor: data.creditor, due_day: data.dueDay, position })
+      .insert({ user_id: userId, year: data.year, creditor: data.creditor, due_day: data.dueDay, position,
+        expense_kind: data.expenseKind, consumption_value_type: data.consumptionValueType })
       .select("id").single();
     if (error) throw new Error(error.message.includes("annual_expenses_creditor_uniq") ? "Já existe um credor com esse nome neste exercício." : error.message);
     await supabase.from("annual_years").upsert({ user_id: userId, year: data.year }, { onConflict: "user_id,year", ignoreDuplicates: true });
@@ -415,13 +419,15 @@ export const addCreditor = createServerFn({ method: "POST" })
 export const updateCreditor = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data: unknown) =>
-    z.object({ expenseId: z.string().uuid(), creditor: z.string().trim().min(1).max(100), dueDay: z.number().int().min(1).max(31).nullable() }).parse(data))
+    z.object({ expenseId: z.string().uuid(), creditor: z.string().trim().min(1).max(100), dueDay: z.number().int().min(1).max(31).nullable(),
+      expenseKind: z.enum(["debt", "consumption"]).default("debt"), consumptionValueType: z.enum(["fixed", "variable"]).default("fixed") }).parse(data))
   .handler(async ({ data, context }) => {
     const { supabase } = context as Ctx;
     const { data: row } = await supabase.from("annual_expenses").select("year, creditor, due_day").eq("id", data.expenseId).single();
     if (!row) throw new Error("Credor não encontrado");
     await assertYearOpen(supabase, row.year);
-    const { error } = await supabase.from("annual_expenses").update({ creditor: data.creditor, due_day: data.dueDay, updated_at: new Date().toISOString() }).eq("id", data.expenseId);
+    const { error } = await supabase.from("annual_expenses").update({ creditor: data.creditor, due_day: data.dueDay, expense_kind: data.expenseKind,
+      consumption_value_type: data.consumptionValueType, updated_at: new Date().toISOString() }).eq("id", data.expenseId);
     if (error) throw new Error(error.message.includes("annual_expenses_creditor_uniq") ? "Já existe um credor com esse nome neste exercício." : error.message);
     await audit(supabase, "update_creditor", "annual_expense", data.expenseId, row, data);
     return { ok: true };
@@ -696,48 +702,57 @@ export const getAttachmentUrl = createServerFn({ method: "POST" })
   });
 
 
-// Consolidado de obrigações: não depende da competência selecionada na tela.
-// Contratos e despesas anuais são fontes canônicas; suas contas espelhadas não são somadas novamente.
-export const getGlobalDebtTotals = createServerFn({ method: "GET" })
+// Resumo anual: fonte ÚNICA de valores previstos = tabela Despesas Anuais.
+// As baixas vêm somente das contas explicitamente vinculadas à linha e competência anual.
+// Não soma diretamente contratos, limites de cartão ou contas avulsas.
+export const getAnnualDebtTotals = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     const { supabase, userId } = context as Ctx;
-    const loadAll = async (table: string, columns: string) => {
-      const records: any[] = [];
-      for (let from = 0; ; from += 1000) {
-        const { data, error } = await supabase.from(table).select(columns)
-          .eq("user_id", userId).range(from, from + 999);
-        if (error) throw new Error(`Falha ao consultar ${table}: ${error.message}`);
-        const page = (data ?? []) as any[];
-        records.push(...page);
-        if (page.length < 1000) break;
-      }
-      return records;
-    };
-    const [bills, annual, contracts, installments] = await Promise.all([
-      loadAll("finance_bills", "id,creditor,due_date,expected_cents,paid_date,paid_cents,source_annual_id,source_period,contract_id,installment_number"),
-      loadAll("annual_expenses", "id,year"),
-      loadAll("installment_contracts", "id"),
-      loadAll("installment_entries", "contract_id,number,expected_cents,paid_date,paid_cents"),
-    ]);
-    const { data: cardLinks, error: cardLinksError } = await supabase.from("finance_card_debt_links")
-      .select("liability_key,card_id").eq("user_id", userId);
-    if (cardLinksError) throw new Error(`Não foi possível consultar conciliação de cartões: ${cardLinksError.message}. Aplique a migração 0008.`);
-    const links = (cardLinks ?? []) as Array<{ liability_key: string; card_id: string }>;
-    const candidates: Array<{ key: string; label: string; open: number }> = [];
-    const annualIds = new Set(annual.map(row => row.id as string));
-    const contractIds = new Set(contracts.map(row => row.id as string));
-    const annualMonths: any[] = [];
-    const annualIdList = [...annualIds];
-    for (let i = 0; i < annualIdList.length; i += 100) {
-      const { data, error } = await supabase.from("annual_expense_months")
-        .select("annual_expense_id,month,expected_cents")
-        .in("annual_expense_id", annualIdList.slice(i, i + 100));
-      if (error) throw new Error(`Falha ao consultar despesas anuais: ${error.message}`);
-      annualMonths.push(...(data ?? []));
+    const nowParts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/Sao_Paulo", year: "numeric", month: "numeric",
+    }).formatToParts(new Date());
+    const year = Number(nowParts.find(p => p.type === "year")?.value);
+    const currentMonth = Number(nowParts.find(p => p.type === "month")?.value);
+    if (!Number.isInteger(year) || !Number.isInteger(currentMonth)) {
+      throw new Error("Não foi possível identificar o exercício vigente.");
     }
-    const result = consolidateGlobalDebt({ bills, annual, annualMonths, contractIds: [...contractIds], installments });
-    return { ...result, links };
+
+    const rows: any[] = [];
+    for (let start = 0; ; start += 1000) {
+      const { data, error } = await supabase.from("annual_expenses")
+        .select("id,year,expense_kind").eq("user_id", userId).eq("year", year)
+        .range(start, start + 999);
+      if (error) throw new Error("Falha ao consultar Despesas Anuais: " + error.message);
+      rows.push(...(data ?? []));
+      if ((data ?? []).length < 1000) break;
+    }
+
+    const cells: any[] = [];
+    const payments: any[] = [];
+    const ids = rows.map(row => row.id as string);
+    for (let i = 0; i < ids.length; i += 50) {
+      const chunk = ids.slice(i, i + 50);
+      // Paginação integral: dezenas de credores podem ter 12 competências por exercício.
+      for (let from = 0; ; from += 1000) {
+        const { data, error } = await supabase.from("annual_expense_months")
+          .select("annual_expense_id,month,expected_cents")
+          .in("annual_expense_id", chunk).range(from, from + 999);
+        if (error) throw new Error("Falha ao consultar competências anuais: " + error.message);
+        cells.push(...(data ?? []));
+        if ((data ?? []).length < 1000) break;
+      }
+      for (let from = 0; ; from += 1000) {
+        const { data, error } = await supabase.from("finance_bills")
+          .select("source_annual_id,source_period,paid_cents,paid_date")
+          .eq("user_id", userId).in("source_annual_id", chunk).range(from, from + 999);
+        if (error) throw new Error("Falha ao consultar pagamentos anuais: " + error.message);
+        payments.push(...(data ?? []));
+        if ((data ?? []).length < 1000) break;
+      }
+    }
+
+    return consolidateAnnualDashboard({ year, currentMonth, rows, cells, payments });
   });
 
 

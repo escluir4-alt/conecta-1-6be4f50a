@@ -3,18 +3,16 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { RefreshCw, ArrowUpRight, Lock, Unlock } from "lucide-react";
+import { RefreshCw, ArrowUpRight, Lock, Unlock, CalendarDays, BadgeCheck, CircleDollarSign } from "lucide-react";
 import { AppShell, useRequireUser } from "@/components/AppShell";
 import { PayDialog, type PayTarget } from "@/components/finance/PayDialog";
 import { AttachmentButton } from "@/components/finance/AttachmentButton";
 import { Button } from "@/components/ui/button";
 import { formatBRL, formatDateBR } from "@/lib/finance/money";
-import { getMonthExpenses, getContracts, getGlobalDebtTotals, addManualBill, getCardLimitOverrides, saveCardLimitOverride, clearCardLimitOverride } from "@/lib/finance/finance.functions";
+import { getMonthExpenses, getContracts, getAnnualDebtTotals, addManualBill, getCardLimitOverrides, saveCardLimitOverride, clearCardLimitOverride } from "@/lib/finance/finance.functions";
 import { getFinances } from "@/lib/pluggy.functions";
-import { getFinanceAccountProfiles, getConfirmedCardInvoiceLinks } from "@/lib/finance/card-profile.functions";
+import { getFinanceAccountProfiles } from "@/lib/finance/card-profile.functions";
 import { MicroBar, MicroRing } from "@/components/finance/MicroChart";
-import { globalPanelIndicators } from "@/lib/finance/global-debt";
-import { calculateCardDebtOverlap } from "@/lib/finance/card-debt-reconciliation";
 import { getRevenue, createRevenue } from "@/lib/finance/revenue.functions";
 import { ReceiveDialog } from "@/components/finance/RevenueForms";
 import type { RevenueEntry } from "@/lib/finance/revenue";
@@ -28,11 +26,11 @@ export const Route = createFileRoute("/home-broker")({
 const MONTHS = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
 
 function Kpi({ label, value, emphasis, bar, ring }: { label: string; value: string; emphasis?: boolean; bar?: number | undefined; ring?: number | undefined }) {
-  return <div className={`axion-kpi rounded-2xl border p-5 ${emphasis ? "axion-kpi-featured bg-primary text-primary-foreground" : "bg-card"}`}>
+  return <div className={`axion-kpi rounded-2xl border p-3 ${emphasis ? "axion-kpi-featured bg-primary text-primary-foreground" : "bg-card"}`}>
     <div className="flex items-start justify-between gap-3">
       <div className="min-w-0">
         <p className="axion-kpi-label">{label}</p>
-        <p className="mt-3 text-xl font-extrabold tracking-tight md:text-2xl">{value}</p>
+        <p className="mt-2 text-lg font-extrabold tracking-tight xl:text-xl">{value}</p>
       </div>
       {ring != null && <MicroRing value={ring} />}
     </div>
@@ -44,6 +42,7 @@ function HomeBroker() {
   const user = useRequireUser();
   const client = useQueryClient();
   const now = new Date();
+  const currentExercise = Number(new Intl.DateTimeFormat("en-US", { timeZone: "America/Sao_Paulo", year: "numeric" }).format(now));
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [target, setTarget] = useState<PayTarget | null>(null);
@@ -58,7 +57,7 @@ function HomeBroker() {
   const monthFn = useServerFn(getMonthExpenses);
   const walletFn = useServerFn(getFinances);
   const contractsFn = useServerFn(getContracts);
-  const globalDebtFn = useServerFn(getGlobalDebtTotals);
+  const annualDebtFn = useServerFn(getAnnualDebtTotals);
   const overrideFn = useServerFn(getCardLimitOverrides);
   const saveOverrideFn = useServerFn(saveCardLimitOverride);
   const clearOverrideFn = useServerFn(clearCardLimitOverride);
@@ -138,10 +137,8 @@ function HomeBroker() {
   const contracts = useQuery({ queryKey: ["home-broker-contracts"], queryFn: () => contractsFn({ data: { includeArchived: false } }), enabled: !!user });
   const wallet = useQuery({ queryKey: ["finances"], queryFn: () => walletFn(), enabled: !!user });
   const profileFn = useServerFn(getFinanceAccountProfiles);
-  const invoiceLinksFn = useServerFn(getConfirmedCardInvoiceLinks);
   const profiles = useQuery({ queryKey: ["finance-profiles"], queryFn: () => profileFn(), enabled: !!user });
-  const invoiceLinks = useQuery({ queryKey: ["confirmed-card-invoice-links"], queryFn: () => invoiceLinksFn(), enabled: !!user });
-  const globalDebt = useQuery({ queryKey: ["global-debt-totals", user?.email], queryFn: () => globalDebtFn(), enabled: !!user });
+  const annualDebt = useQuery({ queryKey: ["annual-debt-totals", user?.email, currentExercise], queryFn: () => annualDebtFn(), enabled: !!user });
   const bills = expenses.data?.bills ?? [];
   const cards = [...new Map((wallet.data?.accounts?.filter(a => a.type === "CREDIT") ?? []).map(card => [card.id, card])).values()];
   const limits = useMemo(() => cards.reduce((acc, card) => {
@@ -152,17 +149,17 @@ function HomeBroker() {
     };
   }, { limit: 0, used: 0 }), [cards, overrides.data]);
   const stats = expenses.data?.kpis ?? { expected: 0, paid: 0, open: 0, count: 0 };
-  const cardBalances = cards.map(card => ({ id: card.id, usedCents: effective(card).used }));
-  const overlap = calculateCardDebtOverlap(
-    (globalDebt.data?.candidates ?? []).map(item => ({ key:item.key, open:item.open })),
-    [...(globalDebt.data?.links ?? []), ...(invoiceLinks.data ?? []).map(item => ({ liability_key:item.liability_key,card_id:item.card_id }))],
-    cardBalances,
-  );
-  // Indicadores globais e vitalícios: nunca dependem do mês/ano da tabela.
-  const financialReady = !!globalDebt.data && !globalDebt.error;
-  const cardsReady = !!wallet.data && !wallet.data.error && !wallet.error && !!invoiceLinks.data && !invoiceLinks.error;
-  const { total: debtTotal, paid: debtPaid, open: debtOpen, pct } = globalPanelIndicators(
-    globalDebt.data ?? { expected: 0, paid: 0 }, cardsReady ? limits.used : 0, cardsReady ? overlap.overlap : 0);
+  // DASH 1: somente Despesas Anuais do ano vigente. Não usa filtros do DASH 2.
+  const financialReady = !!annualDebt.data && !annualDebt.error;
+  const debtTotal = annualDebt.data?.expected ?? 0;
+  const debtPaid = annualDebt.data?.paid ?? 0;
+  const debtOpen = annualDebt.data?.open ?? 0;
+  const pct = annualDebt.data?.pct ?? 0;
+  const consumption = annualDebt.data?.consumption;
+  const consumptionMonth = annualDebt.data?.currentMonth ?? now.getMonth() + 1;
+  const paidCount = bills.filter(b => b.expected_cents > 0 && (b.paid_cents ?? 0) >= b.expected_cents).length;
+  const incomePaidCount = incomes.filter(entry => entry.expected_cents > 0 && (entry.received_cents ?? 0) >= entry.expected_cents).length;
+  const incomePct = incomeExpected > 0 ? Math.min(100, Math.round(incomeReceived / incomeExpected * 100)) : 0;
   const refresh = () => {
     void client.invalidateQueries({ queryKey: ["month-expenses", period] });
     void client.invalidateQueries({ queryKey: ["history"] });
@@ -171,9 +168,8 @@ function HomeBroker() {
     void client.invalidateQueries({ queryKey: ["card-limit-overrides"] });
     void client.invalidateQueries({ queryKey: ["revenue"] });
     void client.invalidateQueries({ queryKey: ["home-broker-contracts"] });
-    void client.invalidateQueries({ queryKey: ["global-debt-totals"] });
+    void client.invalidateQueries({ queryKey: ["annual-debt-totals"] });
     void client.invalidateQueries({ queryKey: ["finance-profiles"] });
-    void client.invalidateQueries({ queryKey: ["confirmed-card-invoice-links"] });
   };
   return <AppShell active="home-broker" user={user}>
     <div className="mx-auto max-w-[1600px] space-y-6 p-4 sm:p-6 lg:p-8">
@@ -188,15 +184,46 @@ function HomeBroker() {
           <Button variant="outline" onClick={() => { refresh(); void client.invalidateQueries({ queryKey: ["finances"] }); }}><RefreshCw className="size-4" /> Atualizar</Button>
         </div>
       </div>
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <Kpi label="Valor total das dívidas" value={financialReady ? formatBRL(debtTotal) : "—"} emphasis bar={financialReady ? 100 - pct : undefined} />
-        <Kpi label="Total já pago" value={financialReady ? formatBRL(debtPaid) : "—"} bar={financialReady ? pct : undefined} />
-        <Kpi label="Saldo devedor total" value={financialReady ? formatBRL(debtOpen) : "—"} bar={financialReady ? 100 - pct : undefined} />
-        <Kpi label="% quitado (global)" value={financialReady ? `${pct}%` : "—"} ring={financialReady ? pct : undefined} />
-      </div>
-      {globalDebt.error && <p role="alert" className="rounded-lg border border-destructive/30 p-3 text-sm text-destructive">Consolidado indisponível: {globalDebt.error.message}. Não foi exibido um total incompleto como se fosse zero.</p>}
-      {financialReady && !cardsReady && <p className="text-xs text-muted-foreground">Cartões bancários não carregados ({wallet.error?.message || wallet.data?.error || invoiceLinks.error?.message || "carregando"}); indicadores mostram apenas as obrigações cadastradas.</p>}
-      {financialReady && cardsReady && <p className="text-xs text-muted-foreground">Conciliação por ID do cartão e obrigação confirmada. Abatimento de duplicidades: {formatBRL(overlap.overlap)}. Valores sem vínculo permanecem separados.</p>}
+      <section className="rounded-2xl border bg-card p-4 shadow-soft">
+        <div className="mb-4 flex flex-wrap items-center gap-3">
+          <CalendarDays className="size-5 text-primary" />
+          <h2 className="text-xl font-bold">Resumo Anual</h2>
+          <span className="rounded-full bg-primary px-3 py-1 text-xs font-semibold text-primary-foreground">
+            Exercício: {annualDebt.data?.year ?? currentExercise} (ano vigente)
+          </span>
+        </div>
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+          <div className="min-w-0">
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              <CircleDollarSign className="size-4 text-primary" />
+              <h3 className="font-bold">Dívidas do Exercício</h3>
+              <span className="text-xs text-muted-foreground">Somente lançamentos das Despesas Anuais</span>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              <Kpi label="Total das dívidas" value={financialReady ? formatBRL(debtTotal) : "—"} emphasis bar={financialReady ? 100 - pct : undefined} />
+              <Kpi label="Total já pago" value={financialReady ? formatBRL(debtPaid) : "—"} bar={financialReady ? pct : undefined} />
+              <Kpi label="Saldo devedor" value={financialReady ? formatBRL(debtOpen) : "—"} bar={financialReady ? 100 - pct : undefined} />
+              <Kpi label="% quitado" value={financialReady ? `${pct}%` : "—"} ring={financialReady ? pct : undefined} />
+            </div>
+          </div>
+          <div className="min-w-0">
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              <BadgeCheck className="size-4 text-primary" />
+              <h3 className="font-bold">Apuração de Consumo</h3>
+              <span className="text-xs text-muted-foreground">Água, luz, internet, gás e outros</span>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <Kpi label="Consumo apurado" value={financialReady ? formatBRL(consumption?.apurado ?? 0) : "—"} />
+              <Kpi label="Consumo pago" value={financialReady ? formatBRL(consumption?.pago ?? 0) : "—"} />
+            </div>
+          </div>
+        </div>
+        {annualDebt.error && (
+          <p role="alert" className="mt-3 rounded-lg border border-destructive/30 p-3 text-sm text-destructive">
+            Não foi possível consolidar Despesas Anuais: {annualDebt.error.message}. Valores não foram apresentados como zero.
+          </p>
+        )}
+      </section>
 
       <section className="rounded-2xl border bg-card p-4 shadow-soft">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -205,8 +232,8 @@ function HomeBroker() {
           <div className="flex flex-wrap items-center gap-2">
             <label htmlFor="home-register-type" className="text-sm font-semibold">Tipo</label>
             <select id="home-register-type" aria-label="Tipo do registro" className="rounded-md border bg-background p-2 text-sm" value={registerType} onChange={e => setRegisterType(e.target.value as "despesas" | "receitas")}>
-              <option value="despesas">Despesas — pagamentos</option>
-              <option value="receitas">Receitas — recebimentos</option>
+              <option value="despesas">Despesas</option>
+              <option value="receitas">Receitas</option>
             </select>
             <select aria-label="Mês" className="rounded-md border bg-background p-2 text-sm" value={month} onChange={e => setMonth(Number(e.target.value))}>
               {MONTHS.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
@@ -218,11 +245,26 @@ function HomeBroker() {
           </div>
         </div>
         {registerType === "despesas" ? <>
-          <div className="mt-4 grid gap-3 sm:grid-cols-4">
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-[repeat(4,minmax(0,1fr))_minmax(0,1.5fr)]">
             <Kpi label="Valor previsto" value={formatBRL(stats.expected)} bar={100} />
-            <Kpi label="Valor pago" value={formatBRL(stats.paid)} bar={(stats.expected > 0 ? Math.round(stats.paid / stats.expected * 100) : 0)} />
-            <Kpi label="Em aberto" value={formatBRL(stats.open)} bar={(stats.expected > 0 ? Math.round(stats.open / stats.expected * 100) : 0)} />
-            <Kpi label="Contas do mês" value={String(stats.count)} />
+            <Kpi label="Valor pago" value={formatBRL(stats.paid)} bar={stats.expected > 0 ? Math.round(stats.paid / stats.expected * 100) : 0} />
+            <Kpi label="Em aberto" value={formatBRL(stats.open)} bar={stats.expected > 0 ? Math.round(stats.open / stats.expected * 100) : 0} />
+            <div className="rounded-2xl border bg-success-soft/30 p-3">
+              <p className="axion-kpi-label">Consumo do mês atual</p>
+              <p className="mt-2 text-lg font-extrabold tracking-tight xl:text-xl">
+                {financialReady ? formatBRL(consumption?.month ?? 0) : "—"}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">{MONTHS[consumptionMonth - 1]} de {currentExercise}</p>
+            </div>
+            <div className="rounded-2xl border bg-success-soft/20 p-3">
+              <p className="text-sm font-bold">Resumo do mês — {MONTHS[month - 1]}/{year}</p>
+              <div className="mt-2 grid grid-cols-3 gap-2 text-center">
+                <div><p className="text-xs text-muted-foreground">Contas</p><p className="text-lg font-bold">{stats.count}</p></div>
+                <div><p className="text-xs text-muted-foreground">Pagas</p><p className="text-lg font-bold text-success">{paidCount}</p></div>
+                <div><p className="text-xs text-muted-foreground">Em aberto</p><p className="text-lg font-bold text-destructive">{Math.max(0, stats.count - paidCount)}</p></div>
+              </div>
+              <p className="mt-2 text-center text-xs text-muted-foreground">{stats.expected ? Math.round((stats.paid / stats.expected) * 100) : 0}% pago em valor</p>
+            </div>
           </div>
           {(expenses.data?.reviewFlags ?? []).map(message => <p className="mt-3 rounded-lg border border-amber-400/40 p-3 text-sm" key={message}>{message}</p>)}
           {expenses.error && <p role="alert" className="mt-4 text-destructive">Não foi possível carregar as contas: {expenses.error.message}</p>}
@@ -253,11 +295,19 @@ function HomeBroker() {
           </div>
           <div className="mt-3 flex flex-wrap gap-4 text-sm"><Link to="/despesas/anuais" className="text-primary underline">Despesas anuais</Link><Link to="/historico-pagamentos" className="text-primary underline">Histórico de pagamentos</Link></div>
         </> : <>
-          <div className="mt-4 grid gap-3 sm:grid-cols-4">
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-[repeat(3,minmax(0,1fr))_minmax(0,1.5fr)]">
             <Kpi label="Previsto a receber" value={formatBRL(incomeExpected)} bar={100} />
-            <Kpi label="Total recebido" value={formatBRL(incomeReceived)} bar={(incomeExpected > 0 ? Math.round(incomeReceived / incomeExpected * 100) : 0)} />
-            <Kpi label="A receber" value={formatBRL(Math.max(0, incomeExpected - incomeReceived))} bar={100 - (incomeExpected > 0 ? Math.round(incomeReceived / incomeExpected * 100) : 0)} />
-            <Kpi label="Lançamentos" value={String(incomes.length)} />
+            <Kpi label="Total recebido" value={formatBRL(incomeReceived)} bar={incomePct} />
+            <Kpi label="A receber" value={formatBRL(Math.max(0, incomeExpected - incomeReceived))} bar={100 - incomePct} />
+            <div className="rounded-2xl border bg-success-soft/20 p-3">
+              <p className="text-sm font-bold">Resumo do mês — {MONTHS[month - 1]}/{year}</p>
+              <div className="mt-2 grid grid-cols-3 gap-2 text-center">
+                <div><p className="text-xs text-muted-foreground">Receitas</p><p className="text-lg font-bold">{incomes.length}</p></div>
+                <div><p className="text-xs text-muted-foreground">Recebidas</p><p className="text-lg font-bold text-success">{incomePaidCount}</p></div>
+                <div><p className="text-xs text-muted-foreground">Em aberto</p><p className="text-lg font-bold text-destructive">{Math.max(0, incomes.length - incomePaidCount)}</p></div>
+              </div>
+              <p className="mt-2 text-center text-xs text-muted-foreground">{incomePct}% recebido em valor</p>
+            </div>
           </div>
           {revenue.error && <p role="alert" className="mt-4 text-sm text-destructive">Não foi possível consultar as receitas: {revenue.error.message}</p>}
           <div className="mt-4 overflow-x-auto"><table className="w-full min-w-[700px] text-sm">
