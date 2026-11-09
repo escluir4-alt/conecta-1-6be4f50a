@@ -438,7 +438,7 @@ function AnuaisPage() {
         </DialogContent>
       </Dialog>
 
-      <AddCreditorDialog open={addOpen} onOpenChange={setAddOpen} year={year} onSaved={refresh} />
+      <AddCreditorDialog open={addOpen} onOpenChange={setAddOpen} year={year} onSaved={refresh} contracts={contractsQuery.data??[]} cards={cardChoices} profiles={profiles} />
     </AppShell>
   );
 }
@@ -452,69 +452,132 @@ function Summary({ label, value, tone }: { label: string; value: string; tone?: 
   );
 }
 
-function AddCreditorDialog({ open, onOpenChange, year, onSaved }: { open: boolean; onOpenChange: (o: boolean) => void; year: number; onSaved: () => void }) {
-  const addFn = useServerFn(addCreditor);
-  const [name, setName] = useState("");
-  const [day, setDay] = useState("");
-  const [kind, setKind] = useState<"debt" | "consumption">("debt");
-  const [valueType, setValueType] = useState<"fixed" | "variable">("fixed");
-  const [saving, setSaving] = useState(false);
+function AddCreditorDialog({
+  open,onOpenChange,year,onSaved,contracts,cards,profiles,
+}:{
+  open:boolean;onOpenChange:(o:boolean)=>void;year:number;onSaved:()=>void;
+  contracts:ContractChoice[];cards:CardChoice[];profiles:CardProfile[];
+}) {
+  const addFn=useServerFn(addCreditor);
+  const contractFn=useServerFn(projectAnnualContract);
+  const consumptionFn=useServerFn(projectFixedAnnualConsumption);
+  const profileFn=useServerFn(saveFinanceAccountProfile);
+  const [name,setName]=useState("");
+  const [day,setDay]=useState("");
+  const [source,setSource]=useState<SourceKind>("manual");
+  const [contractId,setContractId]=useState("");
+  const [cardId,setCardId]=useState("");
+  const [valueType,setValueType]=useState<"fixed"|"variable">("fixed");
+  const [fixedValue,setFixedValue]=useState("");
+  const [saving,setSaving]=useState(false);
+  const [createdId,setCreatedId]=useState<string|null>(null);
 
-  async function save() {
-    const dueDay = day.trim() === "" ? null : Number(day);
-    if (!name.trim() || (dueDay !== null && (isNaN(dueDay) || dueDay < 1 || dueDay > 31))) {
-      toast.error("Informe um nome e um dia de vencimento entre 1 e 31 (ou deixe em branco).");
-      return;
+  function close() {
+    setName("");setDay("");setSource("manual");setContractId("");setCardId("");
+    setValueType("fixed");setFixedValue("");setCreatedId(null);onOpenChange(false);
+  }
+  async function save(){
+    const dueDay=day.trim()===""?null:Number(day);
+    if(!name.trim() || (dueDay!==null && (!Number.isInteger(dueDay)||dueDay<1||dueDay>31))) {
+      toast.error("Informe um nome e dia de vencimento válido.");return;
+    }
+    if(source==="contract" && !contractId){toast.error("Selecione um contrato.");return;}
+    if(source==="card" && !cardId){toast.error("Selecione um cartão conectado.");return;}
+    const cents=source==="consumption" && valueType==="fixed" ? parseBRL(fixedValue) : null;
+    if(source==="consumption" && valueType==="fixed" && (cents===null || cents<=0)){
+      toast.error("Informe o valor mensal do consumo fixo.");return;
     }
     setSaving(true);
     try {
-      await addFn({ data: { year, creditor: name.trim(), dueDay, expenseKind: kind, consumptionValueType: valueType } });
-      toast.success("Credor adicionado.");
-      setName(""); setDay(""); setKind("debt"); setValueType("fixed");
+      let id=createdId;
+      if(!id) {
+        const result=await addFn({data:{year,creditor:name.trim(),dueDay,
+          expenseKind:kindFromSource(source),expenseSource:source,
+          sourceContractId:source==="contract"?contractId:null,consumptionValueType:valueType}});
+        id=result.id;
+        setCreatedId(id);
+      }
+      if(source==="contract") {
+        const result=await contractFn({data:{expenseId:id,contractId}});
+        toast.success(`Parcelas distribuídas de ${result.years[0]} até ${result.years.at(-1)}; ${result.preserved} meses preservados.`);
+      } else if(source==="consumption" && valueType==="fixed" && cents) {
+        const result=await consumptionFn({data:{expenseId:id,monthlyCents:cents}});
+        toast.success(`Consumo fixo projetado até ${result.years.at(-1)}.`);
+      } else if(source==="card") {
+        const profile=profiles.find(p=>p.account_id===cardId);
+        await profileFn({data:{accountId:cardId,annualExpenseId:id,displayName:profile?.display_name??null,
+          cardBrand:(profile?.card_brand as "VISA"|"MASTERCARD"|"ELO"|"AMEX"|"HIPERCARD"|"OTHER"|null)??null}});
+        toast.success("Cartão vinculado; faturas fechadas virão do Open Finance.");
+      } else toast.success("Despesa cadastrada.");
+      onSaved();close();
+    } catch(e) {
+      toast.error(e instanceof Error?e.message:"Falha ao cadastrar despesa.");
+      if(createdId) toast.info("O credor já foi criado. Revise ou conclua o vínculo sem duplicá-lo.");
       onSaved();
-      onOpenChange(false);
-    } catch (e) {
-      toast.error((e as Error).message);
-    } finally {
-      setSaving(false);
-    }
+    } finally {setSaving(false);}
   }
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-sm">
-        <DialogHeader><DialogTitle>Cadastrar despesa em {year}</DialogTitle></DialogHeader>
-        <div className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="ac-name">Nome</Label>
-            <Input id="ac-name" maxLength={100} value={name} onChange={(e) => setName(e.target.value)} />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="ac-day">Dia de vencimento (opcional)</Label>
-            <Input id="ac-day" inputMode="numeric" value={day} onChange={(e) => setDay(e.target.value)} />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="ac-kind">Classificação no Resumo Anual</Label>
-            <select id="ac-kind" className="h-10 w-full rounded-md border bg-background px-2 text-sm"
-              value={kind} onChange={e => setKind(e.target.value as "debt" | "consumption")}>
-              <option value="debt">Dívida / obrigação</option>
-              <option value="consumption">Despesa de consumo</option>
-            </select>
-          </div>
-          {kind === "consumption" && <div className="space-y-2">
-            <Label htmlFor="ac-type">O valor de consumo é fixo ou variável?</Label>
-            <select id="ac-type" className="h-10 w-full rounded-md border bg-background px-2 text-sm" value={valueType}
-              onChange={e => setValueType(e.target.value as "fixed" | "variable")}>
+  return <Dialog open={open} onOpenChange={v=>{if(!v && !saving) close();}}>
+    <DialogContent className="max-w-md">
+      <DialogHeader><DialogTitle>Cadastrar despesa em {year}</DialogTitle></DialogHeader>
+      <div className="space-y-3">
+        <div className="space-y-1">
+          <Label htmlFor="ac-name">Credor</Label>
+          <Input id="ac-name" maxLength={100} disabled={!!createdId} value={name} onChange={e=>setName(e.target.value)}/>
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="ac-day">Dia de vencimento</Label>
+          <Input id="ac-day" inputMode="numeric" disabled={!!createdId} placeholder="1 a 31" value={day} onChange={e=>setDay(e.target.value)}/>
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="ac-source">Classificação da despesa</Label>
+          <select id="ac-source" disabled={!!createdId} className="h-10 w-full rounded-md border bg-background px-2 text-sm"
+            value={source} onChange={e=>setSource(e.target.value as SourceKind)}>
+            <option value="manual">Despesa avulsa / outra obrigação</option>
+            <option value="contract">Contrato parcelado</option>
+            <option value="card">Cartão de crédito / Open Finance</option>
+            <option value="consumption">Consumo</option>
+          </select>
+        </div>
+        {source==="contract" && <div className="space-y-1">
+          <Label htmlFor="ac-contract">Contrato já cadastrado</Label>
+          <select id="ac-contract" className="h-10 w-full rounded-md border bg-background px-2 text-sm"
+            value={contractId} onChange={e=>setContractId(e.target.value)}>
+            <option value="">Escolher contrato</option>
+            {contracts.map(contract=><option key={contract.id} value={contract.id}>{contract.name}</option>)}
+          </select>
+          <p className="text-xs text-muted-foreground">Gerar automaticamente os anos das parcelas existentes.</p>
+        </div>}
+        {source==="card" && <div className="space-y-1">
+          <Label htmlFor="ac-card">Cartão conectado</Label>
+          <select id="ac-card" className="h-10 w-full rounded-md border bg-background px-2 text-sm" value={cardId}
+            onChange={e=>setCardId(e.target.value)}>
+            <option value="">Escolher cartão</option>
+            {cards.map(card=><option key={card.id} value={card.id}>{card.name}</option>)}
+          </select>
+          <p className="text-xs text-muted-foreground">As faturas confirmadas serão sincronizadas pelas Carteiras.</p>
+        </div>}
+        {source==="consumption" && <>
+          <div className="space-y-1">
+            <Label htmlFor="ac-type">Valor de consumo</Label>
+            <select id="ac-type" className="h-10 w-full rounded-md border bg-background px-2 text-sm"
+              value={valueType} onChange={e=>setValueType(e.target.value as "fixed"|"variable")}>
               <option value="fixed">Fixo mensal</option><option value="variable">Variável mensal</option>
             </select>
-            <p className="text-xs text-muted-foreground">Preencha os valores por competência na grade anual. Apenas os meses apurados entram no indicador anual.</p>
+          </div>
+          {valueType==="fixed" && <div className="space-y-1">
+            <Label htmlFor="ac-fixed">Mensalidade (R$)</Label>
+            <Input id="ac-fixed" value={fixedValue} inputMode="decimal" placeholder="0,00"
+              onChange={e=>setFixedValue(e.target.value)}/>
           </div>}
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
-          <Button variant="brand" onClick={save} disabled={saving}>{saving ? "Salvando…" : "Cadastrar"}</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
+          {valueType==="variable" &&
+            <p className="text-xs text-muted-foreground">Os valores serão inseridos manualmente após cada apuração mensal.</p>}
+        </>}
+        {createdId && <p className="text-xs text-amber-700">Credor já registrado. Conclua a vinculação; não será criado novamente.</p>}
+      </div>
+      <DialogFooter>
+        <Button variant="outline" disabled={saving} onClick={close}>Cancelar</Button>
+        <Button variant="brand" disabled={saving} onClick={()=>void save()}>{saving?"Salvando…":"Cadastrar"}</Button>
+      </DialogFooter>
+    </DialogContent>
+  </Dialog>;
 }
