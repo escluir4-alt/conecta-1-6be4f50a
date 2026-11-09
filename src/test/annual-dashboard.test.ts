@@ -117,7 +117,7 @@ describe("Consumo do mês selecionado — Despesas Anuais", () => {
       total: 10000, missing: ["Neo Energia", "OI"], creditorCount: 3,
     });
     expect(() => summarizeConsumptionForPeriod({
-      rows, cells: [data.cells[0], data.cells[0]],
+      rows, cells: [data.cells[0]!, data.cells[0]!],
     })).toThrow(/duplicada/);
   });
 });
