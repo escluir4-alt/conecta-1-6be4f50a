@@ -119,8 +119,10 @@ export type Database = {
       }
       annual_expenses: {
         Row: {
+          consumption_value_type: string
           creditor: string
           due_day: number | null
+          expense_kind: string
           id: string
           position: number
           updated_at: string
@@ -128,8 +130,10 @@ export type Database = {
           year: number
         }
         Insert: {
+          consumption_value_type?: string
           creditor: string
           due_day?: number | null
+          expense_kind?: string
           id?: string
           position?: number
           updated_at?: string
@@ -137,8 +141,10 @@ export type Database = {
           year: number
         }
         Update: {
+          consumption_value_type?: string
           creditor?: string
           due_day?: number | null
+          expense_kind?: string
           id?: string
           position?: number
           updated_at?: string
@@ -446,6 +452,7 @@ export type Database = {
           description: string | null
           due_date: string
           expected_cents: number
+          expense_kind: string
           id: string
           installment_number: number | null
           paid_cents: number | null
@@ -462,6 +469,7 @@ export type Database = {
           description?: string | null
           due_date: string
           expected_cents: number
+          expense_kind?: string
           id: string
           installment_number?: number | null
           paid_cents?: number | null
@@ -478,6 +486,7 @@ export type Database = {
           description?: string | null
           due_date?: string
           expected_cents?: number
+          expense_kind?: string
           id?: string
           installment_number?: number | null
           paid_cents?: number | null
