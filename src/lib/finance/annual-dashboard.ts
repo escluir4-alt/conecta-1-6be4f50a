@@ -36,7 +36,7 @@ export function consolidateAnnualDashboard(input: {
   );
   const payments = new Map<string, number>();
   for (const payment of input.payments) {
-    if (!payment.source_annual_id || !payment.source_period ||
+    if (!payment.source_annual_id || !payment.source_period || !payment.paid_date ||
         !kinds.has(payment.source_annual_id)) continue;
     const key = `${payment.source_annual_id}:${payment.source_period}`;
     // A ligação anual deve ser única; se houver espelhos repetidos, não somar pagamentos em duplicidade.
