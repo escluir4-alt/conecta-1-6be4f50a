@@ -183,6 +183,7 @@ function AnuaisPage() {
         consumptionValueType:editCreditor.consumptionValueType,
       }});
       await syncCardLink(editCreditor.id,editCreditor.cardAccountId,editCreditor.expenseSource);
+      if(editCreditor.expenseSource==="card") await syncCards();
       if(editCreditor.expenseSource==="contract") {
         const result=await projectContractFn({data:{expenseId:editCreditor.id,contractId:editCreditor.sourceContractId}});
         toast.success(`Contrato vinculado. ${result.created} parcelas mensais geradas até ${result.years.at(-1)}; ${result.preserved} lançamentos preservados.`);
@@ -464,6 +465,7 @@ function AddCreditorDialog({
   const contractFn=useServerFn(projectAnnualContract);
   const consumptionFn=useServerFn(projectFixedAnnualConsumption);
   const profileFn=useServerFn(saveFinanceAccountProfile);
+  const syncProviderFn=useServerFn(syncProviderClosedCardInvoices);
   const [name,setName]=useState("");
   const [day,setDay]=useState("");
   const [source,setSource]=useState<SourceKind>("manual");
@@ -511,7 +513,13 @@ function AddCreditorDialog({
           throw new Error("Este cartão já está vinculado a outro credor. Revise a Carteiras antes de vinculá-lo novamente.");
         await profileFn({data:{accountId:cardId,annualExpenseId:id,displayName:profile?.display_name??null,
           cardBrand:(profile?.card_brand as "VISA"|"MASTERCARD"|"ELO"|"AMEX"|"HIPERCARD"|"OTHER"|null)??null}});
-        toast.success("Cartão vinculado; faturas fechadas virão do Open Finance.");
+        try {
+          const syncFn = await syncProviderFn();
+          toast.success(`Cartão vinculado. ${syncFn.updated} faturas atualizadas pelo Open Finance.`);
+          if(syncFn.errors.length) toast.warning(syncFn.errors.join("; ").slice(0,400));
+        } catch(e) {
+          toast.warning("Cartão vinculado. Faturas ainda não sincronizadas: "+(e instanceof Error?e.message:"Conexão indisponível."));
+        }
       } else toast.success("Despesa cadastrada.");
       onSaved();close();
     } catch(e) {
