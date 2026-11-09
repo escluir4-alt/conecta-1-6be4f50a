@@ -14,6 +14,8 @@ import {
   addCreditor, deleteCreditor, getAnnualYear, setYearArchived, updateAnnualCell, updateCreditor,
 } from "@/lib/finance/finance.functions";
 import { getAnnualContractChoices, projectAnnualContract, projectFixedAnnualConsumption } from "@/lib/finance/annual-projections.functions";
+import { scheduleAnnualTax } from "@/lib/finance/annual-tax.functions";
+import { annualTaxSchedule } from "@/lib/finance/annual-tax";
 import { getFinances } from "@/lib/pluggy.functions";
 import { getFinanceAccountProfiles, saveFinanceAccountProfile, syncProviderClosedCardInvoices } from "@/lib/finance/card-profile.functions";
 
@@ -33,17 +35,21 @@ export const Route = createFileRoute("/despesas/anuais")({
 });
 
 const MONTHS_SHORT = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
-type SourceKind = "manual" | "card" | "contract" | "consumption";
+type SourceKind = "manual" | "card" | "contract" | "consumption" | "annual_tax";
+type AnnualTaxKind = "iptu" | "ipva" | "other";
+const TAX_LABELS:Record<AnnualTaxKind,string> = {iptu:"IPTU",ipva:"IPVA",other:"Outro tributo anual"};
 type CreditorDraft = {
   id: string; creditor: string; dueDay: string;
   expenseSource: SourceKind; sourceContractId: string; cardAccountId: string;
   consumptionValueType: "fixed" | "variable"; fixedValue: string;
+  annualTaxKind: AnnualTaxKind; taxTotal: string; taxFirstMonth: number; taxInstallments: number;
 };
 type ContractChoice = { id: string; name: string };
 type CardChoice = { id: string; name: string };
 type CardProfile = { account_id: string; annual_expense_id: string | null; display_name: string | null; card_brand: string | null };
-const sourceName = (source: SourceKind, vtype?: string) =>
+const sourceName = (source: SourceKind, vtype?: string, annualTaxKind?:AnnualTaxKind) =>
   source === "consumption" ? `Consumo ${vtype === "variable" ? "variável" : "fixo"}` :
+  source === "annual_tax" ? TAX_LABELS[annualTaxKind ?? "other"] :
   source === "contract" ? "Contrato parcelado" : source === "card" ? "Cartão" : "Despesa avulsa";
 const kindFromSource = (source: SourceKind) => source === "consumption" ? "consumption" as const : "debt" as const;
 
@@ -70,6 +76,7 @@ function AnuaisPage() {
   const syncCardsFn = useServerFn(syncProviderClosedCardInvoices);
   const projectContractFn = useServerFn(projectAnnualContract);
   const projectConsumptionFn = useServerFn(projectFixedAnnualConsumption);
+  const scheduleTaxFn = useServerFn(scheduleAnnualTax);
   const contractsQuery = useQuery({queryKey:["annual-contract-choices"],queryFn:()=>contractsFn(),enabled:!!user});
   const walletQuery = useQuery({queryKey:["finances"],queryFn:()=>walletFn(),enabled:!!user});
   const cardProfileQuery = useQuery({queryKey:["finance-profiles"],queryFn:()=>profileFn(),enabled:!!user});
@@ -181,9 +188,17 @@ function AnuaisPage() {
         expenseSource:editCreditor.expenseSource,
         sourceContractId:editCreditor.expenseSource==="contract"?editCreditor.sourceContractId:null,
         consumptionValueType:editCreditor.consumptionValueType,
+        annualTaxKind:editCreditor.expenseSource==="annual_tax"?editCreditor.annualTaxKind:null,
       }});
       await syncCardLink(editCreditor.id,editCreditor.cardAccountId,editCreditor.expenseSource);
       if(editCreditor.expenseSource==="card") await syncCards();
+      if(editCreditor.expenseSource==="annual_tax" && editCreditor.taxTotal.trim()) {
+        const amount=parseBRL(editCreditor.taxTotal);
+        if(amount===null || amount<=0)throw new Error("Informe o valor anual válido do tributo.");
+        const result=await scheduleTaxFn({data:{expenseId:editCreditor.id,totalCents:amount,
+          firstMonth:editCreditor.taxFirstMonth,installments:editCreditor.taxInstallments}});
+        toast.success(`Tributo ${result.year}: ${result.created} competências adicionadas; ${result.preserved} preservadas.`);
+      }
       if(editCreditor.expenseSource==="contract") {
         const result=await projectContractFn({data:{expenseId:editCreditor.id,contractId:editCreditor.sourceContractId}});
         toast.success(`Contrato vinculado. ${result.created} parcelas mensais geradas até ${result.years.at(-1)}; ${result.preserved} lançamentos preservados.`);
@@ -291,15 +306,15 @@ function AnuaisPage() {
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-semibold">{r.creditor}</span>
                         {(() => {
-                          const source:SourceKind = r.expense_source === "contract" || r.expense_source === "card" || r.expense_source === "consumption"
+                          const source:SourceKind = r.expense_source === "contract" || r.expense_source === "card" || r.expense_source === "consumption" || r.expense_source === "annual_tax"
                             ? r.expense_source : r.expense_kind === "consumption" ? "consumption" : "manual";
-                          return <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">{sourceName(source,r.consumption_value_type)}</span>;
+                          return <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">{sourceName(source,r.consumption_value_type,r.annual_tax_kind)}</span>;
                         })()}
                         <button type="button" aria-label={`Editar credor ${r.creditor}`} title="Classificar e ajustar credor"
                           disabled={archived} className="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-primary disabled:opacity-40"
                           onClick={() => {
                             const latest = Array.from({length:12},(_,i)=>cells?.get(12-i)??null).find(v=>v!==null && v>0);
-                            const source:SourceKind = ["contract","card","consumption"].includes(r.expense_source)
+                            const source:SourceKind = ["contract","card","consumption","annual_tax"].includes(r.expense_source)
                               ? r.expense_source : r.expense_kind==="consumption" ? "consumption" : "manual";
                             setEditCreditor({ id:r.id,creditor:r.creditor_original??r.creditor,
                               dueDay:r.due_day?String(r.due_day):"",expenseSource:source,
@@ -307,6 +322,10 @@ function AnuaisPage() {
                               cardAccountId:profiles.find(p=>p.annual_expense_id===r.id)?.account_id??"",
                               consumptionValueType:r.consumption_value_type==="variable"?"variable":"fixed",
                               fixedValue:latest ? (latest/100).toFixed(2).replace(".",","):"",
+                              annualTaxKind:["iptu","ipva","other"].includes(r.annual_tax_kind)?r.annual_tax_kind:"iptu",
+                              taxTotal:source==="annual_tax" && total>0 ? (total/100).toFixed(2).replace(".",","):"",
+                              taxFirstMonth:Array.from({length:12},(_,i)=>i+1).find(m=>((cells?.get(m)??0)>0))??1,
+                              taxInstallments:Math.max(1,Array.from({length:12},(_,i)=>i+1).filter(m=>(cells?.get(m)??0)>0).length),
                             });
                           }}>
                           <Pencil className="size-3.5" />
@@ -390,6 +409,7 @@ function AnuaisPage() {
                   <option value="contract">Contrato parcelado</option>
                   <option value="card">Cartão de crédito — Open Finance</option>
                   <option value="consumption">Despesa de consumo</option>
+                  <option value="annual_tax">Tributo anual (IPTU / IPVA)</option>
                 </select>
               </div>
               {editCreditor.expenseSource==="contract" && <div className="space-y-2">
@@ -409,6 +429,37 @@ function AnuaisPage() {
                   {cardChoices.map(card=><option key={card.id} value={card.id}>{card.name}</option>)}
                 </select>
                 <p className="text-xs text-muted-foreground">Somente faturas fechadas confirmadas pelo Open Finance serão atualizadas no exercício correspondente.</p>
+              </div>}
+              {editCreditor.expenseSource==="annual_tax" && <div className="space-y-3">
+                <div className="space-y-1">
+                  <Label htmlFor="ec-tax-kind">Tributo</Label>
+                  <select id="ec-tax-kind" className="h-10 w-full rounded-md border bg-background px-2 text-sm"
+                    value={editCreditor.annualTaxKind} onChange={e=>setEditCreditor({...editCreditor,annualTaxKind:e.target.value as AnnualTaxKind})}>
+                    <option value="iptu">IPTU — imóvel</option>
+                    <option value="ipva">IPVA — veículo</option>
+                    <option value="other">Outro tributo anual</option>
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="ec-tax-total">Valor total do exercício (R$)</Label>
+                  <Input id="ec-tax-total" inputMode="decimal" placeholder="Informe para gerar as cobranças"
+                    value={editCreditor.taxTotal} onChange={e=>setEditCreditor({...editCreditor,taxTotal:e.target.value})}/>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1"><Label htmlFor="ec-tax-month">Primeiro vencimento</Label>
+                    <select id="ec-tax-month" className="h-10 w-full rounded-md border bg-background px-2 text-sm"
+                      value={editCreditor.taxFirstMonth} onChange={e=>setEditCreditor({...editCreditor,taxFirstMonth:Number(e.target.value)})}>
+                      {MONTHS_SHORT.map((label,i)=><option key={label} value={i+1}>{label}</option>)}
+                    </select>
+                  </div>
+                  <div className="space-y-1"><Label htmlFor="ec-tax-installments">Parcelas</Label>
+                    <select id="ec-tax-installments" className="h-10 w-full rounded-md border bg-background px-2 text-sm"
+                      value={editCreditor.taxInstallments} onChange={e=>setEditCreditor({...editCreditor,taxInstallments:Number(e.target.value)})}>
+                      {Array.from({length:13-editCreditor.taxFirstMonth},(_,i)=><option key={i+1} value={i+1}>{i+1===1?"À vista":i+1}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground">A cobrança pertence somente ao exercício selecionado. Os valores existentes não serão sobrescritos; novos exercícios exigem os valores reais do tributo.</p>
               </div>}
               {editCreditor.expenseSource==="consumption" && <>
                 <div className="space-y-2">
