@@ -185,6 +185,13 @@ function HomeBroker() {
           <Button variant="outline" onClick={() => { refresh(); void client.invalidateQueries({ queryKey: ["finances"] }); }}><RefreshCw className="size-4" /> Atualizar</Button>
         </div>
       </div>
+      {profiles.data?.available === false && (
+        <p role="alert" className="rounded-lg border border-amber-500/40 p-3 text-sm">
+          Perfis e vínculos dos cartões indisponíveis neste banco. A migração
+          20261107140000_finance_card_profiles_invoices.sql precisa ser aplicada
+          antes da sincronização de faturas. Os demais registros permanecem acessíveis.
+        </p>
+      )}
       <section className="rounded-2xl border bg-card p-4 shadow-soft">
         <div className="mb-4 flex flex-wrap items-center gap-3">
           <CalendarDays className="size-5 text-primary" />
