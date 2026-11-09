@@ -235,7 +235,7 @@ function DespesasPage() {
 function Kpi({ label, value, tone }: { label: string; value: string; tone?: string | undefined }) {
   return (
     <div className="rounded-2xl border bg-card p-5 shadow-soft">
-      <div className="text-sm font-medium text-muted-foreground">{label}</div>
+      <div className="axion-kpi-label">{label}</div>
       <div className={`mt-2 text-2xl font-extrabold ${tone ?? "text-primary"}`}>{value}</div>
     </div>
   );

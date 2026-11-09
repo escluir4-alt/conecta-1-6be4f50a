@@ -295,7 +295,7 @@ function Painel() {
 function Kpi({ icon: Icon, label, value, sub }: { icon: typeof Wallet; label: string; value: string; sub: string }) {
   return (
     <div className="rounded-2xl border bg-card p-5 shadow-soft">
-      <div className="flex items-center gap-2 text-sm font-medium"><Icon className="size-4 text-primary" />{label}</div>
+      <div className="axion-kpi-label flex items-center gap-2"><Icon className="size-4 text-gold" />{label}</div>
       <div className="mt-3 text-2xl font-extrabold text-primary">{value}</div>
       <div className="text-xs text-muted-foreground">{sub}</div>
     </div>
