@@ -315,8 +315,9 @@ function NewContractDialog({ open, onOpenChange, onSaved }: { open: boolean; onO
     }
     setSaving(true);
     try {
-      await createFn({ data: { name: name.trim(), description: description.trim() || undefined, count: n, firstDueDate: firstDue, totalCents: cents } });
-      toast.success("Contrato criado com parcelas mensais.");
+      const outcome = await createFn({ data: { name: name.trim(), description: description.trim() || undefined, count: n, firstDueDate: firstDue, totalCents: cents } });
+      toast.success(`Contrato criado com parcelas mensais.${outcome.extendedConsumptionMonths ? ` ${outcome.extendedConsumptionMonths} projeções de consumo fixo ampliadas.` : ""}`);
+      if (outcome.forecastWarning) toast.warning(`Contrato preservado. Atenção à extensão dos consumos: ${outcome.forecastWarning}`);
       setName(""); setDescription(""); setCount("12"); setFirstDue(""); setTotal("");
       onSaved();
       onOpenChange(false);

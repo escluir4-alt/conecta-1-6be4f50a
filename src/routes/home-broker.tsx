@@ -151,6 +151,7 @@ function HomeBroker() {
   const stats = expenses.data?.kpis ?? { expected: 0, paid: 0, open: 0, count: 0 };
   // DASH 1: somente Despesas Anuais do ano vigente. Não usa filtros do DASH 2.
   const financialReady = !!annualDebt.data && !annualDebt.error;
+  const consumptionReady = financialReady && !annualDebt.data?.migrationRequired;
   const debtTotal = annualDebt.data?.expected ?? 0;
   const debtPaid = annualDebt.data?.paid ?? 0;
   const debtOpen = annualDebt.data?.open ?? 0;
@@ -213,11 +214,18 @@ function HomeBroker() {
               <span className="text-xs text-muted-foreground">Água, luz, internet, gás e outros</span>
             </div>
             <div className="grid gap-2 sm:grid-cols-2">
-              <Kpi label="Consumo apurado" value={financialReady ? formatBRL(consumption?.apurado ?? 0) : "—"} />
-              <Kpi label="Consumo pago" value={financialReady ? formatBRL(consumption?.pago ?? 0) : "—"} />
+              <Kpi label="Consumo apurado" value={consumptionReady ? formatBRL(consumption?.apurado ?? 0) : "—"} />
+              <Kpi label="Consumo pago" value={consumptionReady ? formatBRL(consumption?.pago ?? 0) : "—"} />
             </div>
           </div>
         </div>
+        {annualDebt.data?.migrationRequired && (
+          <p role="alert" className="mt-3 rounded-lg border border-amber-500/40 p-3 text-sm">
+            Classificação de consumo indisponível: a migração do banco ainda não foi aplicada.
+            Os valores de dívidas são provisórios e os indicadores de consumo não serão mostrados como zero.
+            Acesse Despesas Anuais para classificar os credores após a migração.
+          </p>
+        )}
         {annualDebt.error && (
           <p role="alert" className="mt-3 rounded-lg border border-destructive/30 p-3 text-sm text-destructive">
             Não foi possível consolidar Despesas Anuais: {annualDebt.error.message}. Valores não foram apresentados como zero.
@@ -252,7 +260,7 @@ function HomeBroker() {
             <div className="rounded-2xl border bg-success-soft/30 p-3">
               <p className="axion-kpi-label">Consumo do mês atual</p>
               <p className="mt-2 text-lg font-extrabold tracking-tight xl:text-xl">
-                {financialReady ? formatBRL(consumption?.month ?? 0) : "—"}
+                {consumptionReady ? formatBRL(consumption?.month ?? 0) : "—"}
               </p>
               <p className="mt-1 text-xs text-muted-foreground">{MONTHS[consumptionMonth - 1]} de {currentExercise}</p>
             </div>

@@ -58,6 +58,15 @@ describe("Resumo Anual — fonte exclusiva Despesas Anuais", () => {
     expect(result).toMatchObject({ expected: 10000, paid: 10000, open: 0, pct: 100 });
   });
 
+  it("não contabiliza valor pago sem confirmação de baixa", () => {
+    const result=consolidateAnnualDashboard({
+      year:2026,currentMonth:11,rows:[row("a",2026)],
+      cells:[cell("a",11,10000)],
+      payments:[{source_annual_id:"a",source_period:"2026-11",paid_cents:10000,paid_date:null}],
+    });
+    expect(result).toMatchObject({expected:10000,paid:0,open:10000,pct:0});
+  });
+
   it("rejeita competências anuais duplicadas", () => {
     expect(() => consolidateAnnualDashboard({
       year: 2026, currentMonth: 1, rows: [row("a", 2026)],
