@@ -1,4 +1,4 @@
-import { consolidateGlobalDebt } from "@/lib/finance/global-debt";
+import { consolidateAnnualDashboard } from "@/lib/finance/annual-dashboard";
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
@@ -702,46 +702,57 @@ export const getAttachmentUrl = createServerFn({ method: "POST" })
   });
 
 
-// Resumo do exercício vigente: as parcelas de anos futuros não entram no total anual.
-// Os cartões só participam por obrigações/faturas com competência atribuída; limite usado não é dívida anual.
+// Resumo anual: fonte ÚNICA de valores previstos = tabela Despesas Anuais.
+// As baixas vêm somente das contas explicitamente vinculadas à linha e competência anual.
+// Não soma diretamente contratos, limites de cartão ou contas avulsas.
 export const getAnnualDebtTotals = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     const { supabase, userId } = context as Ctx;
-    const loadAll = async (table: string, columns: string) => {
-      const records: any[] = [];
-      for (let from = 0; ; from += 1000) {
-        const { data, error } = await supabase.from(table).select(columns)
-          .eq("user_id", userId).range(from, from + 999);
-        if (error) throw new Error(`Falha ao consultar ${table}: ${error.message}`);
-        const page = (data ?? []) as any[];
-        records.push(...page);
-        if (page.length < 1000) break;
-      }
-      return records;
-    };
-    const nowParts = new Intl.DateTimeFormat("en-US", { timeZone: "America/Sao_Paulo", year: "numeric", month: "numeric" }).formatToParts(new Date());
-    const year = Number(nowParts.find(part => part.type === "year")?.value);
-    const currentMonth = Number(nowParts.find(part => part.type === "month")?.value);
-    const [bills, annual, contracts, installments] = await Promise.all([
-      loadAll("finance_bills", "*"),
-      loadAll("annual_expenses", "*"),
-      loadAll("installment_contracts", "id"),
-      loadAll("installment_entries", "contract_id,number,expected_cents,paid_date,paid_cents,due_date"),
-    ]);
-    const annualIds = new Set(annual.map(row => row.id as string));
-    const contractIds = new Set(contracts.map(row => row.id as string));
-    const annualMonths: any[] = [];
-    const annualIdList = [...annualIds];
-    for (let i = 0; i < annualIdList.length; i += 100) {
-      const { data, error } = await supabase.from("annual_expense_months")
-        .select("annual_expense_id,month,expected_cents")
-        .in("annual_expense_id", annualIdList.slice(i, i + 100));
-      if (error) throw new Error(`Falha ao consultar despesas anuais: ${error.message}`);
-      annualMonths.push(...(data ?? []));
+    const nowParts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/Sao_Paulo", year: "numeric", month: "numeric",
+    }).formatToParts(new Date());
+    const year = Number(nowParts.find(p => p.type === "year")?.value);
+    const currentMonth = Number(nowParts.find(p => p.type === "month")?.value);
+    if (!Number.isInteger(year) || !Number.isInteger(currentMonth)) {
+      throw new Error("Não foi possível identificar o exercício vigente.");
     }
-    const result = consolidateGlobalDebt({ bills, annual, annualMonths, contractIds: [...contractIds], installments, year, currentMonth });
-    return { ...result, year, month: currentMonth };
+
+    const rows: any[] = [];
+    for (let start = 0; ; start += 1000) {
+      const { data, error } = await supabase.from("annual_expenses")
+        .select("id,year,expense_kind").eq("user_id", userId).eq("year", year)
+        .range(start, start + 999);
+      if (error) throw new Error("Falha ao consultar Despesas Anuais: " + error.message);
+      rows.push(...(data ?? []));
+      if ((data ?? []).length < 1000) break;
+    }
+
+    const cells: any[] = [];
+    const payments: any[] = [];
+    const ids = rows.map(row => row.id as string);
+    for (let i = 0; i < ids.length; i += 50) {
+      const chunk = ids.slice(i, i + 50);
+      // Paginação integral: dezenas de credores podem ter 12 competências por exercício.
+      for (let from = 0; ; from += 1000) {
+        const { data, error } = await supabase.from("annual_expense_months")
+          .select("annual_expense_id,month,expected_cents")
+          .in("annual_expense_id", chunk).range(from, from + 999);
+        if (error) throw new Error("Falha ao consultar competências anuais: " + error.message);
+        cells.push(...(data ?? []));
+        if ((data ?? []).length < 1000) break;
+      }
+      for (let from = 0; ; from += 1000) {
+        const { data, error } = await supabase.from("finance_bills")
+          .select("source_annual_id,source_period,paid_cents,paid_date")
+          .eq("user_id", userId).in("source_annual_id", chunk).range(from, from + 999);
+        if (error) throw new Error("Falha ao consultar pagamentos anuais: " + error.message);
+        payments.push(...(data ?? []));
+        if ((data ?? []).length < 1000) break;
+      }
+    }
+
+    return consolidateAnnualDashboard({ year, currentMonth, rows, cells, payments });
   });
 
 
