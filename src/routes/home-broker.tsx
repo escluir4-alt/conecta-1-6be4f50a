@@ -27,7 +27,7 @@ export const Route = createFileRoute("/home-broker")({
 
 const MONTHS = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
 
-function Kpi({ label, value, emphasis, bar, ring }: { label: string; value: string; emphasis?: boolean; bar?: number; ring?: number }) {
+function Kpi({ label, value, emphasis, bar, ring }: { label: string; value: string; emphasis?: boolean; bar?: number | undefined; ring?: number | undefined }) {
   return <div className={`axion-kpi rounded-2xl border p-5 ${emphasis ? "axion-kpi-featured bg-primary text-primary-foreground" : "bg-card"}`}>
     <div className="flex items-start justify-between gap-3">
       <div className="min-w-0">
