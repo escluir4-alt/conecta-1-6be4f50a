@@ -2,7 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { ArrowLeft, ArrowRight, Archive, ArchiveRestore, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, ArrowRight, Archive, ArchiveRestore, Plus, Trash2, Pencil, RefreshCcw } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell, useRequireUser } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,9 @@ import { formatBRL, parseBRL } from "@/lib/finance/money";
 import {
   addCreditor, deleteCreditor, getAnnualYear, setYearArchived, updateAnnualCell, updateCreditor,
 } from "@/lib/finance/finance.functions";
+import { getAnnualContractChoices, projectAnnualContract, projectFixedAnnualConsumption } from "@/lib/finance/annual-projections.functions";
+import { getFinances } from "@/lib/pluggy.functions";
+import { getFinanceAccountProfiles, saveFinanceAccountProfile, syncProviderClosedCardInvoices } from "@/lib/finance/card-profile.functions";
 
 export const Route = createFileRoute("/despesas/anuais")({
   ssr: false,
@@ -30,13 +33,29 @@ export const Route = createFileRoute("/despesas/anuais")({
 });
 
 const MONTHS_SHORT = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
+type SourceKind = "manual" | "card" | "contract" | "consumption";
+type CreditorDraft = {
+  id: string; creditor: string; dueDay: string;
+  expenseSource: SourceKind; sourceContractId: string; cardAccountId: string;
+  consumptionValueType: "fixed" | "variable"; fixedValue: string;
+};
+type ContractChoice = { id: string; name: string };
+type CardChoice = { id: string; name: string };
+type CardProfile = { account_id: string; annual_expense_id: string | null; display_name: string | null; card_brand: string | null };
+const sourceName = (source: SourceKind, vtype?: string) =>
+  source === "consumption" ? `Consumo ${vtype === "variable" ? "variável" : "fixo"}` :
+  source === "contract" ? "Contrato parcelado" : source === "card" ? "Cartão" : "Despesa avulsa";
+const kindFromSource = (source: SourceKind) => source === "consumption" ? "consumption" as const : "debt" as const;
+
 
 function AnuaisPage() {
   const user = useRequireUser();
   const qc = useQueryClient();
-  const [year, setYear] = useState(2026);
+  const [year, setYear] = useState(new Date().getFullYear());
   const [editCell, setEditCell] = useState<{ id: string; month: number; value: string } | null>(null);
-  const [editCreditor, setEditCreditor] = useState<{ id: string; creditor: string; dueDay: string; expenseKind: "debt" | "consumption"; consumptionValueType: "fixed" | "variable" } | null>(null);
+  const [editCreditor, setEditCreditor] = useState<CreditorDraft | null>(null);
+  const [savingCreditor, setSavingCreditor] = useState(false);
+  const [syncingCards, setSyncingCards] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
 
   const getFn = useServerFn(getAnnualYear);
@@ -44,6 +63,20 @@ function AnuaisPage() {
   const updCredFn = useServerFn(updateCreditor);
   const delCredFn = useServerFn(deleteCreditor);
   const archiveFn = useServerFn(setYearArchived);
+  const contractsFn = useServerFn(getAnnualContractChoices);
+  const walletFn = useServerFn(getFinances);
+  const profileFn = useServerFn(getFinanceAccountProfiles);
+  const saveProfileFn = useServerFn(saveFinanceAccountProfile);
+  const syncCardsFn = useServerFn(syncProviderClosedCardInvoices);
+  const projectContractFn = useServerFn(projectAnnualContract);
+  const projectConsumptionFn = useServerFn(projectFixedAnnualConsumption);
+  const contractsQuery = useQuery({queryKey:["annual-contract-choices"],queryFn:()=>contractsFn(),enabled:!!user});
+  const walletQuery = useQuery({queryKey:["finances"],queryFn:()=>walletFn(),enabled:!!user});
+  const cardProfileQuery = useQuery({queryKey:["finance-profiles"],queryFn:()=>profileFn(),enabled:!!user});
+  const cardChoices: CardChoice[] = [...new Map((walletQuery.data?.accounts ?? [])
+    .filter(a=>a.type === "CREDIT").map(a=>[a.id,{id:a.id,name:a.name}])).values()];
+  const profiles: CardProfile[] = cardProfileQuery.data ?? [];
+
 
   const q = useQuery({ queryKey: ["annual", year], queryFn: () => getFn({ data: { year } }), enabled: !!user });
   const rows = q.data?.rows ?? [];
@@ -61,7 +94,10 @@ function AnuaisPage() {
   const aPagar = grandTotal - stats.paidExpected;
 
   function refresh() {
-    qc.invalidateQueries({ queryKey: ["annual", year] });
+    void qc.invalidateQueries({ queryKey: ["annual", year] });
+    void qc.invalidateQueries({ queryKey: ["annual-debt-totals"] });
+    void qc.invalidateQueries({ queryKey: ["annual-contract-choices"] });
+    void qc.invalidateQueries({ queryKey: ["finance-profiles"] });
   }
 
   async function commitCell() {
@@ -93,21 +129,77 @@ function AnuaisPage() {
     }
   }
 
-  async function saveCreditor() {
-    if (!editCreditor) return;
-    const dueDay = editCreditor.dueDay.trim() === "" ? null : Number(editCreditor.dueDay);
-    if (!editCreditor.creditor.trim() || (dueDay !== null && (isNaN(dueDay) || dueDay < 1 || dueDay > 31))) {
-      toast.error("Informe um nome e um dia de vencimento entre 1 e 31.");
-      return;
-    }
+  async function syncCards() {
+    setSyncingCards(true);
     try {
-      await updCredFn({ data: { expenseId: editCreditor.id, creditor: editCreditor.creditor.trim(), dueDay, expenseKind: editCreditor.expenseKind, consumptionValueType: editCreditor.consumptionValueType } });
-      toast.success("Credor atualizado.");
+      const result = await syncCardsFn();
+      toast.success(`Faturas: ${result.updated} atualizadas, ${result.unchanged} sem alteração, ${result.skipped} ignoradas.`);
+      if (result.errors.length) toast.warning(result.errors.join("; ").slice(0,500));
+      refresh();
+    } catch(e) {
+      toast.error(e instanceof Error ? e.message : "Falha ao sincronizar faturas.");
+    } finally { setSyncingCards(false); }
+  }
+
+  async function syncCardLink(annualId:string, selectedCardId:string, source:SourceKind) {
+    const previous=profiles.find(p=>p.annual_expense_id===annualId);
+    if(previous && (source!=="card" || previous.account_id!==selectedCardId)) {
+      await saveProfileFn({data:{accountId:previous.account_id,displayName:previous.display_name,
+        cardBrand:previous.card_brand as "VISA"|"MASTERCARD"|"ELO"|"AMEX"|"HIPERCARD"|"OTHER"|null,annualExpenseId:null}});
+    }
+    if(source==="card" && selectedCardId) {
+      const profile=profiles.find(p=>p.account_id===selectedCardId);
+      await saveProfileFn({data:{accountId:selectedCardId,displayName:profile?.display_name??null,
+        cardBrand:(profile?.card_brand as "VISA"|"MASTERCARD"|"ELO"|"AMEX"|"HIPERCARD"|"OTHER"|null)??null,annualExpenseId:annualId}});
+    }
+  }
+
+  async function saveCreditor() {
+    if(!editCreditor || savingCreditor) return;
+    const dueDay=editCreditor.dueDay.trim()===""?null:Number(editCreditor.dueDay);
+    if(!editCreditor.creditor.trim() || (dueDay!==null && (!Number.isInteger(dueDay) || dueDay<1 || dueDay>31))) {
+      toast.error("Informe um credor e vencimento válido.");return;
+    }
+    if(editCreditor.expenseSource==="contract" && !editCreditor.sourceContractId) {
+      toast.error("Selecione o contrato parcelado cadastrado.");return;
+    }
+    if(editCreditor.expenseSource==="card" && !editCreditor.cardAccountId) {
+      toast.error("Selecione um cartão conectado ao Open Finance.");return;
+    }
+    let fixedCents: number | null=null;
+    if(editCreditor.expenseSource==="consumption" && editCreditor.consumptionValueType==="fixed" && editCreditor.fixedValue.trim()){
+      fixedCents=parseBRL(editCreditor.fixedValue);
+      if(fixedCents===null || fixedCents<=0){toast.error("Informe um valor fixo válido.");return;}
+    }
+    setSavingCreditor(true);
+    try {
+      await updCredFn({data:{
+        expenseId:editCreditor.id,creditor:editCreditor.creditor.trim(),dueDay,
+        expenseKind:kindFromSource(editCreditor.expenseSource),
+        expenseSource:editCreditor.expenseSource,
+        sourceContractId:editCreditor.expenseSource==="contract"?editCreditor.sourceContractId:null,
+        consumptionValueType:editCreditor.consumptionValueType,
+      }});
+      await syncCardLink(editCreditor.id,editCreditor.cardAccountId,editCreditor.expenseSource);
+      if(editCreditor.expenseSource==="contract") {
+        const result=await projectContractFn({data:{expenseId:editCreditor.id,contractId:editCreditor.sourceContractId}});
+        toast.success(`Contrato vinculado. ${result.created} parcelas mensais geradas até ${result.years.at(-1)}; ${result.preserved} lançamentos preservados.`);
+      } else if(editCreditor.expenseSource==="consumption" && editCreditor.consumptionValueType==="fixed" && fixedCents){
+        const result=await projectConsumptionFn({data:{expenseId:editCreditor.id,monthlyCents:fixedCents}});
+        toast.success(`Consumo fixo projetado até ${result.years.at(-1)}; ${result.preserved} meses preservados.`);
+      } else {
+        toast.success("Credor atualizado e classificado.");
+      }
+      if(editCreditor.expenseSource==="consumption" && editCreditor.consumptionValueType==="fixed" && !fixedCents)
+        toast.info("Informe a mensalidade para gerar as projeções de consumo fixo.");
       setEditCreditor(null);
       refresh();
     } catch (e) {
-      toast.error((e as Error).message);
-    }
+      toast.error(e instanceof Error ? e.message : "Não foi possível atualizar o credor.");
+      // Mantém o formulário aberto se a classificação salvou mas a projeção falhou;
+      // uma nova tentativa é idempotente e preserva valores anteriores.
+      refresh();
+    } finally {setSavingCreditor(false);}
   }
 
   async function removeCreditor(id: string, name: string) {
