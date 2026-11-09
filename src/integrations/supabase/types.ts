@@ -123,8 +123,11 @@ export type Database = {
           creditor: string
           due_day: number | null
           expense_kind: string
+          expense_source: string
           id: string
           position: number
+          source_contract_id: string | null
+          source_template_id: string | null
           updated_at: string
           user_id: string
           year: number
@@ -134,8 +137,11 @@ export type Database = {
           creditor: string
           due_day?: number | null
           expense_kind?: string
+          expense_source?: string
           id?: string
           position?: number
+          source_contract_id?: string | null
+          source_template_id?: string | null
           updated_at?: string
           user_id: string
           year: number
@@ -145,8 +151,11 @@ export type Database = {
           creditor?: string
           due_day?: number | null
           expense_kind?: string
+          expense_source?: string
           id?: string
           position?: number
+          source_contract_id?: string | null
+          source_template_id?: string | null
           updated_at?: string
           user_id?: string
           year?: number
