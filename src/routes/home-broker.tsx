@@ -220,8 +220,8 @@ function HomeBroker() {
         {registerType === "despesas" ? <>
           <div className="mt-4 grid gap-3 sm:grid-cols-4">
             <Kpi label="Valor previsto" value={formatBRL(stats.expected)} bar={100} />
-            <Kpi label="Valor pago" value={formatBRL(stats.paid)} />
-            <Kpi label="Em aberto" value={formatBRL(stats.open)} />
+            <Kpi label="Valor pago" value={formatBRL(stats.paid)} bar={(stats.expected > 0 ? Math.round(stats.paid / stats.expected * 100) : 0)} />
+            <Kpi label="Em aberto" value={formatBRL(stats.open)} bar={(stats.expected > 0 ? Math.round(stats.open / stats.expected * 100) : 0)} />
             <Kpi label="Contas do mês" value={String(stats.count)} />
           </div>
           {(expenses.data?.reviewFlags ?? []).map(message => <p className="mt-3 rounded-lg border border-amber-400/40 p-3 text-sm" key={message}>{message}</p>)}
@@ -254,9 +254,9 @@ function HomeBroker() {
           <div className="mt-3 flex flex-wrap gap-4 text-sm"><Link to="/despesas/anuais" className="text-primary underline">Despesas anuais</Link><Link to="/historico-pagamentos" className="text-primary underline">Histórico de pagamentos</Link></div>
         </> : <>
           <div className="mt-4 grid gap-3 sm:grid-cols-4">
-            <Kpi label="Previsto a receber" value={formatBRL(incomeExpected)} />
-            <Kpi label="Total recebido" value={formatBRL(incomeReceived)} />
-            <Kpi label="A receber" value={formatBRL(Math.max(0, incomeExpected - incomeReceived))} />
+            <Kpi label="Previsto a receber" value={formatBRL(incomeExpected)} bar={100} />
+            <Kpi label="Total recebido" value={formatBRL(incomeReceived)} bar={(incomeExpected > 0 ? Math.round(incomeReceived / incomeExpected * 100) : 0)} />
+            <Kpi label="A receber" value={formatBRL(Math.max(0, incomeExpected - incomeReceived))} bar={100 - (incomeExpected > 0 ? Math.round(incomeReceived / incomeExpected * 100) : 0)} />
             <Kpi label="Lançamentos" value={String(incomes.length)} />
           </div>
           {revenue.error && <p role="alert" className="mt-4 text-sm text-destructive">Não foi possível consultar as receitas: {revenue.error.message}</p>}
