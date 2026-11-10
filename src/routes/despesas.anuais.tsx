@@ -84,14 +84,14 @@ function AnuaisPage() {
     .filter(a=>a.type === "CREDIT").map(a=>[a.id,{id:a.id,name:a.name}])).values()];
   const profiles: CardProfile[] = cardProfileQuery.data?.profiles ?? [];
   const cardProfilesAvailable = cardProfileQuery.data?.available === true;
+
+  const q = useQuery({ queryKey: ["annual", year], queryFn: () => getFn({ data: { year } }), enabled: !!user });
+  const rows = q.data?.rows ?? [];
   const cardCreditors = rowsForCardStatus(q.data?.rows ?? []);
   const unlinkedCardCreditors = cardProfilesAvailable
     ? cardCreditors.filter(r => !profiles.some(p => p.annual_expense_id === r.id))
     : [];
 
-
-  const q = useQuery({ queryKey: ["annual", year], queryFn: () => getFn({ data: { year } }), enabled: !!user });
-  const rows = q.data?.rows ?? [];
   const archived = !!q.data?.year?.archived_at;
   const stats = q.data?.stats ?? { paidCents: 0, paidExpected: 0 };
 
