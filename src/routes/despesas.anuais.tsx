@@ -84,6 +84,10 @@ function AnuaisPage() {
     .filter(a=>a.type === "CREDIT").map(a=>[a.id,{id:a.id,name:a.name}])).values()];
   const profiles: CardProfile[] = cardProfileQuery.data?.profiles ?? [];
   const cardProfilesAvailable = cardProfileQuery.data?.available === true;
+  const cardCreditors = rowsForCardStatus(q.data?.rows ?? []);
+  const unlinkedCardCreditors = cardProfilesAvailable
+    ? cardCreditors.filter(r => !profiles.some(p => p.annual_expense_id === r.id))
+    : [];
 
 
   const q = useQuery({ queryKey: ["annual", year], queryFn: () => getFn({ data: { year } }), enabled: !!user });
@@ -145,8 +149,12 @@ function AnuaisPage() {
     setSyncingCards(true);
     try {
       const result = await syncCardsFn();
-      toast.success(`Faturas: ${result.updated} atualizadas, ${result.unchanged} sem alteração, ${result.skipped} ignoradas.`);
-      if (result.errors.length) toast.warning(result.errors.join("; ").slice(0,500));
+      if (result.errors.length) {
+        toast.warning(`Sincronização parcial: ${result.updated} atualizadas, ${result.unchanged} sem alteração, ${result.skipped} ignoradas. ${result.errors.length} erro(s): ${result.errors.join("; ").slice(0,350)}`);
+      } else {
+        toast.success(`Faturas: ${result.updated} atualizadas, ${result.unchanged} sem alteração, ${result.skipped} ignoradas.`);
+      }
+      if (unlinkedCardCreditors.length) toast.warning(`Sem vínculo Open Finance: ${unlinkedCardCreditors.map(r=>r.creditor).join(", ")}. Edite cada credor pelo lápis.`);
       refresh();
     } catch(e) {
       toast.error(e instanceof Error ? e.message : "Falha ao sincronizar faturas.");
@@ -281,6 +289,14 @@ function AnuaisPage() {
         </div>
 
         {q.error && <p role="alert" className="mt-3 rounded-lg border border-destructive/30 p-3 text-sm text-destructive">Falha ao carregar Despesas Anuais: {q.error.message}</p>}
+        {unlinkedCardCreditors.length > 0 && (
+          <p role="status" className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-foreground">
+            <strong>Cartões sem vínculo Open Finance:</strong>{" "}
+            {unlinkedCardCreditors.map(r => r.creditor).join(", ")}.
+            Use o lápis do credor para escolher o cartão correto em Carteiras.
+            Nenhum valor será substituído até existir um vínculo confirmado e uma fatura fechada.
+          </p>
+        )}
         {cardProfileQuery.data?.available === false && (
           <p role="alert" className="mt-3 rounded-lg border border-amber-500/40 p-3 text-sm">
             Vínculos e sincronização de cartões temporariamente indisponíveis: falta a tabela
@@ -733,4 +749,8 @@ function AddCreditorDialog({
       </DialogFooter>
     </DialogContent>
   </Dialog>;
+}
+
+function rowsForCardStatus(rows: Array<{id:string;creditor:string;expense_source?:string|null}>) {
+  return rows.filter(row => row.expense_source === "card");
 }
