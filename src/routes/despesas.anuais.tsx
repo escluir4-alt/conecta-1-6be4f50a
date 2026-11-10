@@ -149,7 +149,8 @@ function AnuaisPage() {
     setSyncingCards(true);
     try {
       const result = await syncCardsFn();
-      if (result.errors.length) {
+      if (result.linkedCards === 0) toast.warning("Nenhum cartão vinculado a Despesas Anuais. Use o lápis de cada credor para selecionar o cartão.");
+      else if (result.errors.length) {
         toast.warning(`Sincronização parcial: ${result.updated} atualizadas, ${result.unchanged} sem alteração, ${result.skipped} ignoradas. ${result.errors.length} erro(s): ${result.errors.join("; ").slice(0,350)}`);
       } else {
         toast.success(`Faturas: ${result.updated} atualizadas, ${result.unchanged} sem alteração, ${result.skipped} ignoradas.`);
