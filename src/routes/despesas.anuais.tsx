@@ -87,9 +87,25 @@ function AnuaisPage() {
   const cardProfilesAvailable = cardProfileQuery.data?.available === true;
 
 
-  const futureCardQuery = useQuery({queryKey:["card-installment-forecast",year],queryFn:()=>previewCardsFn({data:{year}}),enabled:!!user && year>new Date().getFullYear(),staleTime:300000});
+  const futureCardQuery = useQuery({queryKey:["card-installment-forecast",year],queryFn:()=>previewCardsFn({data:{year}}),enabled:!!user && cardProfilesAvailable && year>=new Date().getFullYear(),staleTime:300000});
   const q = useQuery({ queryKey: ["annual", year], queryFn: () => getFn({ data: { year } }), enabled: !!user });
-  const rows = q.data?.rows ?? [];
+  const savedRows = q.data?.rows ?? [];
+  const cardForecasts = futureCardQuery.data?.forecasts ?? [];
+  // Credores vinculados aparecem na grade anual mesmo sem uma linha persistida neste exercício.
+  // A previsão é uma sobreposição de leitura, nunca uma baixa nem uma fatura fechada.
+  const forecastByAccount = new Map<string,typeof cardForecasts>();
+  for (const f of cardForecasts) {
+    const list = forecastByAccount.get(f.accountId) ?? [];
+    list.push(f);
+    forecastByAccount.set(f.accountId,list);
+  }
+  const virtualCardRows = [...forecastByAccount.entries()]
+    .filter(([accountId]) => !savedRows.some((r:any)=>profiles.some(p=>p.account_id===accountId && p.annual_expense_id===r.id)))
+    .map(([accountId,items])=>({
+      id:`forecast:${accountId}:${year}`, creditor:items[0].creditor, creditor_original:items[0].creditor,
+      expense_source:"card", expense_kind:"debt", due_day:null, forecast_only:true, card_account_id:accountId
+    }));
+  const rows = [...savedRows,...virtualCardRows];
   const archived = !!q.data?.year?.archived_at;
   const stats = q.data?.stats ?? { paidCents: 0, paidExpected: 0 };
 
@@ -97,6 +113,14 @@ function AnuaisPage() {
   for (const mm of q.data?.months ?? []) {
     if (!monthsByRow.has(mm.annual_expense_id)) monthsByRow.set(mm.annual_expense_id, new Map());
     monthsByRow.get(mm.annual_expense_id)!.set(mm.month, mm.expected_cents);
+  }
+  for (const f of cardForecasts) {
+    const matching = profiles.find(p=>p.account_id===f.accountId);
+    const id = savedRows.some((r:any)=>r.id===matching?.annual_expense_id) ? matching!.annual_expense_id! : `forecast:${f.accountId}:${year}`;
+    if (!monthsByRow.has(id)) monthsByRow.set(id,new Map());
+    const cells = monthsByRow.get(id)!;
+    // Valor oficial da competência tem precedência; jamais duplicar uma fatura fechada.
+    if (!cells.has(f.month) || cells.get(f.month)===null) cells.set(f.month,f.expected_cents);
   }
   const monthTotals = Array.from({ length: 12 }, (_, i) =>
     rows.reduce((s: number, r: any) => s + (monthsByRow.get(r.id)?.get(i + 1) ?? 0), 0));
@@ -108,6 +132,7 @@ function AnuaisPage() {
     void qc.invalidateQueries({ queryKey: ["annual-debt-totals"] });
     void qc.invalidateQueries({ queryKey: ["annual-contract-choices"] });
     void qc.invalidateQueries({ queryKey: ["finance-profiles"] });
+    void qc.invalidateQueries({ queryKey: ["card-installment-forecast",year] });
   }
 
   async function commitCell() {
@@ -304,30 +329,12 @@ function AnuaisPage() {
           <Summary label="Total geral previsto" value={formatBRL(grandTotal)} />
           <Summary label="Valor pago no ano" value={formatBRL(stats.paidCents)} tone="text-success" />
           <Summary label="A pagar no ano" value={formatBRL(aPagar)} tone={aPagar > 0 ? "text-destructive" : undefined} />
-          <Summary label="Despesas cadastradas" value={String(rows.length)} />
+          <Summary label="Despesas cadastradas" value={String(savedRows.length)} />
           <Summary label="Status do exercício" value={archived ? "Arquivo" : "Em andamento"} />
         </div>
 
-        {year>new Date().getFullYear() && <section className="mt-6 rounded-2xl border bg-card p-4 shadow-soft" aria-label="Previsão de parcelas dos cartões">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div><h3 className="font-semibold text-primary">Parcelas futuras dos cartões — {year}</h3>
-              <p className="text-xs text-muted-foreground">Projeção informativa de compras parceladas identificadas pelo Open Finance. Não compõe os totais oficiais até conciliação.</p></div>
-            <Button variant="outline" size="sm" onClick={()=>void qc.invalidateQueries({queryKey:["card-installment-forecast",year]})}>Atualizar previsão</Button>
-          </div>
-          {futureCardQuery.isLoading && <p className="mt-3 text-sm">Consultando parcelas autorizadas…</p>}
-          {futureCardQuery.error && <p role="alert" className="mt-3 text-sm text-destructive">Não foi possível consultar previsões: {futureCardQuery.error.message}</p>}
-          {futureCardQuery.data && <>
-            {futureCardQuery.data.warnings.map((w,i)=><p role="alert" key={i} className="mt-2 text-xs text-amber-700">{w}</p>)}
-            {futureCardQuery.data.forecasts.length===0
-              ? <p className="mt-3 text-sm text-muted-foreground">Nenhuma parcela futura confirmável pelos metadados disponíveis. Não serão criados valores fictícios.</p>
-              : <div className="mt-3 overflow-x-auto"><table className="w-full min-w-[650px] text-xs">
-                  <thead><tr><th className="p-2 text-left">Cartão</th>{MONTHS_SHORT.map(m=><th key={m} className="p-2 text-right">{m}</th>)}<th className="p-2 text-right">Total previsto</th></tr></thead>
-                  <tbody>{[...new Set(futureCardQuery.data.forecasts.map(f=>f.creditor))].map(name=>{
-                    const months=Array.from({length:12},(_,i)=>futureCardQuery.data!.forecasts.filter(f=>f.creditor===name&&f.month===i+1).reduce((a,b)=>a+b.expected_cents,0));
-                    return <tr key={name} className="border-t"><td className="p-2 font-medium">{name}</td>{months.map((v,i)=><td key={i} className="p-2 text-right">{v?formatBRL(v):"—"}</td>)}<td className="p-2 text-right font-semibold">{formatBRL(months.reduce((a,b)=>a+b,0))}</td></tr>;
-                  })}</tbody></table></div>}
-          </>}
-        </section>}
+        {futureCardQuery.error && <p role="alert" className="mt-3 text-sm text-destructive">Não foi possível consultar parcelas futuras dos cartões: {futureCardQuery.error.message}</p>}
+        {futureCardQuery.data?.warnings.map((warning,i)=><p role="alert" key={i} className="mt-2 text-xs text-amber-700">{warning}</p>)}
         <div className="mt-6 overflow-x-auto rounded-2xl border bg-card shadow-soft">
           <table className="w-full min-w-[1300px] text-sm">
             <thead>
@@ -357,8 +364,9 @@ function AnuaisPage() {
                             ? r.expense_source : r.expense_kind === "consumption" ? "consumption" : "manual";
                           return <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">{sourceName(source,r.consumption_value_type,r.annual_tax_kind)}</span>;
                         })()}
-                        <button type="button" aria-label={`Editar credor ${r.creditor}`} title="Classificar e ajustar credor"
-                          disabled={archived} className="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-primary disabled:opacity-40"
+                        {r.forecast_only && <span className="text-[10px] text-muted-foreground">Previsão</span>}
+                        <button type="button" aria-label={`Editar credor ${r.creditor}` title="Classificar e ajustar credor"
+                          disabled={archived || r.forecast_only} className="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-primary disabled:opacity-40"
                           onClick={() => {
                             const latest = Array.from({length:12},(_,i)=>cells?.get(12-i)??null).find(v=>v!==null && v>0);
                             const source:SourceKind = ["contract","card","consumption","annual_tax"].includes(r.expense_source)
@@ -389,7 +397,7 @@ function AnuaisPage() {
                           key={month}
                           className={`px-1 py-1 text-right ${paid.has(month) ? "bg-success-soft" : ""} ${archived ? "" : "cursor-pointer hover:bg-accent"}`}
                           onClick={() => {
-                            if (archived || editing) return;
+                            if (archived || editing || r.forecast_only) return;
                             setEditCell({ id: r.id, month, value: v ? (v / 100).toFixed(2).replace(".", ",") : "" });
                           }}
                         >
