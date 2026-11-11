@@ -73,7 +73,7 @@ function extractProducts(html: string, page: URL, store: string): FoundOffer[] {
         // Do not invent previous prices: priceSpecification may include a real "StrikethroughPrice".
         const specs = Array.isArray(offer["priceSpecification"]) ? offer["priceSpecification"] : offer["priceSpecification"] ? [offer["priceSpecification"]] : [];
         const strikethrough = specs.find(s => s && typeof s === "object" && /strikethrough|listprice|regularprice/i.test(String((s as JsonValue)["@type"] ?? ""))) as JsonValue | undefined;
-        const previous = money(strikethrough?.["price"] ?? offer["highPrice"]);
+        const previous = money(strikethrough?.["price"]);
         let target = page.href;
         const candidate = typeof offer["url"] === "string" ? offer["url"] : typeof node["url"] === "string" ? node["url"] : null;
         if (candidate) {
