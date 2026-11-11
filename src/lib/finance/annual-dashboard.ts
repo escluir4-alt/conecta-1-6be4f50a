@@ -18,6 +18,7 @@ export type AnnualDashboardTotals = {
   year: number; currentMonth: number; expected: number; paid: number;
   open: number; pct: number;
   consumption: { apurado: number; pago: number; month: number };
+  consumptionTrend: Array<{month:number;apurado:number;pago:number}>;
 };
 
 const cents = (value: number | null | undefined) => {
@@ -44,6 +45,7 @@ export function consolidateAnnualDashboard(input: {
   }
 
   let expected = 0, paid = 0, apurado = 0, consumoPago = 0, consumoMes = 0;
+  const consumptionTrend = Array.from({length:12},(_,i)=>({month:i+1,apurado:0,pago:0}));
   const seen = new Set<string>();
   for (const cell of input.cells) {
     const kind = kinds.get(cell.annual_expense_id);
@@ -58,6 +60,9 @@ export function consolidateAnnualDashboard(input: {
       // Futuros permanecem projeções. Consumo do mês usa a célula do exercício vigente.
       if (cell.month <= currentMonth || settled > 0) apurado += value;
       consumoPago += settled;
+      const point = consumptionTrend[cell.month-1]!;
+      if (cell.month <= currentMonth || settled > 0) point.apurado += value;
+      point.pago += settled;
       if (cell.month === currentMonth) consumoMes += value;
     } else {
       expected += value;
@@ -70,7 +75,7 @@ export function consolidateAnnualDashboard(input: {
   const pct = expected > 0 ? Math.min(100, Math.round((paid / expected) * 100)) : 0;
   return {
     year, currentMonth, expected, paid, open, pct,
-    consumption: { apurado, pago: consumoPago, month: consumoMes },
+    consumption: { apurado, pago: consumoPago, month: consumoMes }, consumptionTrend,
   };
 }
 
