@@ -96,17 +96,16 @@ function AnuaisPage() {
   const cardForecasts = futureCardQuery.data?.forecasts ?? [];
   // Credores vinculados aparecem na grade anual mesmo sem uma linha persistida neste exercício.
   // A previsão é uma sobreposição de leitura, nunca uma baixa nem uma fatura fechada.
-  const forecastByAccount = new Map<string,typeof cardForecasts>();
-  for (const f of cardForecasts) {
-    const list = forecastByAccount.get(f.accountId) ?? [];
-    list.push(f);
-    forecastByAccount.set(f.accountId,list);
-  }
-  const virtualCardRows = [...forecastByAccount.entries()]
-    .filter(([accountId]) => !savedRows.some((r:any)=>profiles.some(p=>p.account_id===accountId && p.annual_expense_id===r.id)))
-    .map(([accountId,items])=>({
-      id:`forecast:${accountId}:${year}`, creditor:items[0]!.creditor, creditor_original:items[0]!.creditor,
-      expense_source:"card", expense_kind:"debt", due_day:null, forecast_only:true, card_account_id:accountId
+  // Exibir credores vinculados em todos os exercícios futuros, mesmo sem
+  // metadados de parcelas. Nunca presumir valores nem associar por nome.
+  const linkedFutureCards = futureCardQuery.data?.linkedCards ?? [];
+  const virtualCardRows = linkedFutureCards
+    .filter(card => !savedRows.some((r: {id:string}) => r.id === card.annualExpenseId))
+    .map(card => ({
+      id:`forecast:${card.accountId}:${year}`,
+      creditor:card.creditor, creditor_original:card.creditor,
+      expense_source:"card", expense_kind:"debt", due_day:null,
+      forecast_only:true, card_account_id:card.accountId
     }));
   const rows = [...savedRows,...virtualCardRows];
   const archived = !!q.data?.year?.archived_at;
@@ -119,7 +118,7 @@ function AnuaisPage() {
   }
   for (const f of cardForecasts) {
     const matching = profiles.find(p=>p.account_id===f.accountId);
-    const id = savedRows.some((r:any)=>r.id===matching?.annual_expense_id) ? matching!.annual_expense_id! : `forecast:${f.accountId}:${year}`;
+    const id = savedRows.some((r: {id:string})=>r.id===matching?.annual_expense_id) ? matching!.annual_expense_id! : `forecast:${f.accountId}:${year}`;
     if (!monthsByRow.has(id)) monthsByRow.set(id,new Map());
     const cells = monthsByRow.get(id)!;
     // Valor oficial da competência tem precedência; jamais duplicar uma fatura fechada.
