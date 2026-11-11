@@ -40,7 +40,7 @@ function OfertasPage() {
   const [scanPages, setScanPages] = useState(3);
   const [scanning, setScanning] = useState(false);
   const [scanResults, setScanResults] = useState<Offer[] | null>(null);
-  const [scanInfo, setScanInfo] = useState<{ pagesScanned: number; pagesAttempted: number; failedPages: number; notices: string[]; checkedAt: string; note: string } | null>(null);
+  const [scanInfo, setScanInfo] = useState<{ pagesScanned: number; pagesAttempted: number; failedPages: number; productsDetected: number; skippedWithoutDiscount: number; notices: string[]; checkedAt: string; note: string } | null>(null);
   const [scanError, setScanError] = useState("");
   const offers = scanResults ?? demo;
   const live = scanResults !== null;
@@ -52,7 +52,7 @@ function OfertasPage() {
       const result = await scan({ data: { url: storeUrl.trim(), pages: scanPages } });
       setScanResults(result.offers);
       setCategory("Todas"); setMinDiscount(0); setOnlyFavorites(false); setSearch("");
-      setScanInfo({ pagesScanned: result.pagesScanned, pagesAttempted: result.pagesAttempted, failedPages: result.failedPages, notices: result.notices, checkedAt: result.checkedAt, note: result.note });
+      setScanInfo({ pagesScanned: result.pagesScanned, pagesAttempted: result.pagesAttempted, failedPages: result.failedPages, productsDetected: result.productsDetected, skippedWithoutDiscount: result.skippedWithoutDiscount, notices: result.notices, checkedAt: result.checkedAt, note: result.note });
     } catch (err) {
       setScanResults(null);
       setScanError(err instanceof Error ? err.message : "Não foi possível verificar o link.");
@@ -117,14 +117,14 @@ function OfertasPage() {
         </form>
         <p className="mt-3 text-xs text-muted-foreground">Domínios aceitos para tentativa de leitura (não são integrações oficiais): Mercado Livre, Amazon Brasil, Magalu, Casas Bahia, KaBuM!, Shopee, Americanas, Carrefour, Extra, Ponto, Fast Shop, Renner, Netshoes e Centauro. Algumas podem bloquear a varredura ou carregar preços somente por JavaScript. Limite de 5 páginas por consulta, sem contornar bloqueios.</p>
         {scanError && <p role="alert" className="mt-3 rounded-xl border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{scanError}</p>}
-        {scanInfo && <div role="status" className="mt-4 space-y-2 rounded-xl border bg-muted/40 p-4 text-sm"><p className="font-semibold">{scanResults?.length ?? 0} produtos identificados · {scanInfo.pagesScanned} página(s) lida(s) de {scanInfo.pagesAttempted} tentativa(s)</p><p className="text-xs text-muted-foreground">{scanInfo.note} Consulta: {new Date(scanInfo.checkedAt).toLocaleString("pt-BR")}.</p>{scanInfo.notices.map((message,i)=><p className="text-xs text-amber-700" key={i}>{message}</p>)}{scanResults?.length===0 && <p className="text-xs">{scanInfo.failedPages > 0 ? "Esta loja não disponibilizou dados legíveis à varredura; isso não significa que esteja sem ofertas. A Amazon pode exigir uma integração oficial autorizada para listar produtos e descontos." : "As páginas acessíveis não apresentaram produtos com dados estruturados de preço. Isso não significa que a loja esteja sem ofertas."}</p>}</div>}
+        {scanInfo && <div role="status" className="mt-4 space-y-2 rounded-xl border bg-muted/40 p-4 text-sm"><p className="font-semibold">{scanResults?.length ?? 0} ofertas com desconto calculável · {scanInfo.productsDetected} produto(s) localizado(s) · {scanInfo.pagesScanned} página(s) lida(s)</p><p className="text-xs text-muted-foreground">{scanInfo.note} Consulta: {new Date(scanInfo.checkedAt).toLocaleString("pt-BR")}.</p>{scanInfo.skippedWithoutDiscount>0 && <p className="text-xs text-muted-foreground">{scanInfo.skippedWithoutDiscount} produto(s) desconsiderado(s) porque a loja não informou um preço anterior confiável. Produtos sem desconto não entram no ranking.</p>}{scanInfo.notices.map((message,i)=><p className="text-xs text-amber-700" key={i}>{message}</p>)}{scanResults?.length===0 && <p className="text-xs">{scanInfo.productsDetected > 0 ? "Os produtos encontrados não possuem desconto comprovável nos dados disponibilizados. Nenhum será apresentado como promoção." : scanInfo.failedPages > 0 ? "A leitura da loja foi bloqueada ou falhou. Uma integração oficial de catálogo pode ser necessária." : "Não foi possível encontrar descontos mensuráveis nas páginas acessíveis. Isso não significa que a loja esteja sem promoções."}</p>}</div>}
         {live && <button type="button" className="mt-3 rounded-xl border px-4 py-2 text-xs font-semibold" onClick={()=>{setScanResults(null);setScanInfo(null);setCategory("Todas");}}>Voltar à demonstração</button>}
       </section>
       {!live && <section role="status" className="rounded-2xl border border-amber-300/60 bg-amber-50 px-5 py-4 text-sm text-amber-950">
         <strong>Preços ilustrativos — não são promoções reais.</strong> Nenhuma loja está conectada. Os descontos exibidos abaixo são apenas exemplos de interface e cálculo. O histórico de preços e a verificação automática funcionarão quando forem integradas fontes autorizadas.
       </section>}
       <section className="grid gap-3 md:grid-cols-3">
-        <div className="rounded-2xl border bg-card p-5"><p className="text-xs text-muted-foreground">{live ? "Produtos identificados" : "Ofertas demonstrativas"}</p><p className="mt-2 text-3xl font-bold">{offers.length}</p></div>
+        <div className="rounded-2xl border bg-card p-5"><p className="text-xs text-muted-foreground">{live ? "Ofertas com desconto" : "Ofertas demonstrativas"}</p><p className="mt-2 text-3xl font-bold">{offers.length}</p></div>
         <div className="rounded-2xl border bg-card p-5"><p className="text-xs text-muted-foreground">{live ? "Maior desconto anunciado encontrado" : "Maior desconto ilustrativo"}</p><p className="mt-2 text-3xl font-bold text-primary">{offers.length ? Math.max(...offers.map(discount)).toFixed(0) + "%" : "—"}</p></div>
         <div className="rounded-2xl border bg-card p-5"><p className="text-xs text-muted-foreground">Produtos favoritos</p><p className="mt-2 text-3xl font-bold">{ready ? favorites.length : "—"}</p></div>
       </section>
@@ -165,7 +165,7 @@ function OfertasPage() {
             </article>;
           })}
         </div>
-        {filtered.length===0 && <div className="rounded-2xl border border-dashed p-10 text-center text-sm text-muted-foreground">Nenhuma oferta corresponde aos filtros selecionados.</div>}
+        {filtered.length===0 && <div className="rounded-2xl border border-dashed p-10 text-center text-sm text-muted-foreground">{live ? "Nenhuma oferta com preço anterior confiável foi identificada nas páginas analisadas. Para o catálogo completo, é necessário integrar um feed ou API autorizada da loja." : "Nenhuma oferta corresponde aos filtros selecionados."}</div>}
       </section>
       <section className="rounded-3xl border bg-card p-6"><h2 className="text-lg font-bold">Fontes e integrações</h2><p className="mt-2 text-sm text-muted-foreground">A varredura de links usa apenas dados HTML estruturados que estejam publicamente disponíveis e autorizados. Conexões via APIs oficiais ou feeds ainda não foram instaladas. Não há monitoramento automático nem notificações de alerta nesta versão; as metas ficam salvas neste navegador.</p></section>
     </main>
