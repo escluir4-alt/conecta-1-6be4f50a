@@ -549,3 +549,13 @@ export async function fetchAuthorizedCardBills(supabase: any, userId: string, ac
   }
   return results;
 }
+
+/** Parcelas registradas pelo banco do titular, para projeção informativa (não confirma faturas). */
+export async function fetchAuthorizedCardInstallments(userId:string,accountId:string) {
+  const {account,apiKey}=await resolveUserAccount(userId,accountId);
+  if(account.type!=="CREDIT")throw new Error("Conta não é cartão de crédito.");
+  const from=new Date();
+  from.setUTCMonth(from.getUTCMonth()-12);
+  const transactions=await getAllPluggyTransactions(apiKey,accountId,from.toISOString().slice(0,10));
+  return transactions.filter(t=>t.creditCardMetadata?.totalInstallments||t.totalInstallments);
+}

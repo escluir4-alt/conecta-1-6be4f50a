@@ -17,7 +17,7 @@ import { getAnnualContractChoices, projectAnnualContract, projectFixedAnnualCons
 import { scheduleAnnualTax } from "@/lib/finance/annual-tax.functions";
 import { annualTaxSchedule } from "@/lib/finance/annual-tax";
 import { getFinances } from "@/lib/pluggy.functions";
-import { getFinanceAccountProfiles, saveFinanceAccountProfile, syncProviderClosedCardInvoices } from "@/lib/finance/card-profile.functions";
+import { getFinanceAccountProfiles, saveFinanceAccountProfile, syncProviderClosedCardInvoices, previewFutureCardInstallments } from "@/lib/finance/card-profile.functions";
 
 export const Route = createFileRoute("/despesas/anuais")({
   ssr: false,
@@ -74,6 +74,7 @@ function AnuaisPage() {
   const profileFn = useServerFn(getFinanceAccountProfiles);
   const saveProfileFn = useServerFn(saveFinanceAccountProfile);
   const syncCardsFn = useServerFn(syncProviderClosedCardInvoices);
+  const previewCardsFn = useServerFn(previewFutureCardInstallments);
   const projectContractFn = useServerFn(projectAnnualContract);
   const projectConsumptionFn = useServerFn(projectFixedAnnualConsumption);
   const scheduleTaxFn = useServerFn(scheduleAnnualTax);
@@ -86,6 +87,7 @@ function AnuaisPage() {
   const cardProfilesAvailable = cardProfileQuery.data?.available === true;
 
 
+  const futureCardQuery = useQuery({queryKey:["card-installment-forecast",year],queryFn:()=>previewCardsFn({data:{year}}),enabled:!!user && year>new Date().getFullYear(),staleTime:300000});
   const q = useQuery({ queryKey: ["annual", year], queryFn: () => getFn({ data: { year } }), enabled: !!user });
   const rows = q.data?.rows ?? [];
   const archived = !!q.data?.year?.archived_at;
@@ -306,6 +308,26 @@ function AnuaisPage() {
           <Summary label="Status do exercício" value={archived ? "Arquivo" : "Em andamento"} />
         </div>
 
+        {year>new Date().getFullYear() && <section className="mt-6 rounded-2xl border bg-card p-4 shadow-soft" aria-label="Previsão de parcelas dos cartões">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div><h3 className="font-semibold text-primary">Parcelas futuras dos cartões — {year}</h3>
+              <p className="text-xs text-muted-foreground">Projeção informativa de compras parceladas identificadas pelo Open Finance. Não compõe os totais oficiais até conciliação.</p></div>
+            <Button variant="outline" size="sm" onClick={()=>void qc.invalidateQueries({queryKey:["card-installment-forecast",year]})}>Atualizar previsão</Button>
+          </div>
+          {futureCardQuery.isLoading && <p className="mt-3 text-sm">Consultando parcelas autorizadas…</p>}
+          {futureCardQuery.error && <p role="alert" className="mt-3 text-sm text-destructive">Não foi possível consultar previsões: {futureCardQuery.error.message}</p>}
+          {futureCardQuery.data && <>
+            {futureCardQuery.data.warnings.map((w,i)=><p role="alert" key={i} className="mt-2 text-xs text-amber-700">{w}</p>)}
+            {futureCardQuery.data.forecasts.length===0
+              ? <p className="mt-3 text-sm text-muted-foreground">Nenhuma parcela futura confirmável pelos metadados disponíveis. Não serão criados valores fictícios.</p>
+              : <div className="mt-3 overflow-x-auto"><table className="w-full min-w-[650px] text-xs">
+                  <thead><tr><th className="p-2 text-left">Cartão</th>{MONTHS_SHORT.map(m=><th key={m} className="p-2 text-right">{m}</th>)}<th className="p-2 text-right">Total previsto</th></tr></thead>
+                  <tbody>{[...new Set(futureCardQuery.data.forecasts.map(f=>f.creditor))].map(name=>{
+                    const months=Array.from({length:12},(_,i)=>futureCardQuery.data!.forecasts.filter(f=>f.creditor===name&&f.month===i+1).reduce((a,b)=>a+b.expected_cents,0));
+                    return <tr key={name} className="border-t"><td className="p-2 font-medium">{name}</td>{months.map((v,i)=><td key={i} className="p-2 text-right">{v?formatBRL(v):"—"}</td>)}<td className="p-2 text-right font-semibold">{formatBRL(months.reduce((a,b)=>a+b,0))}</td></tr>;
+                  })}</tbody></table></div>}
+          </>}
+        </section>}
         <div className="mt-6 overflow-x-auto rounded-2xl border bg-card shadow-soft">
           <table className="w-full min-w-[1300px] text-sm">
             <thead>
