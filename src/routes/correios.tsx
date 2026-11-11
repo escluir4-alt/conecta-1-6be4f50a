@@ -1,4 +1,5 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
+import { AppShell, useRequireUser } from "@/components/AppShell";
 import { useState } from "react";
 import { Package, MapPin, Calculator, Search, ExternalLink, ShieldCheck, Clock3, Settings2 } from "lucide-react";
 
@@ -8,6 +9,7 @@ type Address = { cep: string; logradouro: string; complemento?: string; bairro: 
 const clean = (value: string) => value.replace(/\D/g, "");
 
 function CorreiosPage() {
+  const user = useRequireUser();
   const [cep, setCep] = useState("");
   const [address, setAddress] = useState<Address | null>(null);
   const [cepError, setCepError] = useState("");
@@ -42,13 +44,14 @@ function CorreiosPage() {
   ];
 
   return (
+    <AppShell active="correios" user={user}>
     <main className="min-h-screen bg-background text-foreground px-4 py-8 sm:px-8">
       <div className="mx-auto max-w-6xl space-y-7">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div><p className="text-xs font-semibold uppercase tracking-[.2em] text-muted-foreground">Axion · Serviços</p>
             <h1 className="mt-2 text-3xl font-semibold tracking-tight">Correios</h1>
             <p className="mt-2 text-sm text-muted-foreground">Endereços, encomendas, fretes e entregas em um só lugar.</p></div>
-          <Link to="/painel" className="rounded-xl border border-border px-4 py-2 text-sm hover:bg-muted">Voltar ao painel</Link>
+
         </div>
         <div className="flex items-start gap-3 rounded-2xl border border-border bg-card p-4 text-sm">
           <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
@@ -97,5 +100,6 @@ function CorreiosPage() {
         <p className="pb-6 text-xs text-muted-foreground">Credenciais e tokens devem ser armazenados exclusivamente no backend, nunca no navegador. Documentação: <a className="underline" href="https://www.correios.com.br/atendimento/developers" target="_blank" rel="noopener noreferrer">Portal dos Correios</a>.</p>
       </div>
     </main>
+    </AppShell>
   );
 }
