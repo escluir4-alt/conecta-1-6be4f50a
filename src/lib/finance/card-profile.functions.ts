@@ -1,7 +1,8 @@
+import { projectCardInstallments } from "./card-installment-forecast";
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import { assertUserCreditCard, assertUserFinanceAccount, fetchAuthorizedCardBills } from "@/lib/pluggy.functions";
+import { assertUserCreditCard, assertUserFinanceAccount, fetchAuthorizedCardBills, fetchAuthorizedCardInstallments } from "@/lib/pluggy.functions";
 import { CARD_PROFILES_MIGRATION_MESSAGE, isMissingCardProfileTable } from "./card-profile-status";
 
 const profileSchema = z.object({
@@ -141,4 +142,39 @@ export const getConfirmedCardInvoiceLinks = createServerFn({ method: "GET" })
         card_id:x.account_id, liability_key:`annual:${x.annual_expense_id}:${Number(x.period.slice(5,7))}`,
         amount_cents:Number(x.amount_cents),
       })) as Array<{card_id:string;liability_key:string;amount_cents:number}>;
+  });
+
+/**
+ * Prévia não destrutiva: somente parcelas futuras informadas pelo Open Finance.
+ * Não altera annual_expense_months, faturas fechadas ou pagamentos.
+ */
+export const previewFutureCardInstallments = createServerFn({method:"GET"})
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input:unknown)=>z.object({year:z.number().int().min(2026).max(2100)}).parse(input))
+  .handler(async({data,context})=>{
+    const {supabase,userId}=context;
+    const {data:profiles,error}=await (supabase as any).from("finance_account_profiles")
+      .select("account_id,annual_expense_id,display_name")
+      .eq("user_id",userId).not("annual_expense_id","is",null);
+    if(error)throw new Error(error.message);
+    const ids=(profiles??[]).map((p:any)=>p.annual_expense_id);
+    const {data:rows,error:rowsError}=await (supabase as any).from("annual_expenses")
+      .select("id,creditor,expense_source,year")
+      .eq("user_id",userId).in("id",ids.length?ids:["00000000-0000-0000-0000-000000000000"]);
+    if(rowsError)throw new Error(rowsError.message);
+    const byId=new Map((rows??[]).map((r:any)=>[r.id,r]));
+    const forecasts:Array<{accountId:string;annualExpenseId:string;creditor:string;month:number;expected_cents:number;installments:number}>=[];
+    const warnings:string[]=[];
+    for(const profile of profiles??[]){
+      const row:any=byId.get(profile.annual_expense_id);
+      if(!row||row.expense_source!=="card")continue;
+      try{
+        const txs=await fetchAuthorizedCardInstallments(userId,profile.account_id);
+        for(const item of projectCardInstallments(txs,data.year,data.year).filter(x=>x.year===data.year))
+          forecasts.push({accountId:profile.account_id,annualExpenseId:profile.annual_expense_id,creditor:row.creditor,month:item.month,
+            expected_cents:item.expected_cents,installments:item.installments});
+      }catch(e){warnings.push(`${row.creditor}: ${e instanceof Error?e.message:"falha ao consultar parcelas"}`);}
+    }
+    return {year:data.year,forecasts,warnings,
+      note:"Previsão informativa de parcelas conhecidas, sujeita a revisão. Não substitui faturas fechadas nem lançamentos manuais."};
   });
