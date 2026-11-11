@@ -1,4 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useServerFn } from "@tanstack/react-start";
+import { scanStoreOffers } from "@/lib/offers/scan.functions";
 import { AppShell, useRequireUser } from "@/components/AppShell";
 import { useEffect, useMemo, useState } from "react";
 import { ArrowDownUp, Bell, ExternalLink, Heart, Search, ShieldCheck, SlidersHorizontal, Tag, Trash2 } from "lucide-react";
@@ -33,6 +35,28 @@ function readSaved<T>(key: string, fallback: T): T {
 }
 function OfertasPage() {
   const user = useRequireUser();
+  const scan = useServerFn(scanStoreOffers);
+  const [storeUrl, setStoreUrl] = useState("");
+  const [scanPages, setScanPages] = useState(3);
+  const [scanning, setScanning] = useState(false);
+  const [scanResults, setScanResults] = useState<Offer[] | null>(null);
+  const [scanInfo, setScanInfo] = useState<{ pagesScanned: number; notices: string[]; checkedAt: string; note: string } | null>(null);
+  const [scanError, setScanError] = useState("");
+  const offers = scanResults ?? demo;
+  const live = scanResults !== null;
+  async function runScan(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (scanning) return;
+    setScanning(true); setScanError(""); setScanInfo(null);
+    try {
+      const result = await scan({ data: { url: storeUrl.trim(), pages: scanPages } });
+      setScanResults(result.offers);
+      setScanInfo({ pagesScanned: result.pagesScanned, notices: result.notices, checkedAt: result.checkedAt, note: result.note });
+    } catch (err) {
+      setScanResults(null);
+      setScanError(err instanceof Error ? err.message : "Não foi possível verificar o link.");
+    } finally { setScanning(false); }
+  }
   const key = "axion:ofertas:" + (user?.email || "aguardando");
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("Todas");
@@ -54,15 +78,15 @@ function OfertasPage() {
   function save(f: string[], a: PriceAlert[]) {
     setFavorites(f); setAlerts(a); localStorage.setItem(key, JSON.stringify({ favorites: f, alerts: a }));
   }
-  const categories = ["Todas", ...new Set(demo.map(o => o.category))];
-  const filtered = useMemo(() => demo.filter(o =>
+  const categories = ["Todas", ...new Set(offers.map(o => o.category))];
+  const filtered = useMemo(() => offers.filter(o =>
     (category === "Todas" || o.category === category) &&
     (o.title + " " + o.store).toLocaleLowerCase("pt-BR").includes(search.toLocaleLowerCase("pt-BR").trim()) &&
     discount(o) >= minDiscount &&
     (!onlyFavorites || favorites.includes(o.id))
   ).sort((a,b) => sort === "discount" ? discount(b) - discount(a) :
     sort === "price" ? finalPrice(a) - finalPrice(b) :
-    sort === "saving" ? (b.previous - b.price) - (a.previous - a.price) : a.id.localeCompare(b.id)), [search, category, minDiscount, sort, onlyFavorites, favorites]);
+    sort === "saving" ? (b.previous - b.price) - (a.previous - a.price) : a.id.localeCompare(b.id)), [offers, search, category, minDiscount, sort, onlyFavorites, favorites]);
   function toggleFavorite(id: string) {
     save(favorites.includes(id) ? favorites.filter(v => v !== id) : [...favorites, id], alerts);
   }
@@ -82,12 +106,25 @@ function OfertasPage() {
         </div>
         <span className="inline-flex items-center gap-2 rounded-full border bg-card px-4 py-2 text-xs font-semibold"><ShieldCheck className="size-4 text-primary" /> Ambiente de demonstração</span>
       </header>
-      <section role="status" className="rounded-2xl border border-amber-300/60 bg-amber-50 px-5 py-4 text-sm text-amber-950">
-        <strong>Preços ilustrativos — não são promoções reais.</strong> Nenhuma loja está conectada. Os descontos exibidos abaixo são apenas exemplos de interface e cálculo. O histórico de preços e a verificação automática funcionarão quando forem integradas fontes autorizadas.
+      <section className="rounded-3xl border bg-card p-5 shadow-sm sm:p-6">
+        <div className="flex items-center gap-2"><Search className="size-5 text-primary" /><h2 className="text-lg font-bold">Varredura por link da loja</h2></div>
+        <p className="mt-2 text-sm text-muted-foreground">Cole o endereço de uma loja ou página de promoções. O Axion examina páginas públicas permitidas da mesma loja e organiza os produtos encontrados pelo maior desconto anunciado, independentemente da categoria.</p>
+        <form onSubmit={runScan} className="mt-4 flex flex-wrap items-end gap-3">
+          <label className="min-w-64 flex-1 text-xs font-semibold text-muted-foreground">Link HTTPS da loja<input type="url" required placeholder="https://www.loja.com.br/ofertas" className="mt-1 block w-full rounded-xl border bg-background px-4 py-3 text-sm text-foreground" value={storeUrl} onChange={e=>setStoreUrl(e.target.value)} /></label>
+          <label className="text-xs font-semibold text-muted-foreground">Máximo de páginas<select value={scanPages} onChange={e=>setScanPages(Number(e.target.value))} className="mt-1 block rounded-xl border bg-background px-3 py-3 text-sm text-foreground">{[1,2,3,4,5].map(n=><option key={n} value={n}>{n}</option>)}</select></label>
+          <button disabled={scanning} className="rounded-xl bg-primary px-5 py-3 text-sm font-bold text-primary-foreground disabled:opacity-60">{scanning ? "Analisando..." : "Varrer ofertas"}</button>
+        </form>
+        <p className="mt-3 text-xs text-muted-foreground">Lojas inicialmente habilitadas: Mercado Livre, Amazon Brasil, Magalu, Casas Bahia, KaBuM!, Shopee, Americanas, Carrefour, Extra, Ponto, Fast Shop, Renner, Netshoes e Centauro. Algumas podem bloquear a varredura ou carregar preços somente por JavaScript. Limite de 5 páginas por consulta, sem contornar bloqueios.</p>
+        {scanError && <p role="alert" className="mt-3 rounded-xl border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{scanError}</p>}
+        {scanInfo && <div role="status" className="mt-4 space-y-2 rounded-xl border bg-muted/40 p-4 text-sm"><p className="font-semibold">{scanResults?.length ?? 0} produtos identificados · {scanInfo.pagesScanned} página(s) analisada(s)</p><p className="text-xs text-muted-foreground">{scanInfo.note} Consulta: {new Date(scanInfo.checkedAt).toLocaleString("pt-BR")}.</p>{scanInfo.notices.map((message,i)=><p className="text-xs text-amber-700" key={i}>{message}</p>)}{scanResults?.length===0 && <p className="text-xs">Nenhum produto com preço estruturado disponível foi encontrado. Isso não significa que a loja esteja sem ofertas.</p>}</div>}
+        {live && <button type="button" className="mt-3 rounded-xl border px-4 py-2 text-xs font-semibold" onClick={()=>{setScanResults(null);setScanInfo(null);setCategory("Todas");}}>Voltar à demonstração</button>}
       </section>
+      {!live && <section role="status" className="rounded-2xl border border-amber-300/60 bg-amber-50 px-5 py-4 text-sm text-amber-950">
+        <strong>Preços ilustrativos — não são promoções reais.</strong> Nenhuma loja está conectada. Os descontos exibidos abaixo são apenas exemplos de interface e cálculo. O histórico de preços e a verificação automática funcionarão quando forem integradas fontes autorizadas.
+      </section>}
       <section className="grid gap-3 md:grid-cols-3">
-        <div className="rounded-2xl border bg-card p-5"><p className="text-xs text-muted-foreground">Ofertas demonstrativas</p><p className="mt-2 text-3xl font-bold">{demo.length}</p></div>
-        <div className="rounded-2xl border bg-card p-5"><p className="text-xs text-muted-foreground">Maior desconto ilustrativo</p><p className="mt-2 text-3xl font-bold text-primary">{Math.max(...demo.map(discount)).toFixed(0)}%</p></div>
+        <div className="rounded-2xl border bg-card p-5"><p className="text-xs text-muted-foreground">{live ? "Produtos identificados" : "Ofertas demonstrativas"}</p><p className="mt-2 text-3xl font-bold">{offers.length}</p></div>
+        <div className="rounded-2xl border bg-card p-5"><p className="text-xs text-muted-foreground">{live ? "Maior desconto anunciado encontrado" : "Maior desconto ilustrativo"}</p><p className="mt-2 text-3xl font-bold text-primary">{offers.length ? Math.max(...offers.map(discount)).toFixed(0) + "%" : "—"}</p></div>
         <div className="rounded-2xl border bg-card p-5"><p className="text-xs text-muted-foreground">Produtos favoritos</p><p className="mt-2 text-3xl font-bold">{ready ? favorites.length : "—"}</p></div>
       </section>
       <section className="space-y-4 rounded-3xl border bg-card p-5 shadow-sm">
@@ -100,7 +137,7 @@ function OfertasPage() {
         <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
           <label className="flex items-center gap-2"><Tag className="size-4 text-primary" />Desconto mínimo <select className="rounded-lg border bg-background px-2 py-1.5" value={minDiscount} onChange={e=>setMinDiscount(Number(e.target.value))}>{[0,20,30,40,50,60,70,80,90].map(n=><option key={n} value={n}>{n}%</option>)}</select></label>
           <label className="flex items-center gap-2"><input type="checkbox" checked={onlyFavorites} onChange={e=>setOnlyFavorites(e.target.checked)} /> Apenas favoritos</label>
-          <span className="text-muted-foreground">{filtered.length} resultado(s) ilustrativo(s)</span>
+          <span className="text-muted-foreground">{filtered.length} resultado(s) {live ? "encontrado(s)" : "ilustrativo(s)"}</span>
         </div>
       </section>
       <section>
@@ -111,25 +148,25 @@ function OfertasPage() {
             const alert = alerts.find(a => a.id === o.id);
             return <article key={o.id} className="flex flex-col overflow-hidden rounded-3xl border bg-card shadow-sm">
               <div className="flex items-start justify-between gap-2 bg-muted/40 p-5">
-                <div><span className="rounded-lg bg-primary px-3 py-1 text-sm font-bold text-primary-foreground">-{discount(o).toFixed(0)}%</span><p className="mt-3 text-xs text-muted-foreground">{o.category} · {o.store}</p></div>
+                <div><span className="rounded-lg bg-primary px-3 py-1 text-sm font-bold text-primary-foreground">{o.previous > o.price ? "-" + discount(o).toFixed(0) + "%" : "Sem referência"}</span><p className="mt-3 text-xs text-muted-foreground">{o.category} · {o.store}</p></div>
                 <button type="button" disabled={!ready} onClick={()=>toggleFavorite(o.id)} aria-label={favorite?"Remover dos favoritos":"Adicionar aos favoritos"} className="rounded-full border bg-background p-2" title="Favoritar"><Heart className={favorite?"size-5 fill-red-500 text-red-500":"size-5"} /></button>
               </div>
               <div className="flex flex-1 flex-col gap-3 p-5">
                 <h3 className="min-h-12 text-base font-bold">{o.title}</h3>
-                <p className="text-xs text-muted-foreground">Preço de referência anunciado: <span className="line-through">{brl(o.previous)}</span></p>
+                <p className="text-xs text-muted-foreground">Preço de referência anunciado: <span className="line-through">{o.previous > 0 ? brl(o.previous) : "Não informado"}</span></p>
                 <p className="text-3xl font-extrabold tracking-tight">{brl(o.price)}</p>
-                <p className="text-sm font-semibold text-primary">Economia anunciada: {brl(o.previous-o.price)}</p>
+                <p className="text-sm font-semibold text-primary">{o.previous > 0 ? "Economia anunciada: " + brl(o.previous-o.price) : "Preço anterior não divulgado"}</p>
                 <div className="rounded-xl bg-muted/50 p-3 text-xs leading-6"><p>Frete: {o.shipping ? brl(o.shipping) : "Grátis"} · Cupom ilustrativo: {brl(o.coupon)}</p><p className="font-bold">Total calculado: {brl(finalPrice(o))}</p><p className="text-muted-foreground">Desconto histórico: não verificado</p></div>
                 {alert ? <div className="flex items-center justify-between gap-2 rounded-xl border p-3 text-xs"><span><Bell className="mr-1 inline size-3.5" /> Meta salva: {brl(alert.target)}</span><button onClick={()=>save(favorites,alerts.filter(a=>a.id!==o.id))} aria-label="Excluir alerta"><Trash2 className="size-4" /></button></div> : null}
                 {editingAlert===o.id ? <form onSubmit={e=>{e.preventDefault();saveAlert(o.id)}} className="flex gap-2"><input aria-label="Preço alvo em reais" inputMode="decimal" className="min-w-0 flex-1 rounded-xl border bg-background px-3 py-2 text-sm" placeholder="Preço alvo R$" value={target} onChange={e=>setTarget(e.target.value)} /><button className="rounded-xl bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground">Salvar</button></form> : null}
-                <div className="mt-auto flex gap-2 pt-2"><button disabled={!ready} onClick={()=>{setEditingAlert(editingAlert===o.id?null:o.id);setTarget(alert?.target.toString() || "")}} className="flex flex-1 items-center justify-center gap-1 rounded-xl border px-3 py-2.5 text-xs font-semibold"><Bell className="size-4" /> Alerta de preço</button><button disabled className="flex flex-1 items-center justify-center gap-1 rounded-xl bg-muted px-3 py-2.5 text-xs font-semibold text-muted-foreground" title="Disponível após conexão de lojas">Ver oferta <ExternalLink className="size-4" /></button></div>
+                <div className="mt-auto flex gap-2 pt-2"><button disabled={!ready} onClick={()=>{setEditingAlert(editingAlert===o.id?null:o.id);setTarget(alert?.target.toString() || "")}} className="flex flex-1 items-center justify-center gap-1 rounded-xl border px-3 py-2.5 text-xs font-semibold"><Bell className="size-4" /> Alerta de preço</button>{o.url ? <a href={o.url} target="_blank" rel="noopener noreferrer" className="flex flex-1 items-center justify-center gap-1 rounded-xl bg-primary px-3 py-2.5 text-xs font-semibold text-primary-foreground">Ver oferta <ExternalLink className="size-4" /></a> : <button disabled className="flex flex-1 items-center justify-center gap-1 rounded-xl bg-muted px-3 py-2.5 text-xs font-semibold text-muted-foreground">Exemplo ilustrativo</button>}</div>
               </div>
             </article>;
           })}
         </div>
-        {filtered.length===0 && <div className="rounded-2xl border border-dashed p-10 text-center text-sm text-muted-foreground">Nenhuma oferta demonstrativa corresponde aos filtros.</div>}
+        {filtered.length===0 && <div className="rounded-2xl border border-dashed p-10 text-center text-sm text-muted-foreground">Nenhuma oferta corresponde aos filtros selecionados.</div>}
       </section>
-      <section className="rounded-3xl border bg-card p-6"><h2 className="text-lg font-bold">Fontes e integrações</h2><p className="mt-2 text-sm text-muted-foreground">Mercado Livre, Amazon, Magalu, Casas Bahia, KaBuM! e Shopee: <strong>não conectados</strong>. Para ofertas verdadeiras, o sistema precisará de feeds ou APIs autorizadas. Nunca informe senhas ou chaves nesta página. Não há monitoramento automático nem notificações de alerta nesta versão; as metas ficam salvas neste navegador.</p></section>
+      <section className="rounded-3xl border bg-card p-6"><h2 className="text-lg font-bold">Fontes e integrações</h2><p className="mt-2 text-sm text-muted-foreground">A varredura de links usa apenas dados HTML estruturados que estejam publicamente disponíveis e autorizados. Conexões via APIs oficiais ou feeds ainda não foram instaladas. Não há monitoramento automático nem notificações de alerta nesta versão; as metas ficam salvas neste navegador.</p></section>
     </main>
   </AppShell>;
 }
