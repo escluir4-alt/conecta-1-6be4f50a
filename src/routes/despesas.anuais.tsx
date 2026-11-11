@@ -365,7 +365,7 @@ function AnuaisPage() {
                           return <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">{sourceName(source,r.consumption_value_type,r.annual_tax_kind)}</span>;
                         })()}
                         {r.forecast_only && <span className="text-[10px] text-muted-foreground">Previsão</span>}
-                        <button type="button" aria-label={`Editar credor ${r.creditor}` title="Classificar e ajustar credor"
+                        <button type="button" aria-label={`Editar credor ${r.creditor}`} title="Classificar e ajustar credor"
                           disabled={archived || r.forecast_only} className="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-primary disabled:opacity-40"
                           onClick={() => {
                             const latest = Array.from({length:12},(_,i)=>cells?.get(12-i)??null).find(v=>v!==null && v>0);
