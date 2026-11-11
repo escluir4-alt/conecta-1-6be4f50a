@@ -21,6 +21,7 @@ import {
   LogOut,
   Menu,
   MessageCircle,
+  Package,
   Shield,
   TrendingDown,
   TrendingUp,
@@ -54,7 +55,8 @@ export type AppPage =
   | "compras"
   | "notas"
   | "viagens"
-  | "notas-fiscais";
+  | "notas-fiscais"
+  | "correios";
 
 export interface AppUser {
   email: string;
@@ -172,6 +174,8 @@ export function AppShell({
       <NavLink to="/notas-fiscais" icon={FolderArchive} label="Notas fiscais" active={active === "notas-fiscais"} indent={indent} onNavigate={onNavigate} />
       <NavLink to="/relogio" icon={Clock3} label="Relógio e alarmes" active={active === "relogio"} indent={indent} onNavigate={onNavigate} />
       <NavLink to="/viagens" icon={CarFront} label="Viagens" active={active === "viagens"} indent={indent} onNavigate={onNavigate} />
+      <div className="px-3 pt-5 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Serviços</div>
+      <NavLink to="/correios" icon={Package} label="Correios" active={active === "correios"} indent={indent} onNavigate={onNavigate} />
       <NavLink to="/assistente" icon={MessageCircle} label="Assistente IA" active={false} indent={indent} onNavigate={onNavigate} />
     </>
   );
