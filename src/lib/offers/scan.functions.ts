@@ -28,8 +28,29 @@ function parseUrl(raw: string): URL {
   return url;
 }
 const inputSchema = z.object({ url: z.string().trim().min(10).max(2000)["url"](), pages: z.number().int().min(1).max(5).default(3) });
-const decode = (value: string) => value.replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&nbsp;/g, " ");
-const textOnly = (s: string) => decode(s.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim());
+const namedEntities: Record<string,string> = {
+  amp:"&", quot:'"', apos:"'", lt:"<", gt:">", nbsp:" ",
+  aacute:"á", agrave:"à", acirc:"â", atilde:"ã", auml:"ä",
+  eacute:"é", egrave:"è", ecirc:"ê", euml:"ë",
+  iacute:"í", igrave:"ì", icirc:"î",
+  oacute:"ó", ograve:"ò", ocirc:"ô", otilde:"õ", ouml:"ö",
+  uacute:"ú", ugrave:"ù", ucirc:"û", uuml:"ü",
+  ccedil:"ç", ntilde:"ñ", ordm:"º", ordf:"ª", ndash:"–", mdash:"—",
+  hellip:"…", rsquo:"’", lsquo:"‘", ldquo:"“", rdquo:"”",
+};
+function decode(value:string):string {
+  return value.replace(/&(#x[0-9a-f]+|#[0-9]+|[a-z][a-z0-9]+);/gi, (whole, code:string) => {
+    if(code[0]==="#") {
+      const hex=code[1]?.toLowerCase()==="x";
+      const n=parseInt(code.slice(hex?2:1),hex?16:10);
+      return n>0 && n<=0x10ffff && !(n>=0xd800 && n<=0xdfff) ? String.fromCodePoint(n) : whole;
+    }
+    const key=code.toLowerCase();
+    const mapped=namedEntities[key];
+    return mapped ? (code[0]===code[0]?.toUpperCase() && key!=="amp" ? mapped.toUpperCase():mapped) : whole;
+  });
+}
+const textOnly = (value: string) => decode(value.replace(/<[^>]*>/g," ").replace(/\s+/g," ").trim());
 function money(value: unknown): number {
   if (typeof value === "number") return Number.isFinite(value) ? value : NaN;
   if (typeof value !== "string") return NaN;
@@ -203,7 +224,11 @@ export const scanStoreOffers = createServerFn({ method: "POST" })
         if (/bloqueou|não retornou HTML|recusou|redirecionou|não disponibilizou/i.test(message)) break;
       }
     }
-    const results = [...offers.values()].sort((a,b) => (b.previous > 0 ? (b.previous-b["price"])/b.previous : 0) - (a.previous > 0 ? (a.previous-a["price"])/a.previous : 0));
-    return { source: root.origin, pagesScanned, pagesAttempted, failedPages, offers: results.slice(0, 200), notices, checkedAt: new Date().toISOString(),
+    const detected = [...offers.values()];
+    // A product without a reliable previous price is not a measurable discount.
+    const verifiedAdvertised = detected.filter(o => o.previous > o.price && o.price > 0);
+    verifiedAdvertised.sort((a,b) => ((b.previous-b.price)/b.previous)-((a.previous-a.price)/a.previous));
+    return { source: root.origin, pagesScanned, pagesAttempted, failedPages, productsDetected: detected.length,
+      skippedWithoutDiscount: detected.length-verifiedAdvertised.length, offers: verifiedAdvertised.slice(0,200), notices, checkedAt: new Date().toISOString(),
       note: "Somente produtos com dados estruturados públicos (JSON-LD). Descontos são anunciados, não verificados historicamente. Alguns sites não permitem acesso automático." };
   });
