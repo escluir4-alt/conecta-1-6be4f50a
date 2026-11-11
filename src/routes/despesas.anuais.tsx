@@ -90,9 +90,9 @@ function AnuaisPage() {
   const futureCardQuery = useQuery({queryKey:["card-installment-forecast",year],queryFn:()=>previewCardsFn({data:{year}}),enabled:!!user && cardProfilesAvailable && year>=new Date().getFullYear(),staleTime:300000});
   const q = useQuery({ queryKey: ["annual", year], queryFn: () => getFn({ data: { year } }), enabled: !!user });
   const savedRows = q.data?.rows ?? [];
-  const cardCreditors = savedRows.filter(r => r.expense_source === "card");
+  const cardCreditors = savedRows.filter((r: {id:string;creditor:string;expense_source?:string|null}) => r.expense_source === "card");
   const unlinkedCardCreditors = cardProfilesAvailable
-    ? cardCreditors.filter(r => !profiles.some(p => p.annual_expense_id === r.id)) : [];
+    ? cardCreditors.filter((r: {id:string;creditor:string}) => !profiles.some(p => p.annual_expense_id === r.id)) : [];
   const cardForecasts = futureCardQuery.data?.forecasts ?? [];
   // Credores vinculados aparecem na grade anual mesmo sem uma linha persistida neste exercício.
   // A previsão é uma sobreposição de leitura, nunca uma baixa nem uma fatura fechada.
@@ -178,7 +178,7 @@ function AnuaisPage() {
       if (result.linkedCards === 0) toast.warning("Nenhum cartão vinculado a Despesas Anuais. Use o lápis de cada credor para selecionar o cartão.");
       else if (result.errors.length) toast.warning(`Sincronização parcial: ${result.updated} atualizadas, ${result.unchanged} sem alteração, ${result.skipped} ignoradas. ${result.errors.length} erro(s): ${result.errors.join("; ").slice(0,350)}`);
       else toast.success(`Faturas: ${result.updated} atualizadas, ${result.unchanged} sem alteração, ${result.skipped} ignoradas.`);
-      if (unlinkedCardCreditors.length) toast.warning(`Sem vínculo Open Finance: ${unlinkedCardCreditors.map(r=>r.creditor).join(", ")}. Edite cada credor pelo lápis.`);
+      if (unlinkedCardCreditors.length) toast.warning(`Sem vínculo Open Finance: ${unlinkedCardCreditors.map((r: {creditor:string})=>r.creditor).join(", ")}. Edite cada credor pelo lápis.`);
       refresh();
     } catch(e) {
       toast.error(e instanceof Error ? e.message : "Falha ao sincronizar faturas.");
