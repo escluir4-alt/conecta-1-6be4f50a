@@ -66,14 +66,14 @@ function extractProducts(html: string, page: URL, store: string): FoundOffer[] {
       for (const rawOffer of offers) {
         if (!rawOffer || typeof rawOffer !== "object") continue;
         const offer = rawOffer as JsonValue;
-        const price = money(offer["price"] ?? offer["lowPrice"] ?? (offer["priceSpecification"] as JsonValue | undefined)?["price"]);
-        const currency = offer["priceCurrency"] ?? (offer["priceSpecification"] as JsonValue | undefined)?["priceCurrency"];
+        const price = money(offer["price"] ?? offer["lowPrice"] ?? (offer["priceSpecification"] as JsonValue | undefined)?.["price"]);
+        const currency = offer["priceCurrency"] ?? (offer["priceSpecification"] as JsonValue | undefined)?.["priceCurrency"];
         if (currency && currency !== "BRL") continue;
         if (!(price > 0 && price < 100000000)) continue;
         // Do not invent previous prices: priceSpecification may include a real "StrikethroughPrice".
         const specs = Array.isArray(offer["priceSpecification"]) ? offer["priceSpecification"] : offer["priceSpecification"] ? [offer["priceSpecification"]] : [];
         const strikethrough = specs.find(s => s && typeof s === "object" && /strikethrough|listprice|regularprice/i.test(String((s as JsonValue)["@type"] ?? ""))) as JsonValue | undefined;
-        const previous = money(strikethrough?["price"] ?? offer["highPrice"]);
+        const previous = money(strikethrough?.["price"] ?? offer["highPrice"]);
         let target = page.href;
         const candidate = typeof offer["url"] === "string" ? offer["url"] : typeof node["url"] === "string" ? node["url"] : null;
         if (candidate) {
