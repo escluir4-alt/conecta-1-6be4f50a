@@ -99,51 +99,68 @@ function pageLinks(html: string, source: URL, root: URL): URL[] {
   }
   return links;
 }
-async function fetchHtml(url: URL): Promise<string> {
+
+async function safeFetch(original: URL, headers: Record<string,string>, timeoutMs: number): Promise<{response: Response; finalUrl: URL}> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 9000);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let current = original;
   try {
-    // No automatic redirects: prevents a trusted public host from forwarding to private addresses.
-    const response = await fetch(url.href, { redirect: "manual", signal: controller.signal, headers: { "Accept": "text/html,application/xhtml+xml", "User-Agent": "AxionOffersBot/1.0 (respectful offers scanner)" } });
-    if (response.status >= 300 && response.status < 400) throw new Error("A loja redirecionou a página; informe o endereço final HTTPS.");
-    if (!response.ok) throw new Error("A loja recusou ou não disponibilizou a página (HTTP " + response.status + ").");
-    if (!(response.headers.get("content-type") ?? "").toLowerCase().includes("text/html")) throw new Error("O endereço não retornou uma página HTML.");
-    const length = Number(response.headers.get("content-length") || 0);
-    if (length > 1200000) throw new Error("Página grande demais para a varredura gratuita.");
-    const reader = response.body?.getReader();
-    if (!reader) throw new Error("Sem conteúdo HTML.");
-    let size = 0;
-    const parts: Uint8Array[] = [];
-    while (true) {
-      const chunk = await reader.read();
-      if (chunk.done) break;
-      size += chunk.value.byteLength;
-      if (size > 1200000) { await reader.cancel(); throw new Error("Página grande demais para a varredura gratuita."); }
-      parts.push(chunk.value);
+    for (let hop=0; hop<4; hop++) {
+      const response = await fetch(current.href, {redirect:"manual",signal:controller.signal,headers,cache:"no-store"});
+      if (response.status >= 300 && response.status < 400) {
+        const location = response.headers.get("location");
+        if (!location) throw new Error("Redirecionamento sem endereço.");
+        const next = parseUrl(new URL(location,current).href);
+        if (next.hostname.replace(/^www\./,"") !== original.hostname.replace(/^www\./,""))
+          throw new Error("Redirecionamento para outro domínio; informe o link final da loja.");
+        current=next;
+        await response.body?.cancel();
+        continue;
+      }
+      return {response,finalUrl:current};
     }
-    const merged = new Uint8Array(size); let offset = 0;
-    for (const part of parts) { merged.set(part, offset); offset += part.byteLength; }
-    return new TextDecoder().decode(merged);
+    throw new Error("A loja redirecionou a página muitas vezes.");
   } finally { clearTimeout(timer); }
 }
-async function permitted(url: URL): Promise<boolean> {
-  // Conservative policy: if robots.txt cannot be read, do not crawl beyond the user-provided page.
-  try {
-    const robots = new URL("/robots.txt", url.origin);
-    const response = await fetch(robots.href, { redirect: "manual", signal: AbortSignal.timeout(4500) });
-    if (!response.ok) return false;
-    const text = (await response.text()).slice(0, 150000);
-    const groups = text.split(/\n\s*\n/);
-    const relevant = groups.filter(block => /(?:^|\n)\s*User-agent:\s*(?:\*|AxionOffersBot)\s*(?:\n|$)/i.test(block));
-    const path = url.pathname;
-    for (const block of relevant) {
-      for (const m of block.matchAll(/^\s*Disallow:\s*(\S+)\s*$/gim)) {
-        const pattern = (m[1] ?? "").split("*")[0]?.replace(/\$/, "") ?? "";
-        if (pattern && path.startsWith(pattern)) return false;
-      }
-    }
-    return true;
-  } catch { return false; }
+async function fetchHtml(url:URL):Promise<{html:string;finalUrl:URL}> {
+  const {response,finalUrl}=await safeFetch(url,{"Accept":"text/html,application/xhtml+xml","User-Agent":"AxionOffersBot/1.0"},12000);
+  if ([403,429,503].includes(response.status)) throw new Error("A loja bloqueou a consulta automatizada (HTTP "+response.status+").");
+  if (!response.ok) throw new Error("A loja recusou a página (HTTP "+response.status+").");
+  if (!(response.headers.get("content-type") ?? "").toLowerCase().includes("text/html"))
+    throw new Error("O endereço não retornou HTML.");
+  if (Number(response.headers.get("content-length")||0)>1500000) throw new Error("Página muito grande.");
+  const reader=response.body?.getReader();
+  if (!reader) throw new Error("HTML indisponível.");
+  let size=0;const parts:Uint8Array[]=[];
+  while(true) {
+    const chunk=await reader.read();
+    if(chunk.done)break;
+    size+=chunk.value.byteLength;
+    if(size>1500000){await reader.cancel();throw new Error("Página maior que 1,5 MB.");}
+    parts.push(chunk.value);
+  }
+  const merged=new Uint8Array(size);let offset=0;
+  for(const part of parts){merged.set(part,offset);offset+=part.byteLength;}
+  return {html:new TextDecoder().decode(merged),finalUrl};
+}
+async function permitted(url:URL):Promise<boolean>{
+  try{
+    const robots=new URL("/robots.txt",url.origin);
+    const {response}=await safeFetch(robots,{"Accept":"text/plain","User-Agent":"AxionOffersBot/1.0"},5000);
+    if(response.status===404)return true;
+    if(!response.ok)return false;
+    const content=(await response.text()).slice(0,150000);
+    // Follow rules for this bot, otherwise wildcard group. Most specific path wins.
+    const groups=content.split(/\n\s*\n/);
+    const getRules=(name:string)=>groups.filter(g=>new RegExp("(?:^|\\n)\\s*User-agent:\\s*"+name+"\\s*(?:\\n|$)","i").test(g)).flatMap(g=>
+      [...g.matchAll(/^\s*(Allow|Disallow):\s*(\S*)/gim)].map(m=>({allow:m[1]?.toLowerCase()==="allow",path:m[2]??""}))
+    );
+    const rules=getRules("AxionOffersBot").length?getRules("AxionOffersBot"):getRules("\\*");
+    const path=url.pathname+url.search;
+    const matches=rules.filter(r=>r.path && path.startsWith(r.path.split("*")[0]??""))
+      .sort((a,b)=>b.path.length-a.path.length||Number(b.allow)-Number(a.allow));
+    return matches[0]?.allow??true;
+  }catch{return false;}
 }
 export const scanStoreOffers = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
@@ -164,13 +181,13 @@ export const scanStoreOffers = createServerFn({ method: "POST" })
         continue;
       }
       try {
-        const html = await fetchHtml(url);
+        const {html, finalUrl} = await fetchHtml(url);
         pagesScanned++;
-        for (const offer of extractProducts(html, url, root.hostname)) {
+        for (const offer of extractProducts(html, finalUrl, root.hostname)) {
           const prev = offers.get(offer.id);
           if (!prev || (offer.previous > offer["price"] && prev.previous <= prev["price"])) offers.set(offer.id, offer);
         }
-        for (const link of pageLinks(html, url, root)) {
+        for (const link of pageLinks(html, finalUrl, root)) {
           if (!seen.has(link.href) && !queue.some(x => x.href === link.href)) queue.push(link);
         }
       } catch (err) { notices.push(err instanceof Error ? err.message : "Erro ao consultar a loja."); }
