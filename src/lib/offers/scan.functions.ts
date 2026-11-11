@@ -175,7 +175,7 @@ export const scanStoreOffers = createServerFn({ method: "POST" })
         }
       } catch (err) { notices.push(err instanceof Error ? err.message : "Erro ao consultar a loja."); }
     }
-    const results = [..["offers"].values()].sort((a,b) => (b.previous > 0 ? (b.previous-b["price"])/b.previous : 0) - (a.previous > 0 ? (a.previous-a["price"])/a.previous : 0));
+    const results = [...offers.values()].sort((a,b) => (b.previous > 0 ? (b.previous-b["price"])/b.previous : 0) - (a.previous > 0 ? (a.previous-a["price"])/a.previous : 0));
     return { source: root.origin, pagesScanned, offers: results.slice(0, 200), notices, checkedAt: new Date().toISOString(),
       note: "Somente produtos com dados estruturados públicos (JSON-LD). Descontos são anunciados, não verificados historicamente. Alguns sites não permitem acesso automático." };
   });
