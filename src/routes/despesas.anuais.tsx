@@ -316,7 +316,7 @@ function AnuaisPage() {
         {unlinkedCardCreditors.length > 0 && (
           <p role="status" className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-foreground">
             <strong>Cartões sem vínculo Open Finance:</strong>{" "}
-            {unlinkedCardCreditors.map(r=>r.creditor).join(", ")}.
+            {unlinkedCardCreditors.map((r: {creditor:string})=>r.creditor).join(", ")}.
             Use o lápis do credor para escolher o cartão correto em Carteiras.
             Nenhum valor será substituído até existir um vínculo confirmado e uma fatura fechada.
           </p>
