@@ -25,7 +25,28 @@ export const Route = createFileRoute("/home-broker")({
 
 const MONTHS = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
 
-function Kpi({ label, value, emphasis, bar, ring }: { label: string; value: string; emphasis?: boolean; bar?: number | undefined; ring?: number | undefined }) {
+function Sparkline({values,label}: {values:number[];label:string}) {
+  const nums=values.map(v=>Number.isFinite(v)?Math.max(0,v):0);
+  if(!nums.length) return null;
+  const max=Math.max(...nums,1);
+  const coords=nums.map((v,i)=>({
+    x:nums.length===1?50:4+i*92/(nums.length-1),
+    y:27-23*v/max,
+  }));
+  const points=coords.map(p=>`${p.x},${p.y}`).join(" ");
+  return <svg viewBox="0 0 100 32" className="mt-3 h-9 w-full text-current opacity-75"
+    preserveAspectRatio="none" role="img" aria-label={`Evolução de ${label}`}>
+    <path d="M4 29 H96" fill="none" stroke="currentColor" strokeOpacity=".18" strokeWidth=".8" />
+    <polyline points={points} fill="none" stroke="currentColor" strokeWidth="1.7"
+      strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+    {coords.length===1 && <circle cx={coords[0]!.x} cy={coords[0]!.y} r="2" fill="currentColor" />}
+  </svg>;
+}
+
+function Kpi({ label, value, emphasis, bar, ring, trend }: {
+  label: string; value: string; emphasis?: boolean; bar?: number | undefined;
+  ring?: number | undefined; trend?: number[] | undefined;
+}) {
   return <div className={`axion-kpi rounded-2xl border p-3 ${emphasis ? "axion-kpi-featured bg-primary text-primary-foreground" : "bg-card"}`}>
     <div className="flex items-start justify-between gap-3">
       <div className="min-w-0">
@@ -35,6 +56,7 @@ function Kpi({ label, value, emphasis, bar, ring }: { label: string; value: stri
       {ring != null && <MicroRing value={ring} />}
     </div>
     {bar != null && <MicroBar value={bar} tone={emphasis ? "light" : "gold"} />}
+    {trend && <Sparkline values={trend} label={label} />}
   </div>;
 }
 
@@ -163,6 +185,8 @@ function HomeBroker() {
   const debtOpen = annualDebt.data?.open ?? 0;
   const pct = annualDebt.data?.pct ?? 0;
   const consumption = annualDebt.data?.consumption;
+  const debtYears = annualDebt.data?.yearly ?? [];
+  const consumptionMonths = annualDebt.data?.consumptionTrend ?? [];
   const paidCount = bills.filter(b => b.expected_cents > 0 && (b.paid_cents ?? 0) >= b.expected_cents).length;
   const incomePaidCount = incomes.filter(entry => entry.expected_cents > 0 && (entry.received_cents ?? 0) >= entry.expected_cents).length;
   const incomePct = incomeExpected > 0 ? Math.min(100, Math.round(incomeReceived / incomeExpected * 100)) : 0;
@@ -203,21 +227,21 @@ function HomeBroker() {
           <CalendarDays className="size-5 text-primary" />
           <h2 className="text-xl font-bold">Resumo Anual</h2>
           <span className="rounded-full bg-primary px-3 py-1 text-xs font-semibold text-primary-foreground">
-            Exercício: {annualDebt.data?.year ?? currentExercise} (ano vigente)
+            Compromissos ativos: {annualDebt.data?.year ?? currentExercise} em diante
           </span>
         </div>
         <div className="grid gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
           <div className="min-w-0">
             <div className="mb-2 flex flex-wrap items-center gap-2">
               <CircleDollarSign className="size-4 text-primary" />
-              <h3 className="font-bold">Dívidas do Exercício</h3>
-              <span className="text-xs text-muted-foreground">Somente lançamentos das Despesas Anuais</span>
+              <h3 className="font-bold">Dívidas ativas — todos os exercícios</h3>
+              <span className="text-xs text-muted-foreground">Somente compromissos em aberto de credores atuais, excluindo quitados e arquivados</span>
             </div>
             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-              <Kpi label="Total das dívidas" value={financialReady ? formatBRL(debtTotal) : "—"} emphasis bar={financialReady ? 100 - pct : undefined} />
-              <Kpi label="Total já pago" value={financialReady ? formatBRL(debtPaid) : "—"} bar={financialReady ? pct : undefined} />
-              <Kpi label="Saldo devedor" value={financialReady ? formatBRL(debtOpen) : "—"} bar={financialReady ? 100 - pct : undefined} />
-              <Kpi label="% quitado" value={financialReady ? `${pct}%` : "—"} ring={financialReady ? pct : undefined} />
+              <Kpi label="Total das dívidas" value={financialReady ? formatBRL(debtTotal) : "—"} emphasis bar={financialReady ? 100 - pct : undefined} trend={financialReady ? debtYears.map(x=>x.expected) : undefined} />
+              <Kpi label="Total já pago" value={financialReady ? formatBRL(debtPaid) : "—"} bar={financialReady ? pct : undefined} trend={financialReady ? debtYears.map(x=>x.paid) : undefined} />
+              <Kpi label="Saldo devedor" value={financialReady ? formatBRL(debtOpen) : "—"} bar={financialReady ? 100 - pct : undefined} trend={financialReady ? debtYears.map(x=>x.open) : undefined} />
+              <Kpi label="% quitado" value={financialReady ? `${pct}%` : "—"} ring={financialReady ? pct : undefined} trend={financialReady ? debtYears.map(x=>x.expected>0 ? x.paid/x.expected*100 : 0) : undefined} />
             </div>
           </div>
           <div className="min-w-0">
@@ -227,8 +251,8 @@ function HomeBroker() {
               <span className="text-xs text-muted-foreground">Água, luz, internet, gás e outros</span>
             </div>
             <div className="grid gap-2 sm:grid-cols-2">
-              <Kpi label="Consumo apurado" value={consumptionReady ? formatBRL(consumption?.apurado ?? 0) : "—"} />
-              <Kpi label="Consumo pago" value={consumptionReady ? formatBRL(consumption?.pago ?? 0) : "—"} />
+              <Kpi label="Consumo apurado" value={consumptionReady ? formatBRL(consumption?.apurado ?? 0) : "—"} trend={consumptionReady ? consumptionMonths.map(x=>x.apurado) : undefined} />
+              <Kpi label="Consumo pago" value={consumptionReady ? formatBRL(consumption?.pago ?? 0) : "—"} trend={consumptionReady ? consumptionMonths.map(x=>x.pago) : undefined} />
             </div>
           </div>
         </div>

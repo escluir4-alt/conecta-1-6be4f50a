@@ -1,4 +1,4 @@
-import { consolidateAnnualDashboard, summarizeConsumptionForPeriod } from "@/lib/finance/annual-dashboard";
+import { consolidateAnnualDashboard, consolidateOpenCommitments, summarizeConsumptionForPeriod } from "@/lib/finance/annual-dashboard";
 import { extendFixedConsumptionsForNewContract } from "@/lib/finance/annual-projections.functions";
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
@@ -802,7 +802,7 @@ export const getAnnualDebtTotals = createServerFn({ method: "GET" })
     let migrationRequired = false;
     for (let start = 0; ; start += 1000) {
       const { data, error } = await supabase.from("annual_expenses")
-        .select("id,year,expense_kind,source_contract_id").eq("user_id", userId).eq("year", year)
+        .select("id,year,creditor,expense_kind,source_contract_id").eq("user_id", userId).gte("year", year)
         .range(start, start + 999);
       if(error) {
         // O app segue consultável enquanto a migração SQL aguarda aplicação.
@@ -811,7 +811,7 @@ export const getAnnualDebtTotals = createServerFn({ method: "GET" })
           throw new Error("Falha ao consultar Despesas Anuais: "+error.message);
         migrationRequired = true;
         const {data:legacy,error:legacyError}=await supabase.from("annual_expenses")
-          .select("id,year").eq("user_id",userId).eq("year",year).range(start,start+999);
+          .select("id,year,creditor").eq("user_id",userId).gte("year",year).range(start,start+999);
         if(legacyError) throw new Error("Falha ao consultar Despesas Anuais: "+legacyError.message);
         rows.push(...(legacy ?? []).map((x:any)=>({...x,expense_kind:"debt",source_contract_id:null})));
         if((legacy??[]).length < 1000) break;
@@ -821,6 +821,14 @@ export const getAnnualDebtTotals = createServerFn({ method: "GET" })
       }
     }
 
+    const {data: archivedYearRows, error: archivedYearsError} = await supabase.from("annual_years")
+      .select("year").eq("user_id",userId).not("archived_at","is",null);
+    if(archivedYearsError) throw new Error("Falha ao consultar exercícios arquivados: "+archivedYearsError.message);
+    const {data: archivedContractRows, error: archivedContractsError} = await supabase.from("installment_contracts")
+      .select("id").eq("user_id",userId).not("archived_at","is",null);
+    if(archivedContractsError) throw new Error("Falha ao consultar contratos arquivados: "+archivedContractsError.message);
+    const archivedYears = (archivedYearRows??[]).map((r:any)=>Number(r.year));
+    const archivedContracts = (archivedContractRows??[]).map((r:any)=>String(r.id));
     const cells: any[] = [];
     const payments: any[] = [];
     const ids = rows.map(row => row.id as string);
@@ -856,7 +864,7 @@ export const getAnnualDebtTotals = createServerFn({ method: "GET" })
         const {data,error}=await supabase.from("installment_entries")
           .select("contract_id,due_date,paid_date,paid_cents")
           .eq("user_id",userId).in("contract_id",chunk)
-          .gte("due_date",`${year}-01-01`).lt("due_date",`${year+1}-01-01`)
+          .gte("due_date",`${year}-01-01`)
           .range(from,from+999);
         if(error) throw new Error("Falha ao verificar pagamentos de contratos: "+error.message);
         installments.push(...(data??[]));
@@ -868,15 +876,24 @@ export const getAnnualDebtTotals = createServerFn({ method: "GET" })
       for(const inst of installments) {
         if(inst.contract_id !== row.source_contract_id || !inst.paid_date) continue;
         const month=Number(inst.due_date.slice(5,7));
-        months.set(month,(months.get(month)??0)+Math.max(0,Number(inst.paid_cents)||0));
+        const dueYear=Number(inst.due_date.slice(0,4));
+        const periodKey=dueYear*100+month;
+        months.set(periodKey,(months.get(periodKey)??0)+Math.max(0,Number(inst.paid_cents)||0));
       }
-      for(const [month,paidCents] of months){
-        payments.push({source_annual_id:row.id,source_period:`${year}-${String(month).padStart(2,"0")}`,
+      for(const [periodKey,paidCents] of months){
+        const dueYear=Math.floor(periodKey/100);
+        if(dueYear!==row.year) continue;
+        const month=periodKey%100;
+        payments.push({source_annual_id:row.id,source_period:`${dueYear}-${String(month).padStart(2,"0")}`,
           paid_cents:paidCents,paid_date:`${year}-${String(month).padStart(2,"0")}-01`});
       }
     }
-    const totals=consolidateAnnualDashboard({ year, currentMonth, rows, cells, payments });
-    return {...totals,migrationRequired};
+    const currentRows = rows.filter(r => r.year === year);
+    const totals=consolidateAnnualDashboard({ year, currentMonth, rows:currentRows, cells, payments });
+    const openCommitments=consolidateOpenCommitments({
+      currentYear:year,rows,cells,payments,archivedYears,archivedContracts,
+    });
+    return {...totals,...openCommitments,migrationRequired};
   });
 
 

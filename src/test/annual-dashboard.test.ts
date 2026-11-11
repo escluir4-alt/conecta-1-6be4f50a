@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { consolidateAnnualDashboard, summarizeConsumptionForPeriod } from "@/lib/finance/annual-dashboard";
+import { consolidateAnnualDashboard, consolidateOpenCommitments, summarizeConsumptionForPeriod } from "@/lib/finance/annual-dashboard";
 
 const row = (id: string, year: number, expense_kind: "debt" | "consumption" = "debt") =>
   ({ id, year, expense_kind });
@@ -119,5 +119,43 @@ describe("Consumo do mês selecionado — Despesas Anuais", () => {
     expect(() => summarizeConsumptionForPeriod({
       rows, cells: [data.cells[0]!, data.cells[0]!],
     })).toThrow(/duplicada/);
+  });
+});
+
+describe("Índices de compromissos ativos — todos os anos", () => {
+  const rows = [
+    {id:"a26",year:2026,creditor:"Empréstimo A",source_contract_id:"contract-a",expense_kind:"debt" as const},
+    {id:"a27",year:2027,creditor:"Empréstimo A",source_contract_id:"contract-a",expense_kind:"debt" as const},
+    {id:"b26",year:2026,creditor:"Contrato B",source_contract_id:"contract-b",expense_kind:"debt" as const},
+    {id:"c26",year:2026,creditor:"Contrato C",source_contract_id:"contract-c",expense_kind:"debt" as const},
+    {id:"d26",year:2026,creditor:"CAESB",expense_kind:"consumption" as const},
+    {id:"old",year:2025,creditor:"Empréstimo A",source_contract_id:"contract-a",expense_kind:"debt" as const},
+  ];
+  const cells = [
+    cell("a26",11,10000),cell("a27",1,20000),
+    cell("b26",11,10000),cell("c26",11,9000),
+    cell("d26",11,3000),cell("old",11,100000),
+  ];
+  const payments = [
+    payment("a26","2026-11",5000),payment("b26","2026-11",10000),
+    payment("c26","2026-11",1000),payment("old","2025-11",100000),
+  ];
+  it("soma 2026 e 2027, exclui quitado, consumo e exercício anterior", () => {
+    const result=consolidateOpenCommitments({currentYear:2026,rows,cells,payments});
+    expect(result).toMatchObject({expected:39000,paid:6000,open:33000,active:2,pct:15});
+    expect(result.yearly.map(x=>x.year)).toEqual([2026,2027]);
+  });
+  it("não inclui contratos arquivados nem anos arquivados", () => {
+    const result=consolidateOpenCommitments({
+      currentYear:2026,rows,cells,payments,
+      archivedContracts:["contract-c"],archivedYears:[2027],
+    });
+    expect(result).toMatchObject({expected:10000,paid:5000,open:5000,active:1});
+  });
+  it("zera TODOS os índices quando só restam obrigações quitadas", () => {
+    const result=consolidateOpenCommitments({
+      currentYear:2026,rows:[rows[2]!],cells:[cells[2]!],payments:[payments[1]!],
+    });
+    expect(result).toMatchObject({expected:0,paid:0,open:0,pct:0,active:0,yearly:[]});
   });
 });
