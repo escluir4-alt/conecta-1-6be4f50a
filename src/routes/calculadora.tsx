@@ -4,6 +4,7 @@ import type { KeyboardEvent } from "react";
 import { evaluate } from "@/lib/expr";
 import { AppShell, useRequireUser } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
+import { Trash2 } from "lucide-react";
 
 export const Route = createFileRoute("/calculadora")({
   head: () => ({ meta: [{ title: "Calculadora — Axion" }] }),
@@ -120,7 +121,27 @@ function CalculatorPage() {
             <Button size="sm" variant="ghost" onClick={() => save([])}>Limpar histórico</Button>
           </div>
           {history.length === 0 && <p className="text-sm text-muted-foreground">Nenhum cálculo registrado.</p>}
-          {history.map((entry, i) => <button key={i} onClick={() => { setExpression(entry.split(" = ")[1] ?? ""); setError(""); inputRef.current?.focus(); }} className="block w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-muted">{entry}</button>)}
+          {history.map((entry, i) => (
+            <div key={i} className="group flex items-center gap-1 rounded-lg transition-colors hover:bg-muted focus-within:bg-muted">
+              <button
+                type="button"
+                onClick={() => { setExpression(entry.split(" = ")[1] ?? ""); setError(""); inputRef.current?.focus(); }}
+                className="min-w-0 flex-1 break-all rounded-lg px-3 py-2 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+                title="Reutilizar resultado"
+              >
+                {entry}
+              </button>
+              <button
+                type="button"
+                aria-label={`Excluir cálculo: ${entry}`}
+                title="Excluir este cálculo"
+                onClick={() => save(history.filter((_, index) => index !== i))}
+                className="mr-2 shrink-0 rounded-md p-2 text-muted-foreground transition-all hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/50 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:group-focus-within:opacity-100"
+              >
+                <Trash2 className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </div>
+          ))}
           <p className="mt-4 text-xs text-muted-foreground">Histórico armazenado neste navegador, sem alterar dados financeiros.</p>
         </section>
       </div>
