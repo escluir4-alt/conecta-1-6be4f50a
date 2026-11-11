@@ -27,7 +27,7 @@ function parseUrl(raw: string): URL {
   url.hash = "";
   return url;
 }
-const inputSchema = z.object({ url: z.string().trim().min(10).max(2000).url(), pages: z.number().int().min(1).max(5).default(3) });
+const inputSchema = z.object({ url: z.string().trim().min(10).max(2000)["url"](), pages: z.number().int().min(1).max(5).default(3) });
 const decode = (value: string) => value.replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&nbsp;/g, " ");
 const textOnly = (s: string) => decode(s.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim());
 function money(value: unknown): number {
@@ -57,29 +57,29 @@ function extractProducts(html: string, page: URL, store: string): FoundOffer[] {
   const blocks = html.matchAll(/<script\b[^>]*type\s*=\s*["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script\s*>/gi);
   for (const match of blocks) {
     let json: unknown;
-    try { json = JSON.parse(match[1].replace(/<!--|-->/g, "").trim()); } catch { continue; }
+    try { json = JSON.parse((match[1] ?? "").replace(/<!--|-->/g, "").trim()); } catch { continue; }
     for (const node of objects(json)) {
       if (!types(node)) continue;
-      const title = typeof node.name === "string" ? textOnly(node.name).slice(0, 240) : "";
+      const title = typeof node["name"] === "string" ? textOnly(node["name"]).slice(0, 240) : "";
       if (!title) continue;
-      const offers = Array.isArray(node.offers) ? node.offers : node.offers ? [node.offers] : [];
+      const offers = Array.isArray(node["offers"]) ? node["offers"] : node["offers"] ? [node["offers"]] : [];
       for (const rawOffer of offers) {
         if (!rawOffer || typeof rawOffer !== "object") continue;
         const offer = rawOffer as JsonValue;
-        const price = money(offer.price ?? offer.lowPrice ?? (offer.priceSpecification as JsonValue | undefined)?.price);
-        const currency = offer.priceCurrency ?? (offer.priceSpecification as JsonValue | undefined)?.priceCurrency;
+        const price = money(offer["price"] ?? offer["lowPrice"] ?? (offer["priceSpecification"] as JsonValue | undefined)?["price"]);
+        const currency = offer["priceCurrency"] ?? (offer["priceSpecification"] as JsonValue | undefined)?["priceCurrency"];
         if (currency && currency !== "BRL") continue;
         if (!(price > 0 && price < 100000000)) continue;
         // Do not invent previous prices: priceSpecification may include a real "StrikethroughPrice".
-        const specs = Array.isArray(offer.priceSpecification) ? offer.priceSpecification : offer.priceSpecification ? [offer.priceSpecification] : [];
+        const specs = Array.isArray(offer["priceSpecification"]) ? offer["priceSpecification"] : offer["priceSpecification"] ? [offer["priceSpecification"]] : [];
         const strikethrough = specs.find(s => s && typeof s === "object" && /strikethrough|listprice|regularprice/i.test(String((s as JsonValue)["@type"] ?? ""))) as JsonValue | undefined;
-        const previous = money(strikethrough?.price ?? offer.highPrice);
+        const previous = money(strikethrough?["price"] ?? offer["highPrice"]);
         let target = page.href;
-        const candidate = typeof offer.url === "string" ? offer.url : typeof node.url === "string" ? node.url : null;
+        const candidate = typeof offer["url"] === "string" ? offer["url"] : typeof node["url"] === "string" ? node["url"] : null;
         if (candidate) {
           try { const parsed = new URL(candidate, page); if (parsed.protocol === "https:" && allowed(parsed.hostname)) target = parsed.href; } catch { /* keep page URL */ }
         }
-        found.push({ id: target + "::" + title, title, store, category: typeof node.category === "string" ? node.category.slice(0, 60) : "Geral", price, previous: previous > price ? previous : 0, shipping: 0, coupon: 0, cashback: 0, url: target, reference: "anunciado", checkedAt: new Date().toISOString() });
+        found.push({ id: target + "::" + title, title, store, category: typeof node["category"] === "string" ? node["category"].slice(0, 60) : "Geral", price, previous: previous > price ? previous : 0, shipping: 0, coupon: 0, cashback: 0, url: target, reference: "anunciado", checkedAt: new Date().toISOString() });
       }
     }
   }
@@ -90,7 +90,7 @@ function pageLinks(html: string, source: URL, root: URL): URL[] {
   const pattern = /<a\b[^>]*href\s*=\s*["']([^"'<>]{1,600})["'][^>]*>/gi;
   for (const m of html.matchAll(pattern)) {
     let link: URL;
-    try { link = parseUrl(new URL(decode(m[1]), source).href); } catch { continue; }
+    try { link = parseUrl(new URL(decode(m[1] ?? ""), source).href); } catch { continue; }
     if (link.hostname !== root.hostname || link.pathname === source.pathname && link.search === source.search) continue;
     if (!/(ofertas|promo|descont|sale|black-friday|\bpage\b|pagina|\/p\d+|[?&]page=)/i.test(link.pathname + link.search)) continue;
     if (/login|checkout|cart|conta|account|pedido/i.test(link.pathname)) continue;
@@ -138,7 +138,7 @@ async function permitted(url: URL): Promise<boolean> {
     const path = url.pathname;
     for (const block of relevant) {
       for (const m of block.matchAll(/^\s*Disallow:\s*(\S+)\s*$/gim)) {
-        const pattern = m[1].split("*")[0].replace(/\$$/, "");
+        const pattern = (m[1] ?? "").split("*")[0]?.replace(/\$/, "") ?? "";
         if (pattern && path.startsWith(pattern)) return false;
       }
     }
@@ -149,7 +149,7 @@ export const scanStoreOffers = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator(inputSchema)
   .handler(async ({ data }) => {
-    const root = parseUrl(data.url);
+    const root = parseUrl(data["url"]);
     const seen = new Set<string>();
     const queue = [root];
     const offers = new Map<string, FoundOffer>();
@@ -168,14 +168,14 @@ export const scanStoreOffers = createServerFn({ method: "POST" })
         pagesScanned++;
         for (const offer of extractProducts(html, url, root.hostname)) {
           const prev = offers.get(offer.id);
-          if (!prev || (offer.previous > offer.price && prev.previous <= prev.price)) offers.set(offer.id, offer);
+          if (!prev || (offer.previous > offer["price"] && prev.previous <= prev["price"])) offers.set(offer.id, offer);
         }
         for (const link of pageLinks(html, url, root)) {
           if (!seen.has(link.href) && !queue.some(x => x.href === link.href)) queue.push(link);
         }
       } catch (err) { notices.push(err instanceof Error ? err.message : "Erro ao consultar a loja."); }
     }
-    const results = [...offers.values()].sort((a,b) => (b.previous > 0 ? (b.previous-b.price)/b.previous : 0) - (a.previous > 0 ? (a.previous-a.price)/a.previous : 0));
+    const results = [..["offers"].values()].sort((a,b) => (b.previous > 0 ? (b.previous-b["price"])/b.previous : 0) - (a.previous > 0 ? (a.previous-a["price"])/a.previous : 0));
     return { source: root.origin, pagesScanned, offers: results.slice(0, 200), notices, checkedAt: new Date().toISOString(),
       note: "Somente produtos com dados estruturados públicos (JSON-LD). Descontos são anunciados, não verificados historicamente. Alguns sites não permitem acesso automático." };
   });
