@@ -28,7 +28,7 @@ export type FiscalNote = {
 const civilDate = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
 function validDate(date: string): boolean {
   if (!civilDate.test(date)) return false;
-  const [y,m,d] = date.split("-").map(Number);
+  const [y = 0, m = 0, d = 0] = date.split("-").map(Number);
   const actual = new Date(Date.UTC(y,m-1,d));
   return actual.getUTCFullYear() === y && actual.getUTCMonth() === m-1 && actual.getUTCDate() === d;
 }
