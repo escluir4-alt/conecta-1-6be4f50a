@@ -91,10 +91,11 @@ export const syncProviderClosedCardInvoices = createServerFn({ method: "POST" })
       if (isMissingCardProfileTable(profilesError)) throw new Error(CARD_PROFILES_MIGRATION_MESSAGE);
       throw new Error(profilesError.message);
     }
-    let updated = 0, unchanged = 0, skipped = 0;
+    let updated = 0, unchanged = 0, skipped = 0, linkedCards = 0;
     const errors: string[] = [];
     const today = new Date().toISOString().slice(0, 10);
     for (const profile of profiles ?? []) {
+      linkedCards++;
       try {
         const providerBills = await fetchAuthorizedCardBills(supabase, userId, profile.account_id);
         for (const bill of providerBills) {
@@ -122,7 +123,7 @@ export const syncProviderClosedCardInvoices = createServerFn({ method: "POST" })
         errors.push(e instanceof Error ? e.message : "Falha de conexão com o provedor.");
       }
     }
-    return { updated, unchanged, skipped, errors };
+    return { updated, unchanged, skipped, errors, linkedCards };
   });
 
 /** Correspondências confirmadas (por ID técnico e competência) para abater dupla contagem. */
