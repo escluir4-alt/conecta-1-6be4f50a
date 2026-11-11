@@ -102,7 +102,7 @@ function AnuaisPage() {
   const virtualCardRows = [...forecastByAccount.entries()]
     .filter(([accountId]) => !savedRows.some((r:any)=>profiles.some(p=>p.account_id===accountId && p.annual_expense_id===r.id)))
     .map(([accountId,items])=>({
-      id:`forecast:${accountId}:${year}`, creditor:items[0].creditor, creditor_original:items[0].creditor,
+      id:`forecast:${accountId}:${year}`, creditor:items[0]!.creditor, creditor_original:items[0]!.creditor,
       expense_source:"card", expense_kind:"debt", due_day:null, forecast_only:true, card_account_id:accountId
     }));
   const rows = [...savedRows,...virtualCardRows];
