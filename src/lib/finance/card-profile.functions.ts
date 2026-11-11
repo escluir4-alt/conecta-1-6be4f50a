@@ -162,7 +162,7 @@ export const previewFutureCardInstallments = createServerFn({method:"GET"})
       .eq("user_id",userId).in("id",ids.length?ids:["00000000-0000-0000-0000-000000000000"]);
     if(rowsError)throw new Error(rowsError.message);
     const byId=new Map((rows??[]).map((r:any)=>[r.id,r]));
-    const forecasts:Array<{accountId:string;creditor:string;month:number;expected_cents:number;installments:number}>=[];
+    const forecasts:Array<{accountId:string;annualExpenseId:string;creditor:string;month:number;expected_cents:number;installments:number}>=[];
     const warnings:string[]=[];
     for(const profile of profiles??[]){
       const row:any=byId.get(profile.annual_expense_id);
@@ -170,7 +170,7 @@ export const previewFutureCardInstallments = createServerFn({method:"GET"})
       try{
         const txs=await fetchAuthorizedCardInstallments(userId,profile.account_id);
         for(const item of projectCardInstallments(txs,data.year,data.year).filter(x=>x.year===data.year))
-          forecasts.push({accountId:profile.account_id,creditor:row.creditor,month:item.month,
+          forecasts.push({accountId:profile.account_id,annualExpenseId:profile.annual_expense_id,creditor:row.creditor,month:item.month,
             expected_cents:item.expected_cents,installments:item.installments});
       }catch(e){warnings.push(`${row.creditor}: ${e instanceof Error?e.message:"falha ao consultar parcelas"}`);}
     }
