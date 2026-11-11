@@ -4,7 +4,6 @@ import { useServerFn } from "@tanstack/react-start";
 import { axionStatus } from "@/lib/axion/axion.functions";
 import { useEffect, useState, type ReactNode } from "react";
 import {
-  CalendarCheck,
   LayoutDashboard,
   Clock3,
   Settings2,
@@ -136,7 +135,7 @@ function NavLink({
 }
 
 const DESPESAS_SUB = [
-  { to: "/despesas", id: "despesas", label: "Despesas do Mês", icon: CalendarCheck },
+
   { to: "/despesas/anuais", id: "anuais", label: "Despesas Anuais", icon: CalendarDays },
   { to: "/despesas/parceladas", id: "parceladas", label: "Despesas Parceladas", icon: Layers },
   { to: "/historico-pagamentos", id: "historico", label: "Histórico de Pagamentos", icon: History },
