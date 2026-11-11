@@ -51,6 +51,7 @@ function OfertasPage() {
     try {
       const result = await scan({ data: { url: storeUrl.trim(), pages: scanPages } });
       setScanResults(result.offers);
+      setCategory("Todas"); setMinDiscount(0); setOnlyFavorites(false); setSearch("");
       setScanInfo({ pagesScanned: result.pagesScanned, notices: result.notices, checkedAt: result.checkedAt, note: result.note });
     } catch (err) {
       setScanResults(null);
@@ -104,7 +105,7 @@ function OfertasPage() {
           <h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">Ofertas Inteligentes</h1>
           <p className="mt-2 max-w-2xl text-sm text-muted-foreground">Compare descontos, calcule a economia e acompanhe produtos sem sair do Axion.</p>
         </div>
-        <span className="inline-flex items-center gap-2 rounded-full border bg-card px-4 py-2 text-xs font-semibold"><ShieldCheck className="size-4 text-primary" /> Ambiente de demonstração</span>
+        <span className="inline-flex items-center gap-2 rounded-full border bg-card px-4 py-2 text-xs font-semibold"><ShieldCheck className="size-4 text-primary" /> {live ? "Varredura pública · valores não verificados" : "Ambiente de demonstração"}</span>
       </header>
       <section className="rounded-3xl border bg-card p-5 shadow-sm sm:p-6">
         <div className="flex items-center gap-2"><Search className="size-5 text-primary" /><h2 className="text-lg font-bold">Varredura por link da loja</h2></div>
@@ -156,7 +157,7 @@ function OfertasPage() {
                 <p className="text-xs text-muted-foreground">Preço de referência anunciado: <span className="line-through">{o.previous > 0 ? brl(o.previous) : "Não informado"}</span></p>
                 <p className="text-3xl font-extrabold tracking-tight">{brl(o.price)}</p>
                 <p className="text-sm font-semibold text-primary">{o.previous > 0 ? "Economia anunciada: " + brl(o.previous-o.price) : "Preço anterior não divulgado"}</p>
-                <div className="rounded-xl bg-muted/50 p-3 text-xs leading-6"><p>Frete: {o.shipping ? brl(o.shipping) : "Grátis"} · Cupom ilustrativo: {brl(o.coupon)}</p><p className="font-bold">Total calculado: {brl(finalPrice(o))}</p><p className="text-muted-foreground">Desconto histórico: não verificado</p></div>
+                <div className="rounded-xl bg-muted/50 p-3 text-xs leading-6"><p>Frete: {live ? "não informado" : o.shipping ? brl(o.shipping) : "Grátis"} · {live ? "Cupom: não informado" : "Cupom ilustrativo: " + brl(o.coupon)}</p><p className="font-bold">{live ? "Preço informado (frete não incluído): " + brl(o.price) : "Total calculado: " + brl(finalPrice(o))}</p><p className="text-muted-foreground">Desconto histórico: não verificado</p></div>
                 {alert ? <div className="flex items-center justify-between gap-2 rounded-xl border p-3 text-xs"><span><Bell className="mr-1 inline size-3.5" /> Meta salva: {brl(alert.target)}</span><button onClick={()=>save(favorites,alerts.filter(a=>a.id!==o.id))} aria-label="Excluir alerta"><Trash2 className="size-4" /></button></div> : null}
                 {editingAlert===o.id ? <form onSubmit={e=>{e.preventDefault();saveAlert(o.id)}} className="flex gap-2"><input aria-label="Preço alvo em reais" inputMode="decimal" className="min-w-0 flex-1 rounded-xl border bg-background px-3 py-2 text-sm" placeholder="Preço alvo R$" value={target} onChange={e=>setTarget(e.target.value)} /><button className="rounded-xl bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground">Salvar</button></form> : null}
                 <div className="mt-auto flex gap-2 pt-2"><button disabled={!ready} onClick={()=>{setEditingAlert(editingAlert===o.id?null:o.id);setTarget(alert?.target.toString() || "")}} className="flex flex-1 items-center justify-center gap-1 rounded-xl border px-3 py-2.5 text-xs font-semibold"><Bell className="size-4" /> Alerta de preço</button>{o.url ? <a href={o.url} target="_blank" rel="noopener noreferrer" className="flex flex-1 items-center justify-center gap-1 rounded-xl bg-primary px-3 py-2.5 text-xs font-semibold text-primary-foreground">Ver oferta <ExternalLink className="size-4" /></a> : <button disabled className="flex flex-1 items-center justify-center gap-1 rounded-xl bg-muted px-3 py-2.5 text-xs font-semibold text-muted-foreground">Exemplo ilustrativo</button>}</div>
