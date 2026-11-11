@@ -16,7 +16,6 @@ import { Route as AssistenteRouteImport } from './routes/assistente'
 import { Route as AuditoriaRouteImport } from './routes/auditoria'
 import { Route as CalculadoraRouteImport } from './routes/calculadora'
 import { Route as ComprasRouteImport } from './routes/compras'
-import { Route as OfertasRouteImport } from './routes/ofertas'
 import { Route as ContasAReceberRouteImport } from './routes/contas-a-receber'
 import { Route as CotacoesRouteImport } from './routes/cotacoes'
 import { Route as CrediarioRouteImport } from './routes/crediario'
@@ -73,11 +72,6 @@ const CalculadoraRoute = CalculadoraRouteImport.update({
 const ComprasRoute = ComprasRouteImport.update({
   id: '/compras',
   path: '/compras',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const OfertasRoute = OfertasRouteImport.update({
-  id: '/ofertas',
-  path: '/ofertas',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ContasAReceberRoute = ContasAReceberRouteImport.update({
@@ -201,7 +195,6 @@ export interface FileRoutesByFullPath {
   '/auditoria': typeof AuditoriaRoute
   '/calculadora': typeof CalculadoraRoute
   '/compras': typeof ComprasRoute
-  '/ofertas': typeof OfertasRoute
   '/contas-a-receber': typeof ContasAReceberRoute
   '/cotacoes': typeof CotacoesRoute
   '/crediario': typeof CrediarioRoute
@@ -233,7 +226,6 @@ export interface FileRoutesByTo {
   '/auditoria': typeof AuditoriaRoute
   '/calculadora': typeof CalculadoraRoute
   '/compras': typeof ComprasRoute
-  '/ofertas': typeof OfertasRoute
   '/contas-a-receber': typeof ContasAReceberRoute
   '/cotacoes': typeof CotacoesRoute
   '/crediario': typeof CrediarioRoute
@@ -266,7 +258,6 @@ export interface FileRoutesById {
   '/auditoria': typeof AuditoriaRoute
   '/calculadora': typeof CalculadoraRoute
   '/compras': typeof ComprasRoute
-  '/ofertas': typeof OfertasRoute
   '/contas-a-receber': typeof ContasAReceberRoute
   '/cotacoes': typeof CotacoesRoute
   '/crediario': typeof CrediarioRoute
@@ -300,7 +291,6 @@ export interface FileRouteTypes {
     | '/auditoria'
     | '/calculadora'
     | '/compras'
-    | '/ofertas'
     | '/contas-a-receber'
     | '/cotacoes'
     | '/crediario'
@@ -332,7 +322,6 @@ export interface FileRouteTypes {
     | '/auditoria'
     | '/calculadora'
     | '/compras'
-    | '/ofertas'
     | '/contas-a-receber'
     | '/cotacoes'
     | '/crediario'
@@ -364,7 +353,6 @@ export interface FileRouteTypes {
     | '/auditoria'
     | '/calculadora'
     | '/compras'
-    | '/ofertas'
     | '/contas-a-receber'
     | '/cotacoes'
     | '/crediario'
@@ -397,7 +385,6 @@ export interface RootRouteChildren {
   AuditoriaRoute: typeof AuditoriaRoute
   CalculadoraRoute: typeof CalculadoraRoute
   ComprasRoute: typeof ComprasRoute
-  OfertasRoute: typeof OfertasRoute
   ContasAReceberRoute: typeof ContasAReceberRoute
   CotacoesRoute: typeof CotacoesRoute
   CrediarioRoute: typeof CrediarioRoute
@@ -469,13 +456,6 @@ declare module '@tanstack/react-router' {
       path: '/compras'
       fullPath: '/compras'
       preLoaderRoute: typeof ComprasRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/ofertas': {
-      id: '/ofertas'
-      path: '/ofertas'
-      fullPath: '/ofertas'
-      preLoaderRoute: typeof OfertasRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/contas-a-receber': {
@@ -657,7 +637,6 @@ const rootRouteChildren: RootRouteChildren = {
   AuditoriaRoute: AuditoriaRoute,
   CalculadoraRoute: CalculadoraRoute,
   ComprasRoute: ComprasRoute,
-  OfertasRoute: OfertasRoute,
   ContasAReceberRoute: ContasAReceberRoute,
   CotacoesRoute: CotacoesRoute,
   CrediarioRoute: CrediarioRoute,
