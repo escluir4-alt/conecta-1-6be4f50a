@@ -172,13 +172,19 @@ export const scanStoreOffers = createServerFn({ method: "POST" })
     const offers = new Map<string, FoundOffer>();
     const notices: string[] = [];
     let pagesScanned = 0;
-    while (queue.length && pagesScanned < data.pages) {
+    let pagesAttempted = 0;
+    let failedPages = 0;
+    // Count attempts, not just successful pages. Abort repeated blocks.
+    while (queue.length && pagesAttempted < data.pages) {
       const url = queue.shift()!;
       if (seen.has(url.href)) continue;
       seen.add(url.href);
+      pagesAttempted++;
       if (!(await permitted(url))) {
-        notices.push("Varredura não autorizada ou regras robots.txt indisponíveis para " + url.pathname);
-        continue;
+        failedPages++;
+        if (!notices.includes("Consulta impedida pelas regras de acesso do site (robots.txt)."))
+          notices.push("Consulta impedida pelas regras de acesso do site (robots.txt).");
+        break;
       }
       try {
         const {html, finalUrl} = await fetchHtml(url);
@@ -190,9 +196,14 @@ export const scanStoreOffers = createServerFn({ method: "POST" })
         for (const link of pageLinks(html, finalUrl, root)) {
           if (!seen.has(link.href) && !queue.some(x => x.href === link.href)) queue.push(link);
         }
-      } catch (err) { notices.push(err instanceof Error ? err.message : "Erro ao consultar a loja."); }
+      } catch (err) {
+        failedPages++;
+        const message = err instanceof Error ? err.message : "Erro ao consultar a loja.";
+        if (!notices.includes(message)) notices.push(message);
+        if (/bloqueou|não retornou HTML|recusou|redirecionou|não disponibilizou/i.test(message)) break;
+      }
     }
     const results = [...offers.values()].sort((a,b) => (b.previous > 0 ? (b.previous-b["price"])/b.previous : 0) - (a.previous > 0 ? (a.previous-a["price"])/a.previous : 0));
-    return { source: root.origin, pagesScanned, offers: results.slice(0, 200), notices, checkedAt: new Date().toISOString(),
+    return { source: root.origin, pagesScanned, pagesAttempted, failedPages, offers: results.slice(0, 200), notices, checkedAt: new Date().toISOString(),
       note: "Somente produtos com dados estruturados públicos (JSON-LD). Descontos são anunciados, não verificados historicamente. Alguns sites não permitem acesso automático." };
   });
