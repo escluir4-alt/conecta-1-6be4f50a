@@ -90,6 +90,9 @@ function AnuaisPage() {
   const futureCardQuery = useQuery({queryKey:["card-installment-forecast",year],queryFn:()=>previewCardsFn({data:{year}}),enabled:!!user && cardProfilesAvailable && year>=new Date().getFullYear(),staleTime:300000});
   const q = useQuery({ queryKey: ["annual", year], queryFn: () => getFn({ data: { year } }), enabled: !!user });
   const savedRows = q.data?.rows ?? [];
+  const cardCreditors = savedRows.filter(r => r.expense_source === "card");
+  const unlinkedCardCreditors = cardProfilesAvailable
+    ? cardCreditors.filter(r => !profiles.some(p => p.annual_expense_id === r.id)) : [];
   const cardForecasts = futureCardQuery.data?.forecasts ?? [];
   // Credores vinculados aparecem na grade anual mesmo sem uma linha persistida neste exercício.
   // A previsão é uma sobreposição de leitura, nunca uma baixa nem uma fatura fechada.
@@ -172,8 +175,10 @@ function AnuaisPage() {
     setSyncingCards(true);
     try {
       const result = await syncCardsFn();
-      toast.success(`Faturas: ${result.updated} atualizadas, ${result.unchanged} sem alteração, ${result.skipped} ignoradas.`);
-      if (result.errors.length) toast.warning(result.errors.join("; ").slice(0,500));
+      if (result.linkedCards === 0) toast.warning("Nenhum cartão vinculado a Despesas Anuais. Use o lápis de cada credor para selecionar o cartão.");
+      else if (result.errors.length) toast.warning(`Sincronização parcial: ${result.updated} atualizadas, ${result.unchanged} sem alteração, ${result.skipped} ignoradas. ${result.errors.length} erro(s): ${result.errors.join("; ").slice(0,350)}`);
+      else toast.success(`Faturas: ${result.updated} atualizadas, ${result.unchanged} sem alteração, ${result.skipped} ignoradas.`);
+      if (unlinkedCardCreditors.length) toast.warning(`Sem vínculo Open Finance: ${unlinkedCardCreditors.map(r=>r.creditor).join(", ")}. Edite cada credor pelo lápis.`);
       refresh();
     } catch(e) {
       toast.error(e instanceof Error ? e.message : "Falha ao sincronizar faturas.");
@@ -308,6 +313,14 @@ function AnuaisPage() {
         </div>
 
         {q.error && <p role="alert" className="mt-3 rounded-lg border border-destructive/30 p-3 text-sm text-destructive">Falha ao carregar Despesas Anuais: {q.error.message}</p>}
+        {unlinkedCardCreditors.length > 0 && (
+          <p role="status" className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-foreground">
+            <strong>Cartões sem vínculo Open Finance:</strong>{" "}
+            {unlinkedCardCreditors.map(r=>r.creditor).join(", ")}.
+            Use o lápis do credor para escolher o cartão correto em Carteiras.
+            Nenhum valor será substituído até existir um vínculo confirmado e uma fatura fechada.
+          </p>
+        )}
         {cardProfileQuery.data?.available === false && (
           <p role="alert" className="mt-3 rounded-lg border border-amber-500/40 p-3 text-sm">
             Vínculos e sincronização de cartões temporariamente indisponíveis: falta a tabela
