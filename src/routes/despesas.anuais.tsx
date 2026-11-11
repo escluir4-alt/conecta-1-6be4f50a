@@ -346,6 +346,12 @@ function AnuaisPage() {
         </div>
 
         {futureCardQuery.error && <p role="alert" className="mt-3 text-sm text-destructive">Não foi possível consultar parcelas futuras dos cartões: {futureCardQuery.error.message}</p>}
+        {year > new Date().getFullYear() && futureCardQuery.isSuccess && linkedFutureCards.length > 0 && cardForecasts.length === 0 && (
+          <p role="status" className="mt-3 text-xs text-amber-700">
+            Os cartões vinculados estão listados, mas o Open Finance não forneceu parcelas futuras identificáveis para {year}.
+            Os meses sem informação permanecem vazios; não são faturas zeradas ou confirmadas.
+          </p>
+        )}
         {futureCardQuery.data?.warnings.map((warning,i)=><p role="alert" key={i} className="mt-2 text-xs text-amber-700">{warning}</p>)}
         <div className="mt-6 overflow-x-auto rounded-2xl border bg-card shadow-soft">
           <table className="w-full min-w-[1300px] text-sm">
