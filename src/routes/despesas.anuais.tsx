@@ -2,7 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { ArrowLeft, ArrowRight, Archive, ArchiveRestore, Plus, Trash2, Pencil, RefreshCcw } from "lucide-react";
+import { ArrowRight, Archive, ArchiveRestore, Plus, Trash2, Pencil, RefreshCcw } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell, useRequireUser } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
@@ -287,7 +287,7 @@ function AnuaisPage() {
             <h1 className="text-3xl font-extrabold">Despesas anuais</h1>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Link to="/despesas"><Button variant="outline"><ArrowLeft />Despesas do Mês</Button></Link>
+            <Link to="/home-broker"><Button variant="outline">Registro de pagamento <ArrowRight /></Button></Link>
             <Link to="/despesas/parceladas"><Button variant="brand">Contratos parcelados <ArrowRight /></Button></Link>
             <Link to="/historico-pagamentos"><Button variant="outline">Histórico de pagamentos</Button></Link>
           </div>
