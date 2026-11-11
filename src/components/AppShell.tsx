@@ -22,6 +22,7 @@ import {
   Menu,
   MessageCircle,
   Package,
+  BadgePercent,
   Shield,
   TrendingDown,
   TrendingUp,
@@ -53,6 +54,7 @@ export type AppPage =
   | "nuvem"
   | "calculadora"
   | "compras"
+  | "ofertas"
   | "notas"
   | "viagens"
   | "notas-fiscais"
@@ -171,6 +173,7 @@ export function AppShell({
       <NavLink to="/agenda" icon={CalendarDays} label="Agenda e calendário" active={active === "agenda"} indent={indent} onNavigate={onNavigate} />
       <NavLink to="/calculadora" icon={Calculator} label="Calculadora" active={active === "calculadora"} indent={indent} onNavigate={onNavigate} />
       <NavLink to="/compras" icon={ClipboardList} label="Lista de compras" active={active === "compras"} indent={indent} onNavigate={onNavigate} />
+      <NavLink to="/ofertas" icon={BadgePercent} label="Ofertas Inteligentes" active={active === "ofertas"} indent={indent} onNavigate={onNavigate} />
       <NavLink to="/notas-fiscais" icon={FolderArchive} label="Notas fiscais" active={active === "notas-fiscais"} indent={indent} onNavigate={onNavigate} />
       <NavLink to="/relogio" icon={Clock3} label="Relógio e alarmes" active={active === "relogio"} indent={indent} onNavigate={onNavigate} />
       <NavLink to="/viagens" icon={CarFront} label="Viagens" active={active === "viagens"} indent={indent} onNavigate={onNavigate} />
