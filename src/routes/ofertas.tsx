@@ -40,7 +40,7 @@ function OfertasPage() {
   const [scanPages, setScanPages] = useState(3);
   const [scanning, setScanning] = useState(false);
   const [scanResults, setScanResults] = useState<Offer[] | null>(null);
-  const [scanInfo, setScanInfo] = useState<{ pagesScanned: number; notices: string[]; checkedAt: string; note: string } | null>(null);
+  const [scanInfo, setScanInfo] = useState<{ pagesScanned: number; pagesAttempted: number; failedPages: number; notices: string[]; checkedAt: string; note: string } | null>(null);
   const [scanError, setScanError] = useState("");
   const offers = scanResults ?? demo;
   const live = scanResults !== null;
@@ -52,7 +52,7 @@ function OfertasPage() {
       const result = await scan({ data: { url: storeUrl.trim(), pages: scanPages } });
       setScanResults(result.offers);
       setCategory("Todas"); setMinDiscount(0); setOnlyFavorites(false); setSearch("");
-      setScanInfo({ pagesScanned: result.pagesScanned, notices: result.notices, checkedAt: result.checkedAt, note: result.note });
+      setScanInfo({ pagesScanned: result.pagesScanned, pagesAttempted: result.pagesAttempted, failedPages: result.failedPages, notices: result.notices, checkedAt: result.checkedAt, note: result.note });
     } catch (err) {
       setScanResults(null);
       setScanError(err instanceof Error ? err.message : "Não foi possível verificar o link.");
@@ -117,7 +117,7 @@ function OfertasPage() {
         </form>
         <p className="mt-3 text-xs text-muted-foreground">Lojas inicialmente habilitadas: Mercado Livre, Amazon Brasil, Magalu, Casas Bahia, KaBuM!, Shopee, Americanas, Carrefour, Extra, Ponto, Fast Shop, Renner, Netshoes e Centauro. Algumas podem bloquear a varredura ou carregar preços somente por JavaScript. Limite de 5 páginas por consulta, sem contornar bloqueios.</p>
         {scanError && <p role="alert" className="mt-3 rounded-xl border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{scanError}</p>}
-        {scanInfo && <div role="status" className="mt-4 space-y-2 rounded-xl border bg-muted/40 p-4 text-sm"><p className="font-semibold">{scanResults?.length ?? 0} produtos identificados · {scanInfo.pagesScanned} página(s) analisada(s)</p><p className="text-xs text-muted-foreground">{scanInfo.note} Consulta: {new Date(scanInfo.checkedAt).toLocaleString("pt-BR")}.</p>{scanInfo.notices.map((message,i)=><p className="text-xs text-amber-700" key={i}>{message}</p>)}{scanResults?.length===0 && <p className="text-xs">Nenhum produto com preço estruturado disponível foi encontrado. Isso não significa que a loja esteja sem ofertas.</p>}</div>}
+        {scanInfo && <div role="status" className="mt-4 space-y-2 rounded-xl border bg-muted/40 p-4 text-sm"><p className="font-semibold">{scanResults?.length ?? 0} produtos identificados · {scanInfo.pagesScanned} página(s) lida(s) de {scanInfo.pagesAttempted} tentativa(s)</p><p className="text-xs text-muted-foreground">{scanInfo.note} Consulta: {new Date(scanInfo.checkedAt).toLocaleString("pt-BR")}.</p>{scanInfo.notices.map((message,i)=><p className="text-xs text-amber-700" key={i}>{message}</p>)}{scanResults?.length===0 && <p className="text-xs">{scanInfo.failedPages > 0 ? "Esta loja não disponibilizou dados legíveis à varredura; isso não significa que esteja sem ofertas. A Amazon pode exigir uma integração oficial autorizada para listar produtos e descontos." : "As páginas acessíveis não apresentaram produtos com dados estruturados de preço. Isso não significa que a loja esteja sem ofertas."}</p>}</div>}
         {live && <button type="button" className="mt-3 rounded-xl border px-4 py-2 text-xs font-semibold" onClick={()=>{setScanResults(null);setScanInfo(null);setCategory("Todas");}}>Voltar à demonstração</button>}
       </section>
       {!live && <section role="status" className="rounded-2xl border border-amber-300/60 bg-amber-50 px-5 py-4 text-sm text-amber-950">
