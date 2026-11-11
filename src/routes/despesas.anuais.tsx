@@ -120,7 +120,7 @@ function AnuaisPage() {
     if (!monthsByRow.has(id)) monthsByRow.set(id,new Map());
     const cells = monthsByRow.get(id)!;
     // Valor oficial da competência tem precedência; jamais duplicar uma fatura fechada.
-    if (!cells.has(f.month) || cells.get(f.month)===null) cells.set(f.month,f.expected_cents);
+    if ((!cells.has(f.month) || cells.get(f.month)===null || cells.get(f.month)===0) && !(q.data?.paidMonths?.[id] ?? []).includes(f.month)) cells.set(f.month,f.expected_cents);
   }
   const monthTotals = Array.from({ length: 12 }, (_, i) =>
     rows.reduce((s: number, r: any) => s + (monthsByRow.get(r.id)?.get(i + 1) ?? 0), 0));
