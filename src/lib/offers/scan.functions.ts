@@ -92,10 +92,10 @@ function pageLinks(html: string, source: URL, root: URL): URL[] {
     let link: URL;
     try { link = parseUrl(new URL(decode(m[1] ?? ""), source).href); } catch { continue; }
     if (link.hostname !== root.hostname || link.pathname === source.pathname && link.search === source.search) continue;
-    if (!/(ofertas|promo|descont|sale|black-friday|\bpage\b|pagina|\/p\d+|[?&]page=)/i.test(link.pathname + link.search)) continue;
+    if (!/(ofertas|promo|descont|sale|black-friday|\bpage\b|pagina|\/p\d+|[?&]page=|\/dp\/|\/gp\/product\/|\/produto\/|\/product\/|\/p\/)/i.test(link.pathname + link.search)) continue;
     if (/login|checkout|cart|conta|account|pedido/i.test(link.pathname)) continue;
     links.push(link);
-    if (links.length >= 20) break;
+    if (links.length >= 30) break;
   }
   return links;
 }
