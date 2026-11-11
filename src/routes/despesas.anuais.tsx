@@ -17,7 +17,7 @@ import { getAnnualContractChoices, projectAnnualContract, projectFixedAnnualCons
 import { scheduleAnnualTax } from "@/lib/finance/annual-tax.functions";
 import { annualTaxSchedule } from "@/lib/finance/annual-tax";
 import { getFinances } from "@/lib/pluggy.functions";
-import { getFinanceAccountProfiles, saveFinanceAccountProfile, syncProviderClosedCardInvoices } from "@/lib/finance/card-profile.functions";
+import { getFinanceAccountProfiles, saveFinanceAccountProfile, syncProviderClosedCardInvoices, previewFutureCardInstallments } from "@/lib/finance/card-profile.functions";
 
 export const Route = createFileRoute("/despesas/anuais")({
   ssr: false,
@@ -74,6 +74,7 @@ function AnuaisPage() {
   const profileFn = useServerFn(getFinanceAccountProfiles);
   const saveProfileFn = useServerFn(saveFinanceAccountProfile);
   const syncCardsFn = useServerFn(syncProviderClosedCardInvoices);
+  const previewCardsFn = useServerFn(previewFutureCardInstallments);
   const projectContractFn = useServerFn(projectAnnualContract);
   const projectConsumptionFn = useServerFn(projectFixedAnnualConsumption);
   const scheduleTaxFn = useServerFn(scheduleAnnualTax);
@@ -85,13 +86,29 @@ function AnuaisPage() {
   const profiles: CardProfile[] = cardProfileQuery.data?.profiles ?? [];
   const cardProfilesAvailable = cardProfileQuery.data?.available === true;
 
-  const q = useQuery({ queryKey: ["annual", year], queryFn: () => getFn({ data: { year } }), enabled: !!user });
-  const rows = q.data?.rows ?? [];
-  const cardCreditors = rowsForCardStatus(q.data?.rows ?? []);
-  const unlinkedCardCreditors = cardProfilesAvailable
-    ? cardCreditors.filter(r => !profiles.some(p => p.annual_expense_id === r.id))
-    : [];
 
+  const futureCardQuery = useQuery({queryKey:["card-installment-forecast",year],queryFn:()=>previewCardsFn({data:{year}}),enabled:!!user && cardProfilesAvailable && year>=new Date().getFullYear(),staleTime:300000});
+  const q = useQuery({ queryKey: ["annual", year], queryFn: () => getFn({ data: { year } }), enabled: !!user });
+  const savedRows = q.data?.rows ?? [];
+  const cardCreditors = savedRows.filter(r => r.expense_source === "card");
+  const unlinkedCardCreditors = cardProfilesAvailable
+    ? cardCreditors.filter(r => !profiles.some(p => p.annual_expense_id === r.id)) : [];
+  const cardForecasts = futureCardQuery.data?.forecasts ?? [];
+  // Credores vinculados aparecem na grade anual mesmo sem uma linha persistida neste exercício.
+  // A previsão é uma sobreposição de leitura, nunca uma baixa nem uma fatura fechada.
+  const forecastByAccount = new Map<string,typeof cardForecasts>();
+  for (const f of cardForecasts) {
+    const list = forecastByAccount.get(f.accountId) ?? [];
+    list.push(f);
+    forecastByAccount.set(f.accountId,list);
+  }
+  const virtualCardRows = [...forecastByAccount.entries()]
+    .filter(([accountId]) => !savedRows.some((r:any)=>profiles.some(p=>p.account_id===accountId && p.annual_expense_id===r.id)))
+    .map(([accountId,items])=>({
+      id:`forecast:${accountId}:${year}`, creditor:items[0]!.creditor, creditor_original:items[0]!.creditor,
+      expense_source:"card", expense_kind:"debt", due_day:null, forecast_only:true, card_account_id:accountId
+    }));
+  const rows = [...savedRows,...virtualCardRows];
   const archived = !!q.data?.year?.archived_at;
   const stats = q.data?.stats ?? { paidCents: 0, paidExpected: 0 };
 
@@ -99,6 +116,14 @@ function AnuaisPage() {
   for (const mm of q.data?.months ?? []) {
     if (!monthsByRow.has(mm.annual_expense_id)) monthsByRow.set(mm.annual_expense_id, new Map());
     monthsByRow.get(mm.annual_expense_id)!.set(mm.month, mm.expected_cents);
+  }
+  for (const f of cardForecasts) {
+    const matching = profiles.find(p=>p.account_id===f.accountId);
+    const id = savedRows.some((r:any)=>r.id===matching?.annual_expense_id) ? matching!.annual_expense_id! : `forecast:${f.accountId}:${year}`;
+    if (!monthsByRow.has(id)) monthsByRow.set(id,new Map());
+    const cells = monthsByRow.get(id)!;
+    // Valor oficial da competência tem precedência; jamais duplicar uma fatura fechada.
+    if ((!cells.has(f.month) || cells.get(f.month)===null || cells.get(f.month)===0) && !(q.data?.paidMonths?.[id] ?? []).includes(f.month)) cells.set(f.month,f.expected_cents);
   }
   const monthTotals = Array.from({ length: 12 }, (_, i) =>
     rows.reduce((s: number, r: any) => s + (monthsByRow.get(r.id)?.get(i + 1) ?? 0), 0));
@@ -110,6 +135,7 @@ function AnuaisPage() {
     void qc.invalidateQueries({ queryKey: ["annual-debt-totals"] });
     void qc.invalidateQueries({ queryKey: ["annual-contract-choices"] });
     void qc.invalidateQueries({ queryKey: ["finance-profiles"] });
+    void qc.invalidateQueries({ queryKey: ["card-installment-forecast",year] });
   }
 
   async function commitCell() {
@@ -150,11 +176,8 @@ function AnuaisPage() {
     try {
       const result = await syncCardsFn();
       if (result.linkedCards === 0) toast.warning("Nenhum cartão vinculado a Despesas Anuais. Use o lápis de cada credor para selecionar o cartão.");
-      else if (result.errors.length) {
-        toast.warning(`Sincronização parcial: ${result.updated} atualizadas, ${result.unchanged} sem alteração, ${result.skipped} ignoradas. ${result.errors.length} erro(s): ${result.errors.join("; ").slice(0,350)}`);
-      } else {
-        toast.success(`Faturas: ${result.updated} atualizadas, ${result.unchanged} sem alteração, ${result.skipped} ignoradas.`);
-      }
+      else if (result.errors.length) toast.warning(`Sincronização parcial: ${result.updated} atualizadas, ${result.unchanged} sem alteração, ${result.skipped} ignoradas. ${result.errors.length} erro(s): ${result.errors.join("; ").slice(0,350)}`);
+      else toast.success(`Faturas: ${result.updated} atualizadas, ${result.unchanged} sem alteração, ${result.skipped} ignoradas.`);
       if (unlinkedCardCreditors.length) toast.warning(`Sem vínculo Open Finance: ${unlinkedCardCreditors.map(r=>r.creditor).join(", ")}. Edite cada credor pelo lápis.`);
       refresh();
     } catch(e) {
@@ -293,7 +316,7 @@ function AnuaisPage() {
         {unlinkedCardCreditors.length > 0 && (
           <p role="status" className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-foreground">
             <strong>Cartões sem vínculo Open Finance:</strong>{" "}
-            {unlinkedCardCreditors.map(r => r.creditor).join(", ")}.
+            {unlinkedCardCreditors.map(r=>r.creditor).join(", ")}.
             Use o lápis do credor para escolher o cartão correto em Carteiras.
             Nenhum valor será substituído até existir um vínculo confirmado e uma fatura fechada.
           </p>
@@ -319,10 +342,12 @@ function AnuaisPage() {
           <Summary label="Total geral previsto" value={formatBRL(grandTotal)} />
           <Summary label="Valor pago no ano" value={formatBRL(stats.paidCents)} tone="text-success" />
           <Summary label="A pagar no ano" value={formatBRL(aPagar)} tone={aPagar > 0 ? "text-destructive" : undefined} />
-          <Summary label="Despesas cadastradas" value={String(rows.length)} />
+          <Summary label="Despesas cadastradas" value={String(savedRows.length)} />
           <Summary label="Status do exercício" value={archived ? "Arquivo" : "Em andamento"} />
         </div>
 
+        {futureCardQuery.error && <p role="alert" className="mt-3 text-sm text-destructive">Não foi possível consultar parcelas futuras dos cartões: {futureCardQuery.error.message}</p>}
+        {futureCardQuery.data?.warnings.map((warning,i)=><p role="alert" key={i} className="mt-2 text-xs text-amber-700">{warning}</p>)}
         <div className="mt-6 overflow-x-auto rounded-2xl border bg-card shadow-soft">
           <table className="w-full min-w-[1300px] text-sm">
             <thead>
@@ -352,8 +377,9 @@ function AnuaisPage() {
                             ? r.expense_source : r.expense_kind === "consumption" ? "consumption" : "manual";
                           return <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">{sourceName(source,r.consumption_value_type,r.annual_tax_kind)}</span>;
                         })()}
+                        {r.forecast_only && <span className="text-[10px] text-muted-foreground">Previsão</span>}
                         <button type="button" aria-label={`Editar credor ${r.creditor}`} title="Classificar e ajustar credor"
-                          disabled={archived} className="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-primary disabled:opacity-40"
+                          disabled={archived || r.forecast_only} className="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-primary disabled:opacity-40"
                           onClick={() => {
                             const latest = Array.from({length:12},(_,i)=>cells?.get(12-i)??null).find(v=>v!==null && v>0);
                             const source:SourceKind = ["contract","card","consumption","annual_tax"].includes(r.expense_source)
@@ -384,7 +410,7 @@ function AnuaisPage() {
                           key={month}
                           className={`px-1 py-1 text-right ${paid.has(month) ? "bg-success-soft" : ""} ${archived ? "" : "cursor-pointer hover:bg-accent"}`}
                           onClick={() => {
-                            if (archived || editing) return;
+                            if (archived || editing || r.forecast_only) return;
                             setEditCell({ id: r.id, month, value: v ? (v / 100).toFixed(2).replace(".", ",") : "" });
                           }}
                         >
@@ -750,8 +776,4 @@ function AddCreditorDialog({
       </DialogFooter>
     </DialogContent>
   </Dialog>;
-}
-
-function rowsForCardStatus(rows: Array<{id:string;creditor:string;expense_source?:string|null}>) {
-  return rows.filter(row => row.expense_source === "card");
 }
