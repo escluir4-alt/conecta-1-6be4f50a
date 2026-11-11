@@ -165,9 +165,11 @@ export const previewFutureCardInstallments = createServerFn({method:"GET"})
     const byId=new Map((rows??[]).map((r:any)=>[r.id,r]));
     const forecasts:Array<{accountId:string;annualExpenseId:string;creditor:string;month:number;expected_cents:number;installments:number}>=[];
     const warnings:string[]=[];
+    const linkedCards:Array<{accountId:string;annualExpenseId:string;creditor:string}>=[];
     for(const profile of profiles??[]){
       const row:any=byId.get(profile.annual_expense_id);
       if(!row||row.expense_source!=="card")continue;
+      linkedCards.push({accountId:profile.account_id,annualExpenseId:profile.annual_expense_id,creditor:row.creditor});
       try{
         const txs=await fetchAuthorizedCardInstallments(userId,profile.account_id);
         for(const item of projectCardInstallments(txs,data.year,data.year).filter(x=>x.year===data.year))
@@ -175,6 +177,6 @@ export const previewFutureCardInstallments = createServerFn({method:"GET"})
             expected_cents:item.expected_cents,installments:item.installments});
       }catch(e){warnings.push(`${row.creditor}: ${e instanceof Error?e.message:"falha ao consultar parcelas"}`);}
     }
-    return {year:data.year,forecasts,warnings,
+    return {year:data.year,forecasts,linkedCards,warnings,
       note:"Previsão informativa de parcelas conhecidas, sujeita a revisão. Não substitui faturas fechadas nem lançamentos manuais."};
   });
