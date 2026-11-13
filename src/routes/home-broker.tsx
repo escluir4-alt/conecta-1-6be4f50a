@@ -3,13 +3,15 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { RefreshCw, ArrowUpRight, Lock, Unlock, CalendarDays, BadgeCheck } from "lucide-react";
+import { RefreshCw, ArrowUpRight, Lock, Unlock, CalendarDays, BadgeCheck, CheckCheck } from "lucide-react";
 import { AppShell, useRequireUser } from "@/components/AppShell";
 import { PayDialog, type PayTarget } from "@/components/finance/PayDialog";
 import { AttachmentButton } from "@/components/finance/AttachmentButton";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { expensePaymentAdjustment, formatAdjustmentPercent, formatBRL, formatDateBR } from "@/lib/finance/money";
-import { getMonthExpenses, getContracts, getAnnualDebtTotals, getConsumptionForPeriod, addManualBill, getCardLimitOverrides, saveCardLimitOverride, clearCardLimitOverride } from "@/lib/finance/finance.functions";
+import { getMonthExpenses, getContracts, getAnnualDebtTotals, getConsumptionForPeriod, addManualBill, previewBulkSettlement, confirmBulkSettlement, getCardLimitOverrides, saveCardLimitOverride, clearCardLimitOverride } from "@/lib/finance/finance.functions";
 import { getFinances } from "@/lib/pluggy.functions";
 import { getFinanceAccountProfiles } from "@/lib/finance/card-profile.functions";
 import { MicroBar, MicroRing } from "@/components/finance/MicroChart";
@@ -99,8 +101,18 @@ function HomeBroker() {
   const [oneOffAmount, setOneOffAmount] = useState("");
   const [oneOffDue, setOneOffDue] = useState(new Date().toISOString().slice(0, 10));
   const [oneOffSaving, setOneOffSaving] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkLoading, setBulkLoading] = useState(false);
+  const [bulkSaving, setBulkSaving] = useState(false);
+  const [bulkIncludePartial, setBulkIncludePartial] = useState(true);
+  const [bulkSummary, setBulkSummary] = useState<{
+    fullCount:number; partialCount:number; discountCents:number;
+    billCount:number; installmentCount:number;
+  } | null>(null);
   const period = `${year}-${String(month).padStart(2, "0")}`;
   const monthFn = useServerFn(getMonthExpenses);
+  const bulkPreviewFn = useServerFn(previewBulkSettlement);
+  const bulkConfirmFn = useServerFn(confirmBulkSettlement);
   const walletFn = useServerFn(getFinances);
   const contractsFn = useServerFn(getContracts);
   const annualDebtFn = useServerFn(getAnnualDebtTotals);
@@ -217,6 +229,32 @@ function HomeBroker() {
   )).length;
   const incomePaidCount = incomes.filter(entry => entry.expected_cents > 0 && (entry.received_cents ?? 0) >= entry.expected_cents).length;
   const incomePct = incomeExpected > 0 ? Math.min(100, Math.round(incomeReceived / incomeExpected * 100)) : 0;
+  const openBulkSettlement = async () => {
+    setBulkLoading(true);
+    try {
+      const info = await bulkPreviewFn();
+      setBulkSummary(info);
+      setBulkIncludePartial(true);
+      setBulkOpen(true);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Não foi possível consultar as quitações pendentes.");
+    } finally { setBulkLoading(false); }
+  };
+  const executeBulkSettlement = async () => {
+    if (!bulkSummary || bulkSaving) return;
+    const count = bulkSummary.fullCount + (bulkIncludePartial ? bulkSummary.partialCount : 0);
+    if (count === 0) { setBulkOpen(false); return; }
+    setBulkSaving(true);
+    try {
+      const result = await bulkConfirmFn({ data: {includePartial:bulkIncludePartial,expectedCount:count} });
+      setBulkOpen(false);
+      setBulkSummary(null);
+      refresh();
+      toast.success(`${result.updated} quitação(ões) registrada(s) sem alterar os valores pagos.`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Falha ao registrar as quitações.");
+    } finally { setBulkSaving(false); }
+  };
   const refresh = () => {
     void client.invalidateQueries({ queryKey: ["month-expenses", period] });
     void client.invalidateQueries({ queryKey: ["history"] });
@@ -306,6 +344,9 @@ function HomeBroker() {
             <select aria-label="Ano" className="rounded-md border bg-background p-2 text-sm" value={year} onChange={e => setYear(Number(e.target.value))}>
               {Array.from({ length: 11 }, (_, i) => now.getFullYear() - 5 + i).map(y => <option key={y} value={y}>{y}</option>)}
             </select>
+            {registerType === "despesas" && <Button type="button" variant="outline" disabled={bulkLoading} onClick={() => void openBulkSettlement()} title="Confirme de uma só vez quitações de pagamentos já registrados, sem criar pagamentos novos">
+              <CheckCheck className="size-4" /> {bulkLoading ? "Consultando…" : "Quitar pagamentos existentes"}
+            </Button>}
             <Button type="button" variant="outline" onClick={() => setOneOffOpen(true)}>+ Nova conta avulsa</Button>
           </div>
         </div>
@@ -477,6 +518,50 @@ function HomeBroker() {
         <div className="flex justify-end gap-2"><Button type="button" variant="outline" disabled={oneOffSaving} onClick={() => setOneOffOpen(false)}>Cancelar</Button><Button type="submit" disabled={oneOffSaving}>{oneOffSaving ? "Salvando…" : "Cadastrar"}</Button></div>
       </form>
     </div>}
+    <AlertDialog open={bulkOpen} onOpenChange={value => { if (!bulkSaving) setBulkOpen(value); }}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Quitar pagamentos já registrados</AlertDialogTitle>
+          <AlertDialogDescription>
+            Esta ação vale para todas as competências e anos, não somente o mês selecionado.
+            Somente contas e parcelas que já possuem data e valor pago positivo serão consideradas.
+            Nenhum valor, vencimento ou histórico de pagamento será substituído.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        {bulkSummary && <div className="space-y-3 text-sm">
+          <div className="rounded-lg border bg-muted/30 p-3 space-y-1">
+            <p><strong>{bulkSummary.fullCount}</strong> pagamento(s) integrais ou superiores ao previsto</p>
+            <p><strong>{bulkSummary.partialCount}</strong> pagamento(s) abaixo do previsto</p>
+            <p className="text-muted-foreground">
+              Registros candidatos: {bulkSummary.billCount} conta(s) e {bulkSummary.installmentCount} parcela(s), incluindo eventuais espelhos entre módulos.
+            </p>
+          </div>
+          {bulkSummary.partialCount > 0 && <label className="flex items-start gap-3 rounded-lg border border-amber-500/40 p-3 cursor-pointer">
+            <Checkbox checked={bulkIncludePartial} onCheckedChange={v => setBulkIncludePartial(v === true)} />
+            <span>
+              <strong>Incluir os {bulkSummary.partialCount} pagamentos abaixo do previsto como quitados com desconto</strong>
+              <span className="mt-1 block text-muted-foreground">
+                Descontos totais potenciais: {formatBRL(bulkSummary.discountCents)}.
+                Se algum pagamento foi apenas parcial e ainda há dívida, desmarque esta opção.
+              </span>
+            </span>
+          </label>}
+          <p className="text-xs text-muted-foreground">
+            Serão marcados como quitados {bulkSummary.fullCount + (bulkIncludePartial ? bulkSummary.partialCount : 0)} registros.
+            Contas sem pagamento continuarão em aberto. Uma auditoria será criada por registro.
+          </p>
+        </div>}
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={bulkSaving}>Cancelar</AlertDialogCancel>
+          <AlertDialogAction
+            disabled={bulkSaving || !bulkSummary || bulkSummary.fullCount + (bulkIncludePartial ? bulkSummary.partialCount : 0) === 0}
+            onClick={event => { event.preventDefault(); void executeBulkSettlement(); }}
+          >
+            {bulkSaving ? "Registrando…" : "Confirmar quitações em lote"}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
     <PayDialog target={target} onClose={() => setTarget(null)} onSaved={refresh} />
     {receiving && <ReceiveDialog entry={receiving} onClose={() => setReceiving(null)} onSaved={refresh} />}
   </AppShell>;
