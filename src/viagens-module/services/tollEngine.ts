@@ -153,8 +153,10 @@ export function findPrfStationsAlongPolyline(polyline: [number, number][], corri
     let closestSegmentIndex = 0;
 
     for (let i = 0; i < polyline.length - 1; i++) {
-      const [aLat, aLng] = polyline[i];
-      const [bLat, bLng] = polyline[i + 1];
+      const start = polyline[i], end = polyline[i + 1];
+      if (!start || !end) continue;
+      const [aLat, aLng] = start;
+      const [bLat, bLng] = end;
       const d = distanceToSegment(station.lat, station.lng, aLat, aLng, bLat, bLng);
       if (d < minDistanceToRoute) {
         minDistanceToRoute = d;
