@@ -70,10 +70,10 @@ function Page() {
         <div className="mt-6 space-y-3">
           {!ready && <p className="text-muted-foreground">Carregando dados…</p>}
           {ready && items.length === 0 && <p className="rounded-xl border border-dashed p-8 text-center text-muted-foreground">Nenhum registro cadastrado.</p>}
-          {ready && items.map((item) => <div key={item.id} className="flex flex-wrap items-center gap-3 rounded-xl border bg-card p-4"><div className="min-w-0 flex-1"><p className={item.done ? "font-medium line-through opacity-60" : "font-medium"}>{item.first}</p><p className="whitespace-pre-wrap break-words text-sm text-muted-foreground">{item.second || "Sem data informada"}</p></div><Button variant="outline" size="sm" onClick={() => { setFirst(item.first); setSecond(item.second); persist(items.filter((existing) => existing.id !== item.id)); }}>Editar</Button><Button variant="ghost" size="sm" onClick={() => remove(item.id)}>Excluir</Button></div>)}
+          {ready && items.map((item) => <div key={item.id} className="flex flex-wrap items-center gap-3 rounded-xl border bg-card p-4"><div className="min-w-0 flex-1"><p className={item.done ? "line-through opacity-70" : "font-medium"}>{item.first}</p><p className="text-sm text-muted-foreground">{item.second}</p></div><Button type="button" variant="ghost" size="sm" onClick={() => remove(item.id)}>Excluir</Button></div>)}
         </div>
         <AxionTripCompare />
-        <PontosMilhasModule userEmail={user?.email} />
+        {user?.email ? <PontosMilhasModule userEmail={user.email} /> : <PontosMilhasModule />}
         <p className="mt-8 text-xs text-muted-foreground">Saldos, validade e comparações de pontos são geridos neste módulo. A disponibilidade de passagens com milhas não é consultada automaticamente.</p>
       </div>
     </AppShell>
