@@ -99,7 +99,9 @@ export function GoogleMapRouteDirector({
 
     const assembled: Array<{ lat: number; lng: number }> = [];
     for (let i = 0; i < allStops.length - 1; i++) {
-      const seg = interpolatePoints(allStops[i], allStops[i + 1], 6);
+      const start = allStops[i], end = allStops[i + 1];
+      if (!start || !end) continue;
+      const seg = interpolatePoints(start, end, 6);
       if (i > 0) seg.shift();
       assembled.push(...seg);
     }

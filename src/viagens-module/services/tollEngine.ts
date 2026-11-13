@@ -120,8 +120,10 @@ export function findPlazasAlongPolyline(polyline: [number, number][], corridorBu
     let closestSegmentIndex = 0;
 
     for (let i = 0; i < polyline.length - 1; i++) {
-      const [aLat, aLng] = polyline[i];
-      const [bLat, bLng] = polyline[i + 1];
+      const start = polyline[i], end = polyline[i + 1];
+      if (!start || !end) continue;
+      const [aLat, aLng] = start;
+      const [bLat, bLng] = end;
       const d = distanceToSegment(plaza.lat, plaza.lng, aLat, aLng, bLat, bLng);
       if (d < minDistanceToRoute) {
         minDistanceToRoute = d;
@@ -281,6 +283,7 @@ export function calculateRoadTripRoute({
 }): CalculatedRouteResult {
   const vehicleConfig = VEHICLE_CATEGORIES.find(v => v.id === vehicleCategoryId) || VEHICLE_CATEGORIES[0];
   const fuelConfig = FUEL_OPTIONS.find(f => f.id === fuelTypeId) || FUEL_OPTIONS[0];
+  if (!vehicleConfig || !fuelConfig) throw new Error('Configuração de veículo ou combustível indisponível.');
 
   const fuelPrice = customFuelPrice !== undefined && customFuelPrice > 0 ? customFuelPrice : fuelConfig.defaultPriceBRL;
   const kmPerLiter = customKmPerLiter !== undefined && customKmPerLiter > 0 ? customKmPerLiter : vehicleConfig.defaultFuelKmPerL;
@@ -299,6 +302,7 @@ export function calculateRoadTripRoute({
     for (let i = 0; i < allWaypoints.length - 1; i++) {
       const legStart = allWaypoints[i];
       const legEnd = allWaypoints[i + 1];
+      if (!legStart || !legEnd) continue;
       const legPoints = generateHighwayPolyline(
         { lat: legStart.lat, lng: legStart.lng },
         { lat: legEnd.lat, lng: legEnd.lng }

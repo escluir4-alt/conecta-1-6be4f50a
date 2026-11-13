@@ -71,7 +71,7 @@ export function CarRoadTripPlanner({
   initialDestCity = 'Rio de Janeiro'
 }: CarRoadTripPlannerProps) {
   // Read Maps API key from environment
-  const googleMapsApiKey = (import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string) || '';
+  const googleMapsApiKey = (import.meta.env['VITE_GOOGLE_MAPS_API_KEY'] as string) || '';
 
   // Preset Brazilian Route Shortcuts
   const PRESET_ROUTES = [
@@ -207,9 +207,10 @@ export function CarRoadTripPlanner({
   useEffect(() => {
     if (calculatedRoute.polyline.length > 0) {
       const midIdx = Math.floor(calculatedRoute.polyline.length / 2);
-      setMapCenter({
-        lat: calculatedRoute.polyline[midIdx][0],
-        lng: calculatedRoute.polyline[midIdx][1]
+      const midpoint = calculatedRoute.polyline[midIdx];
+      if (midpoint) setMapCenter({
+        lat: midpoint[0],
+        lng: midpoint[1]
       });
     }
   }, [calculatedRoute.polyline]);
@@ -289,9 +290,11 @@ export function CarRoadTripPlanner({
     if (index === 0) return;
     setIntermediateStops(prev => {
       const copy = [...prev];
-      const temp = copy[index];
-      copy[index] = copy[index - 1];
-      copy[index - 1] = temp;
+      const current = copy[index];
+      const previous = copy[index - 1];
+      if (!current || !previous) return prev;
+      copy[index] = previous;
+      copy[index - 1] = current;
       return copy;
     });
   };
@@ -301,9 +304,11 @@ export function CarRoadTripPlanner({
     if (index === intermediateStops.length - 1) return;
     setIntermediateStops(prev => {
       const copy = [...prev];
-      const temp = copy[index];
-      copy[index] = copy[index + 1];
-      copy[index + 1] = temp;
+      const current = copy[index];
+      const next = copy[index + 1];
+      if (!current || !next) return prev;
+      copy[index] = next;
+      copy[index + 1] = current;
       return copy;
     });
   };

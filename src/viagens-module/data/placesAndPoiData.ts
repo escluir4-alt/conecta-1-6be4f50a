@@ -736,7 +736,7 @@ export const COORD_REGEX = /^(-?\d{1,2}(?:\.\d+)?)[,\s]+(-?\d{1,3}(?:\.\d+)?)$/;
 export function parseCoordinatesInput(input: string): { lat: number; lng: number } | null {
   const trimmed = input.trim();
   const match = trimmed.match(COORD_REGEX);
-  if (!match) return null;
+  if (!match?.[1] || !match?.[2]) return null;
 
   const lat = parseFloat(match[1]);
   const lng = parseFloat(match[2]);
