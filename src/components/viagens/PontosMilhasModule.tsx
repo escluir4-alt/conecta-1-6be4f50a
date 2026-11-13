@@ -98,7 +98,7 @@ async function saveLocalToCloud(userId: string, localItems: LoyaltyProgram[]) {
   }
 }
 
-export function PontosMilhasModule({ userEmail }: { userEmail?: string }) {
+export function PontosMilhasModule({ userEmail }: { userEmail?: string | undefined }) {
   const storageKey = useMemo(
     () => `axion:viagens:pontos-milhas:${userEmail ?? "guest"}`,
     [userEmail],
@@ -185,8 +185,7 @@ export function PontosMilhasModule({ userEmail }: { userEmail?: string }) {
       balance: Math.trunc(balanceValue), expiration,
       valuePerPoint: pointValue > 0 ? pointValue : 0.01, notes: notes.trim(),
     };
-    const previous = programs;
-    const next = [item, ...previous];
+    const next = [item, ...programs];
     setPrograms(next);
     writeLocal(storageKey, next);
     setBalance(""); setExpiration(""); setNotes("");
@@ -220,8 +219,7 @@ export function PontosMilhasModule({ userEmail }: { userEmail?: string }) {
   }
 
   async function removeProgram(item: LoyaltyProgram) {
-    const previous = programs;
-    const next = previous.filter((current) => current.id !== item.id);
+    const next = programs.filter((current) => current.id !== item.id);
     if (userEmail && syncState === "synced") {
       setSyncState("loading");
       try {
