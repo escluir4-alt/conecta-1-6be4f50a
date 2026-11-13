@@ -5,8 +5,9 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { formatBRL, formatDateBR, parseBRL } from "@/lib/finance/money";
+import { expensePaymentAdjustment, formatAdjustmentPercent, formatBRL, formatDateBR, parseBRL } from "@/lib/finance/money";
 import { fileToBase64, validateAttachmentFile } from "@/lib/finance/files";
 import { payBillFn, payInstallmentFn, reviseBillFn, reviseInstallmentFn, uploadAttachment } from "@/lib/finance/finance.functions";
 
@@ -17,6 +18,7 @@ export type PayTarget = {
   paid_date: string | null;
   paid_cents: number | null;
   note: string | null;
+  is_settled?: boolean | null;
 } & (
   | { kind: "bill"; id: string }
   | { kind: "installment"; contractId: string; number: number }
@@ -32,16 +34,21 @@ export function PayDialog({ target, onClose, onSaved }: { target: PayTarget | nu
   const [date, setDate] = useState("");
   const [value, setValue] = useState("");
   const [note, setNote] = useState("");
+  const [quits, setQuits] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
   const [saving, setSaving] = useState(false);
 
   const isRevision = !!target?.paid_date;
+  const centsPreview = parseBRL(value);
+  const adjustment = target && centsPreview !== null
+    ? expensePaymentAdjustment(target.expected_cents, centsPreview, quits) : null;
 
   useEffect(() => {
     if (target) {
       setDate(target.paid_date ?? new Date().toISOString().slice(0, 10));
       setValue(((target.paid_cents ?? target.expected_cents) / 100).toFixed(2).replace(".", ","));
       setNote(target.note ?? "");
+      setQuits(Boolean(target.is_settled));
       setFiles([]);
     }
   }, [target]);
@@ -72,7 +79,7 @@ export function PayDialog({ target, onClose, onSaved }: { target: PayTarget | nu
     let paymentSaved = false;
     try {
       if (target.kind === "bill") {
-        const payload = { billId: target.id, paidDate: date, paidCents: cents, note };
+        const payload = { billId: target.id, paidDate: date, paidCents: cents, note, quits };
         if (isRevision) await reviseBill({ data: payload });
         else await payBill({ data: payload });
       } else {
@@ -122,8 +129,8 @@ export function PayDialog({ target, onClose, onSaved }: { target: PayTarget | nu
                   <div className="font-semibold">{formatDateBR(target.due_date)}</div>
                 </div>
                 <div className="rounded-xl bg-muted p-3">
-                  <div className="text-xs text-muted-foreground">Valor previsto</div>
-                  <div className="font-semibold">{formatBRL(target.expected_cents)}</div>
+                  <div className="text-xs font-semibold text-foreground/75">Valor devido</div>
+                  <div className="mt-1 text-lg font-extrabold tracking-tight text-foreground">{formatBRL(target.expected_cents)}</div>
                 </div>
               </div>
               <div className="space-y-2">
@@ -132,7 +139,37 @@ export function PayDialog({ target, onClose, onSaved }: { target: PayTarget | nu
               </div>
               <div className="space-y-2">
                 <Label htmlFor="pay-value">Valor pago</Label>
-                <Input id="pay-value" inputMode="decimal" value={value} onChange={(e) => setValue(e.target.value)} placeholder="0,00" />
+                <div className="flex items-center gap-3 rounded-md border bg-background px-2">
+                  <Input id="pay-value" className="border-0 px-1 shadow-none focus-visible:ring-0" inputMode="decimal" value={value} onChange={(e) => setValue(e.target.value)} placeholder="0,00" />
+                  <label htmlFor="pay-quits" className="flex shrink-0 cursor-pointer items-center gap-2 border-l pl-3 text-sm font-semibold">
+                    <Checkbox id="pay-quits" checked={quits} onCheckedChange={(checked) => setQuits(checked === true)} />
+                    Quita
+                  </label>
+                </div>
+                {adjustment && (
+                  <div aria-live="polite" className="rounded-md bg-muted/50 px-3 py-2 text-xs">
+                    {adjustment.kind === "discount" && (
+                      <p className="font-semibold text-blue-600 dark:text-blue-400">
+                        Desconto: {formatAdjustmentPercent(adjustment.percent)} · {formatBRL(adjustment.differenceCents)}
+                        <span className="mt-1 block text-muted-foreground">Obrigação quitada; saldo R$ 0,00.</span>
+                      </p>
+                    )}
+                    {adjustment.kind === "surcharge" && (
+                      <p className="font-semibold text-red-600 dark:text-red-400">
+                        Acréscimo: {formatAdjustmentPercent(adjustment.percent)} · {formatBRL(adjustment.differenceCents)}
+                        <span className="mt-1 block text-muted-foreground">Obrigação quitada; saldo R$ 0,00.</span>
+                      </p>
+                    )}
+                    {adjustment.kind === "settled" && <p className="font-semibold text-success">Quitado sem diferença · Saldo R$ 0,00.</p>}
+                    {adjustment.kind === "open" && (
+                      <p className="text-amber-700 dark:text-amber-300">
+                        {adjustment.openCents > 0
+                          ? `Pagamento parcial · Saldo em aberto: ${formatBRL(adjustment.openCents)}`
+                          : "Pagamento informado, mas quitação não confirmada."}
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="pay-note">Observação (opcional)</Label>
