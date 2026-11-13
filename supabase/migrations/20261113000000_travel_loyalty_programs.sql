@@ -1,4 +1,4 @@
--- Table for user-owned travel loyalty program balances.
+-- User-owned travel loyalty program balances with row-level access control.
 create extension if not exists pgcrypto;
 
 create table if not exists public.travel_loyalty_programs (
@@ -6,10 +6,10 @@ create table if not exists public.travel_loyalty_programs (
   user_id uuid not null references auth.users (id) on delete cascade,
   program_name text not null,
   program_type text not null check (program_type in ('milhas', 'pontos')),
-  balance integer not null default 0,
+  balance integer not null default 0 check (balance >= 0),
   expiration_date date,
-  value_per_point numeric(12,6) not null default 0.01,
-  notes text default '',
+  value_per_point numeric(12,6) not null default 0.01 check (value_per_point >= 0),
+  notes text not null default '',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -18,29 +18,32 @@ create index if not exists travel_loyalty_programs_user_id_idx
   on public.travel_loyalty_programs (user_id);
 
 create index if not exists travel_loyalty_programs_expiration_idx
-  on public.travel_loyalty_programs (expiration_date);
+  on public.travel_loyalty_programs (user_id, expiration_date);
 
 alter table public.travel_loyalty_programs enable row level security;
 
-create policy if not exists "Users can read own loyalty programs"
-  on public.travel_loyalty_programs
-  for select
+-- PostgreSQL has no CREATE POLICY IF NOT EXISTS; drop and recreate policies so
+-- this migration remains safe to re-run in development environments.
+drop policy if exists "Users can read own loyalty programs" on public.travel_loyalty_programs;
+drop policy if exists "Users can insert own loyalty programs" on public.travel_loyalty_programs;
+drop policy if exists "Users can update own loyalty programs" on public.travel_loyalty_programs;
+drop policy if exists "Users can delete own loyalty programs" on public.travel_loyalty_programs;
+
+create policy "Users can read own loyalty programs"
+  on public.travel_loyalty_programs for select
   using (auth.uid() = user_id);
 
-create policy if not exists "Users can insert own loyalty programs"
-  on public.travel_loyalty_programs
-  for insert
+create policy "Users can insert own loyalty programs"
+  on public.travel_loyalty_programs for insert
   with check (auth.uid() = user_id);
 
-create policy if not exists "Users can update own loyalty programs"
-  on public.travel_loyalty_programs
-  for update
+create policy "Users can update own loyalty programs"
+  on public.travel_loyalty_programs for update
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
 
-create policy if not exists "Users can delete own loyalty programs"
-  on public.travel_loyalty_programs
-  for delete
+create policy "Users can delete own loyalty programs"
+  on public.travel_loyalty_programs for delete
   using (auth.uid() = user_id);
 
 create or replace function public.set_travel_loyalty_programs_updated_at()
