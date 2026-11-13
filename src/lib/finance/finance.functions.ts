@@ -117,6 +117,50 @@ export const importAxionData = createServerFn({ method: "POST" })
     return { alreadyImported: false, creditors: SEED_ANNUAL.length, bills: SEED_BILLS.length, contracts: SEED_CONTRACTS.length, installments: SEED_INSTALLMENTS.length };
   });
 
+// ================= QUITAÇÃO EM LOTE DOS PAGAMENTOS EXISTENTES =================
+// Não cria pagamentos: apenas confirma a quitação de lançamentos com data e valor pagos.
+const bulkSettlementPreviewSchema = z.object({
+  fullCount: z.number().int().min(0),
+  partialCount: z.number().int().min(0),
+  discountCents: z.number().int().min(0),
+  billCount: z.number().int().min(0),
+  installmentCount: z.number().int().min(0),
+});
+
+export const previewBulkSettlement = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { supabase } = context as Ctx;
+    const { data, error } = await supabase.rpc("preview_expense_bulk_settlement");
+    if (error) {
+      if (/PGRST202|schema cache|could not find the function|does not exist/i.test(error.message)) {
+        throw new Error("A rotina de quitação em lote ainda não foi instalada no banco. Aplique as migrações de quitação após confirmar backup recuperável.");
+      }
+      throw new Error("Falha ao consultar pagamentos para quitação em lote: " + error.message);
+    }
+    return bulkSettlementPreviewSchema.parse(data);
+  });
+
+export const confirmBulkSettlement = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) => z.object({
+    includePartial: z.boolean(),
+    expectedCount: z.number().int().min(0),
+  }).parse(input))
+  .handler(async ({ data, context }) => {
+    const { supabase } = context as Ctx;
+    const { data: result, error } = await supabase.rpc("confirm_expense_bulk_settlement", {
+      p_include_partial: data.includePartial,
+      p_expected_count: data.expectedCount,
+    });
+    if (error) throw new Error("Não foi possível confirmar quitações em lote: " + error.message);
+    return z.object({
+      updated: z.number().int().min(0),
+      bills: z.number().int().min(0),
+      installments: z.number().int().min(0),
+    }).parse(result);
+  });
+
 // ================= DESPESAS DO MÊS =================
 
 export const getMonthExpenses = createServerFn({ method: "POST" })
