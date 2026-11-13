@@ -38,14 +38,48 @@ export function paymentDifference(expected: number, paid: number): number {
   return paid - expected;
 }
 
+/**
+ * O valor pago é dinheiro efetivamente desembolsado; quitar é uma confirmação
+ * independente, necessária para classificar desconto/acréscimo e zerar o saldo.
+ * Todas as operações permanecem em centavos inteiros.
+ */
+export type ExpensePaymentAdjustmentKind = "unpaid" | "open" | "discount" | "surcharge" | "settled";
+export function expensePaymentAdjustment(
+  expectedCents: number,
+  paidCents: number | null | undefined,
+  quits: boolean,
+): { kind: ExpensePaymentAdjustmentKind; differenceCents: number; percent: number; coveredCents: number; openCents: number } {
+  const expected = Math.max(0, Math.round(expectedCents));
+  const paid = paidCents == null ? null : Math.max(0, Math.round(paidCents));
+  const coveredCents = quits ? expected : Math.min(expected, paid ?? 0);
+  const openCents = Math.max(0, expected - coveredCents);
+  if (paid === null) return { kind: "unpaid", differenceCents: expected, percent: 100, coveredCents: 0, openCents: expected };
+  if (!quits) return {
+    kind: "open", differenceCents: openCents,
+    percent: expected ? openCents / expected * 100 : 0, coveredCents, openCents,
+  };
+  const delta = paid - expected;
+  return {
+    kind: delta < 0 ? "discount" : delta > 0 ? "surcharge" : "settled",
+    differenceCents: Math.abs(delta),
+    percent: expected ? Math.abs(delta) / expected * 100 : 0,
+    coveredCents, openCents: 0,
+  };
+}
+
+export function formatAdjustmentPercent(percent: number): string {
+  return percent.toFixed(2).replace(".", ",") + "%";
+}
+
 // Texto automático quando não há observação manual: em dia / antecipado / atraso + desconto/acréscimo.
-export function autoNote(dueDate: string, paidDate: string, expectedCents: number, paidCents: number): string {
+export function autoNote(dueDate: string, paidDate: string, expectedCents: number, paidCents: number, quits = true): string {
   const parts: string[] = [];
   if (paidDate < dueDate) parts.push("Pago com antecedência");
   else if (paidDate > dueDate) parts.push("Pago em atraso");
   else parts.push("Pago em dia");
   const diff = paidCents - expectedCents;
-  if (diff < 0) parts.push(`com desconto de ${formatBRL(-diff)}`);
+  if (!quits) parts.push(`— saldo em aberto: ${formatBRL(Math.max(0, -diff))}`);
+  else if (diff < 0) parts.push(`com desconto de ${formatBRL(-diff)}`);
   else if (diff > 0) parts.push(`com acréscimo de ${formatBRL(diff)}`);
   return parts.join(" ");
 }
@@ -57,11 +91,12 @@ export function displayNote(bill: {
   paid_cents: number | null;
   note?: string | null;
   paid_note?: string | null;
+  is_settled?: boolean | null;
 }): string {
   const manual = bill.note ?? bill.paid_note;
   if (manual && manual.trim()) return manual;
   if (!bill.paid_date || bill.paid_cents === null) return "—";
-  return autoNote(bill.due_date, bill.paid_date, bill.expected_cents, bill.paid_cents);
+  return autoNote(bill.due_date, bill.paid_date, bill.expected_cents, bill.paid_cents, bill.is_settled ?? true);
 }
 
 export function diffLabel(expected: number, paid: number | null): string {

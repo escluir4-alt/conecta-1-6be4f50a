@@ -3,6 +3,8 @@ import {
   autoNote,
   clampDueDate,
   diffLabel,
+  expensePaymentAdjustment,
+  formatAdjustmentPercent,
   displayNote,
   formatBRL,
   monthOfDueDate,
@@ -88,5 +90,31 @@ describe("diffLabel", () => {
     const label = diffLabel(136068, 135422);
     expect(label).toContain("−0,47%");
     expect(label).toContain("6,46");
+  });
+});
+
+
+describe("Quitação expressa — valores em centavos", () => {
+  it("classifica desconto C6 de R$ 1,85 (0,14%) e zera o saldo", () => {
+    const result = expensePaymentAdjustment(136068, 135883, true);
+    expect(result).toMatchObject({ kind: "discount", differenceCents: 185, openCents: 0, coveredCents: 136068 });
+    expect(formatAdjustmentPercent(result.percent)).toBe("0,14%");
+  });
+  it("sem marcar Quita, mantém pagamento parcial em aberto", () => {
+    const result = expensePaymentAdjustment(136068, 135883, false);
+    expect(result).toMatchObject({ kind: "open", differenceCents: 185, openCents: 185, coveredCents: 135883 });
+    expect(autoNote("2026-11-13", "2026-11-11", 136068, 135883, false)).toContain("saldo em aberto");
+  });
+  it("valor excedente quitado é acréscimo, não saldo negativo", () => {
+    const result = expensePaymentAdjustment(136068, 136253, true);
+    expect(result).toMatchObject({ kind: "surcharge", differenceCents: 185, openCents: 0 });
+    expect(formatAdjustmentPercent(result.percent)).toBe("0,14%");
+  });
+  it("quitação exata não possui diferença, e não marcada permanece pendente de confirmação", () => {
+    expect(expensePaymentAdjustment(10000, 10000, true).kind).toBe("settled");
+    expect(expensePaymentAdjustment(10000, 10000, false).kind).toBe("open");
+  });
+  it("quando não houve pagamento, todo o valor permanece em aberto", () => {
+    expect(expensePaymentAdjustment(50720, null, false)).toMatchObject({ kind: "unpaid", openCents: 50720 });
   });
 });

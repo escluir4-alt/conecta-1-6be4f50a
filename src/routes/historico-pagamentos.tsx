@@ -8,7 +8,7 @@ import { AppShell, useRequireUser } from "@/components/AppShell";
 import { PayDialog, type PayTarget } from "@/components/finance/PayDialog";
 import { AttachmentButton } from "@/components/finance/AttachmentButton";
 import { Button } from "@/components/ui/button";
-import { diffLabel, displayNote, formatBRL, formatDateBR, monthOfDueDate } from "@/lib/finance/money";
+import { displayNote, expensePaymentAdjustment, formatAdjustmentPercent, formatBRL, formatDateBR, monthOfDueDate } from "@/lib/finance/money";
 import { getHistory } from "@/lib/finance/finance.functions";
 
 export const Route = createFileRoute("/historico-pagamentos")({
@@ -34,10 +34,26 @@ type HistoryItem = {
   dueDate: string;
   paidDate: string;
   paidCents: number;
+  is_settled: boolean;
   note: string | null;
   contractId: string | null;
   installmentNumber: number | null;
 };
+
+function HistoryDifference({ expected, paid, quits }: { expected: number; paid: number; quits: boolean }) {
+  const adjustment = expensePaymentAdjustment(expected, paid, quits);
+  if (adjustment.kind === "discount" || adjustment.kind === "surcharge") {
+    return <div className={`flex flex-col font-semibold ${adjustment.kind === "discount" ? "text-blue-600 dark:text-blue-400" : "text-red-600 dark:text-red-400"}`}>
+      <span>{adjustment.kind === "discount" ? "Desconto" : "Acréscimo"}</span>
+      <span>{formatAdjustmentPercent(adjustment.percent)}</span>
+      <span>{formatBRL(adjustment.differenceCents)}</span>
+    </div>;
+  }
+  if (adjustment.kind === "settled") return <span className="text-success">Quitado</span>;
+  return <span className="text-amber-700 dark:text-amber-300">
+    {adjustment.openCents > 0 ? `Em aberto: ${formatBRL(adjustment.openCents)}` : "Aguardando quitação"}
+  </span>;
+}
 
 function HistoricoPage() {
   const user = useRequireUser();
@@ -74,8 +90,14 @@ function HistoricoPage() {
       for (const it of list) {
         lines.push([
           it.creditor, formatBRL(it.expectedCents), formatDateBR(it.dueDate), formatDateBR(it.paidDate),
-          formatBRL(it.paidCents), diffLabel(it.expectedCents, it.paidCents),
-          displayNote({ due_date: it.dueDate, paid_date: it.paidDate, expected_cents: it.expectedCents, paid_cents: it.paidCents, note: it.note }),
+          formatBRL(it.paidCents), (() => {
+            const adj = expensePaymentAdjustment(it.expectedCents, it.paidCents, it.is_settled);
+            if (adj.kind === "discount" || adj.kind === "surcharge")
+              return `${adj.kind === "discount" ? "Desconto" : "Acréscimo"} ${formatAdjustmentPercent(adj.percent)} — ${formatBRL(adj.differenceCents)}`;
+            if (adj.kind === "settled") return "Quitado";
+            return adj.openCents > 0 ? `Em aberto: ${formatBRL(adj.openCents)}` : "Aguardando quitação";
+          })(),
+          displayNote({ due_date: it.dueDate, paid_date: it.paidDate, expected_cents: it.expectedCents, paid_cents: it.paidCents, note: it.note, is_settled: it.is_settled }),
         ].join("\t"));
       }
       lines.push("");
@@ -156,9 +178,9 @@ function HistoricoPage() {
                         <td className="px-3 py-2 text-center">{formatDateBR(it.dueDate)}</td>
                         <td className="px-3 py-2 text-center">{formatDateBR(it.paidDate)}</td>
                         <td className="px-3 py-2 text-right font-semibold">{formatBRL(it.paidCents)}</td>
-                        <td className="px-3 py-2 text-center text-xs">{diffLabel(it.expectedCents, it.paidCents)}</td>
+                        <td className="px-3 py-2 text-center text-xs"><HistoryDifference expected={it.expectedCents} paid={it.paidCents} quits={it.is_settled} /></td>
                         <td className="max-w-52 px-3 py-2 text-xs">
-                          {displayNote({ due_date: it.dueDate, paid_date: it.paidDate, expected_cents: it.expectedCents, paid_cents: it.paidCents, note: it.note })}
+                          {displayNote({ due_date: it.dueDate, paid_date: it.paidDate, expected_cents: it.expectedCents, paid_cents: it.paidCents, note: it.note, is_settled: it.is_settled })}
                         </td>
                         <td className="px-3 py-2">
                           <div className="flex justify-center">
@@ -176,8 +198,8 @@ function HistoricoPage() {
                               onClick={() =>
                                 setPayTarget(
                                   it.kind === "bill"
-                                    ? { kind: "bill", id: it.id, creditor: it.creditor, due_date: it.dueDate, expected_cents: it.expectedCents, paid_date: it.paidDate, paid_cents: it.paidCents, note: it.note }
-                                    : { kind: "installment", contractId: it.contractId!, number: it.installmentNumber!, creditor: it.creditor, due_date: it.dueDate, expected_cents: it.expectedCents, paid_date: it.paidDate, paid_cents: it.paidCents, note: it.note },
+                                    ? { kind: "bill", id: it.id, creditor: it.creditor, due_date: it.dueDate, expected_cents: it.expectedCents, paid_date: it.paidDate, paid_cents: it.paidCents, note: it.note, is_settled: it.is_settled }
+                                    : { kind: "installment", contractId: it.contractId!, number: it.installmentNumber!, creditor: it.creditor, due_date: it.dueDate, expected_cents: it.expectedCents, paid_date: it.paidDate, paid_cents: it.paidCents, note: it.note, is_settled: it.is_settled },
                                 )
                               }
                             >
