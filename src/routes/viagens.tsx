@@ -12,14 +12,7 @@ export const Route = createFileRoute("/viagens")({
   component: Page,
 });
 
-type Item = {
-  id: string;
-  first: string;
-  second: string;
-  done: boolean;
-  createdAt: string;
-};
-
+type Item = { id: string; first: string; second: string; done: boolean; createdAt: string };
 const fields = [
   { label: "Destino", placeholder: "Cidade ou destino" },
   { label: "Data", placeholder: "DD/MM/AAAA" },
@@ -28,11 +21,7 @@ const fields = [
 function isTripItem(value: unknown): value is Item {
   if (!value || typeof value !== "object") return false;
   const item = value as Partial<Item>;
-  return (
-    typeof item.id === "string" &&
-    typeof item.first === "string" &&
-    typeof item.second === "string"
-  );
+  return typeof item.id === "string" && typeof item.first === "string" && typeof item.second === "string";
 }
 
 function Page() {
@@ -44,131 +33,48 @@ function Page() {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    if (!user?.email) {
-      setReady(false);
-      return;
-    }
-
+    if (!user?.email) { setReady(false); return; }
     try {
       const parsed: unknown = JSON.parse(localStorage.getItem(storageKey) ?? "[]");
       setItems(Array.isArray(parsed) ? parsed.filter(isTripItem) : []);
-    } catch {
-      setItems([]);
-    }
+    } catch { setItems([]); }
     setReady(true);
   }, [storageKey, user?.email]);
 
   function persist(next: Item[]) {
     setItems(next);
-    localStorage.setItem(storageKey, JSON.stringify(next));
+    try { localStorage.setItem(storageKey, JSON.stringify(next)); } catch { /* Keep current session state. */ }
   }
 
   function add(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!ready || !first.trim()) return;
-    persist([
-      {
-        id: crypto.randomUUID(),
-        first: first.trim(),
-        second: second.trim(),
-        done: false,
-        createdAt: new Date().toISOString(),
-      },
-      ...items,
-    ]);
-    setFirst("");
-    setSecond("");
+    persist([{ id: crypto.randomUUID(), first: first.trim(), second: second.trim(), done: false, createdAt: new Date().toISOString() }, ...items]);
+    setFirst(""); setSecond("");
   }
 
   function remove(id: string) {
-    if (window.confirm("Excluir este registro?")) {
-      persist(items.filter((item) => item.id !== id));
-    }
+    if (window.confirm("Excluir este registro?")) persist(items.filter((item) => item.id !== id));
   }
 
   return (
     <AppShell active="viagens" user={user}>
       <div className="mx-auto max-w-5xl p-6 lg:p-8">
         <h1 className="text-3xl font-bold">Viagens</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Planeje destinos, datas e observações de viagem.
-        </p>
-
-        <form
-          onSubmit={add}
-          className="mt-6 grid gap-4 rounded-2xl border bg-card p-5 md:grid-cols-[1fr_1fr_auto] md:items-end"
-        >
-          <div className="space-y-2">
-            <Label htmlFor="trip-destination">{fields[0].label}</Label>
-            <Input
-              id="trip-destination"
-              required
-              value={first}
-              onChange={(event) => setFirst(event.target.value)}
-              placeholder={fields[0].placeholder}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="trip-date">{fields[1].label}</Label>
-            <Input
-              id="trip-date"
-              value={second}
-              onChange={(event) => setSecond(event.target.value)}
-              placeholder={fields[1].placeholder}
-            />
-          </div>
-          <Button type="submit" disabled={!ready}>
-            Adicionar
-          </Button>
+        <p className="mt-1 text-sm text-muted-foreground">Planeje destinos, datas e observações de viagem.</p>
+        <form onSubmit={add} className="mt-6 grid gap-4 rounded-2xl border bg-card p-5 md:grid-cols-[1fr_1fr_auto] md:items-end">
+          <div className="space-y-2"><Label htmlFor="trip-destination">{fields[0].label}</Label><Input id="trip-destination" required value={first} onChange={(event) => setFirst(event.target.value)} placeholder={fields[0].placeholder} /></div>
+          <div className="space-y-2"><Label htmlFor="trip-date">{fields[1].label}</Label><Input id="trip-date" value={second} onChange={(event) => setSecond(event.target.value)} placeholder={fields[1].placeholder} /></div>
+          <Button type="submit" disabled={!ready}>Adicionar</Button>
         </form>
-
         <div className="mt-6 space-y-3">
           {!ready && <p className="text-muted-foreground">Carregando dados…</p>}
-          {ready && items.length === 0 && (
-            <p className="rounded-xl border border-dashed p-8 text-center text-muted-foreground">
-              Nenhum registro cadastrado.
-            </p>
-          )}
-          {ready &&
-            items.map((item) => (
-              <div
-                key={item.id}
-                className="flex flex-wrap items-center gap-3 rounded-xl border bg-card p-4"
-              >
-                <div className="min-w-0 flex-1">
-                  <p className={item.done ? "font-medium line-through opacity-60" : "font-medium"}>
-                    {item.first}
-                  </p>
-                  <p className="whitespace-pre-wrap break-words text-sm text-muted-foreground">
-                    {item.second || "Sem data informada"}
-                  </p>
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setFirst(item.first);
-                    setSecond(item.second);
-                    persist(items.filter((existing) => existing.id !== item.id));
-                  }}
-                >
-                  Editar
-                </Button>
-                <Button variant="ghost" size="sm" onClick={() => remove(item.id)}>
-                  Excluir
-                </Button>
-              </div>
-            ))}
+          {ready && items.length === 0 && <p className="rounded-xl border border-dashed p-8 text-center text-muted-foreground">Nenhum registro cadastrado.</p>}
+          {ready && items.map((item) => <div key={item.id} className="flex flex-wrap items-center gap-3 rounded-xl border bg-card p-4"><div className="min-w-0 flex-1"><p className={item.done ? "font-medium line-through opacity-60" : "font-medium"}>{item.first}</p><p className="whitespace-pre-wrap break-words text-sm text-muted-foreground">{item.second || "Sem data informada"}</p></div><Button variant="outline" size="sm" onClick={() => { setFirst(item.first); setSecond(item.second); persist(items.filter((existing) => existing.id !== item.id)); }}>Editar</Button><Button variant="ghost" size="sm" onClick={() => remove(item.id)}>Excluir</Button></div>)}
         </div>
-
         <AxionTripCompare />
         <PontosMilhasModule userEmail={user?.email} />
-
-        <p className="mt-8 text-xs text-muted-foreground">
-          Planejamento de viagens e carteira de pontos e milhas são dados locais deste navegador.
-          A integração com serviços externos e sincronização em nuvem serão tratadas em etapas
-          posteriores.
-        </p>
+        <p className="mt-8 text-xs text-muted-foreground">Saldos, validade e comparações de pontos são geridos neste módulo. A disponibilidade de passagens com milhas não é consultada automaticamente.</p>
       </div>
     </AppShell>
   );
