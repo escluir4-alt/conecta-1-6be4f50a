@@ -137,7 +137,7 @@ export function RoadMapCanvas({
   const pathKey = liveRoute ? 'online-' + stopKey : 'local-' + stopKey;
   const routeFit = useMemo(() => {
     const samples = route.filter((_, i) => i === 0 || i === route.length - 1 || i % Math.max(1, Math.ceil(route.length / 250)) === 0);
-    return fitViewport([...samples, [origin.lat, origin.lng], [destination.lat, destination.lng]], size.width, size.height);
+    return fitViewport([...samples, [origin.lat, origin.lng] as Coordinate, [destination.lat, destination.lng] as Coordinate], size.width, size.height);
   }, [pathKey, liveRoute, approximatePolyline, origin.lat, origin.lng, destination.lat, destination.lng, size.width, size.height]);
   useEffect(() => { setView(routeFit); }, [routeFit]);
 
@@ -259,12 +259,12 @@ export function RoadMapCanvas({
       </span>
       {tileFailed && <span className="block font-semibold text-red-700">Algumas imagens do mapa não carregaram. Verifique sua conexão.</span>}
     </div>
-    <div className="absolute top-16 right-3 z-20 flex flex-col gap-2">
+    <div className="absolute top-28 right-3 z-20 flex flex-col gap-2">
       <button type="button" onClick={()=>changeZoom(1)} aria-label="Aproximar mapa" className="rounded-lg bg-white p-2 font-bold text-slate-800 shadow">+</button>
       <button type="button" onClick={()=>changeZoom(-1)} aria-label="Afastar mapa" className="rounded-lg bg-white p-2 font-bold text-slate-800 shadow">−</button>
       <button type="button" onClick={()=>setView(routeFit)} title="Enquadrar a rota" className="rounded-lg bg-white p-2 text-xs font-semibold text-slate-800 shadow">Rota</button>
     </div>
-    <div className="absolute top-3 right-3 left-3 z-20 flex flex-wrap gap-1.5">
+    <div className="absolute top-16 right-3 left-3 z-20 flex flex-wrap gap-1.5">
       <a href={mapsDirectionsUrl(actualStops)} target="_blank" rel="noopener noreferrer"
         className="rounded-lg bg-white/95 px-2 py-1.5 text-[11px] font-bold text-sky-900 shadow">Google Maps ↗</a>
       <a href={streetViewUrl(current.lat,current.lng)} target="_blank" rel="noopener noreferrer"
