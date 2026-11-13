@@ -3,7 +3,7 @@ import { extendFixedConsumptionsForNewContract } from "@/lib/finance/annual-proj
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import { clampDueDate, monthOfDueDate, parseBRL } from "./money";
+import { clampDueDate, expensePaymentAdjustment, monthOfDueDate, parseBRL } from "./money";
 import { assertUserCreditCard } from "@/lib/pluggy.functions";
 import { SEED_ANNUAL, SEED_BILLS, SEED_CONTRACTS, SEED_INSTALLMENTS, SEED_YEAR, SEED_YEAR_SOURCE } from "./seed-data";
 
@@ -168,7 +168,7 @@ export const getMonthExpenses = createServerFn({ method: "POST" })
     // Inclui as parcelas desta competência sem criar cópias de finance_bills.
     // A baixa das parcelas virtuais usa a função canônica pay_installment.
     const { data: monthInstallments, error: installmentError } = await supabase
-      .from("installment_entries").select("contract_id,number,expected_cents,paid_date,paid_cents,due_date,note")
+      .from("installment_entries").select("contract_id,number,expected_cents,paid_date,paid_cents,due_date,note,is_settled")
       .gte("due_date", start).lt("due_date", end);
     if (installmentError) throw new Error(installmentError.message);
     const { data: contractRows, error: contractError } = await supabase
@@ -190,8 +190,9 @@ export const getMonthExpenses = createServerFn({ method: "POST" })
     list.sort((a, b) => a.due_date.localeCompare(b.due_date) || a.creditor.localeCompare(b.creditor));
     const kpis = {
       expected: list.reduce((s, b) => s + b.expected_cents, 0),
-      paid: list.reduce((s, b) => s + (b.paid_cents ?? 0), 0),
-      open: list.reduce((s, b) => s + Math.max(0, b.expected_cents - (b.paid_cents ?? 0)), 0),
+      paid: list.reduce((s, b) => s + (b.paid_date ? (b.paid_cents ?? 0) : 0), 0),
+      covered: list.reduce((s, b) => s + expensePaymentAdjustment(b.expected_cents, b.paid_date ? b.paid_cents : null, b.is_settled === true).coveredCents, 0),
+      open: list.reduce((s, b) => s + expensePaymentAdjustment(b.expected_cents, b.paid_date ? b.paid_cents : null, b.is_settled === true).openCents, 0),
       count: list.length,
     };
     return { bills: list, kpis, reviewFlags };
@@ -200,10 +201,10 @@ export const getMonthExpenses = createServerFn({ method: "POST" })
 export const payBillFn = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data: unknown) =>
-    z.object({ billId: z.string(), paidDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), paidCents: z.number().int().positive(), note: z.string().max(1000).optional() }).parse(data))
+    z.object({ billId: z.string(), paidDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), paidCents: z.number().int().positive(), note: z.string().max(1000).optional(), quits: z.boolean().default(false) }).parse(data))
   .handler(async ({ data, context }) => {
     const { supabase } = context as Ctx;
-    const { error } = await supabase.rpc("pay_bill", { p_bill_id: data.billId, p_paid_date: data.paidDate, p_paid_cents: data.paidCents, p_note: data.note ?? "" });
+    const { error } = await supabase.rpc("record_expense_payment", { p_bill_id: data.billId, p_contract_id: null, p_number: null, p_paid_date: data.paidDate, p_paid_cents: data.paidCents, p_note: data.note ?? "", p_is_settled: data.quits, p_revision: false });
     if (error) throw new Error(error.message);
     return { ok: true };
   });
@@ -211,10 +212,10 @@ export const payBillFn = createServerFn({ method: "POST" })
 export const reviseBillFn = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data: unknown) =>
-    z.object({ billId: z.string(), paidDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), paidCents: z.number().int().positive(), note: z.string().max(1000).optional() }).parse(data))
+    z.object({ billId: z.string(), paidDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), paidCents: z.number().int().positive(), note: z.string().max(1000).optional(), quits: z.boolean().default(false) }).parse(data))
   .handler(async ({ data, context }) => {
     const { supabase } = context as Ctx;
-    const { error } = await supabase.rpc("revise_bill", { p_bill_id: data.billId, p_paid_date: data.paidDate, p_paid_cents: data.paidCents, p_note: data.note ?? "" });
+    const { error } = await supabase.rpc("record_expense_payment", { p_bill_id: data.billId, p_contract_id: null, p_number: null, p_paid_date: data.paidDate, p_paid_cents: data.paidCents, p_note: data.note ?? "", p_is_settled: data.quits, p_revision: true });
     if (error) throw new Error(error.message);
     return { ok: true };
   });
@@ -354,7 +355,7 @@ export const getAnnualYear = createServerFn({ method: "POST" })
     }
     const { data: years } = await supabase.from("annual_years").select("year, archived_at").order("year", { ascending: false });
     const { data: yearBills, error: yearBillsError } = ids.length ? await supabase
-      .from("finance_bills").select("expected_cents, paid_cents, paid_date, source_period")
+      .from("finance_bills").select("expected_cents, paid_cents, paid_date, is_settled, source_period")
       .in("source_annual_id", ids).gte("source_period", `${data.year}-01`)
       .lte("source_period", `${data.year}-12`)
       : {data:[],error:null};
@@ -362,7 +363,7 @@ export const getAnnualYear = createServerFn({ method: "POST" })
     const paidYearBills = (yearBills ?? []).filter((b: any) => b.paid_date);
     const stats = {
       paidCents: paidYearBills.reduce((s: number, b: any) => s + (b.paid_cents ?? 0), 0),
-      paidExpected: paidYearBills.reduce((s: number, b: any) => s + b.expected_cents, 0),
+      paidExpected: paidYearBills.reduce((s: number, b: any) => s + (b.is_settled ? b.expected_cents : Math.min(b.expected_cents, b.paid_cents ?? 0)), 0),
     };
     // Nome de apresentação unificado pelo vínculo técnico account_id → credor anual.
     // Não renomeia registros históricos ou muda os valores originais.
@@ -504,9 +505,10 @@ function contractKpis(entries: any[]) {
   const total = entries.reduce((s, e) => s + e.expected_cents, 0);
   const paidEntries = entries.filter((e) => e.paid_date);
   const paid = paidEntries.reduce((s, e) => s + (e.paid_cents ?? 0), 0);
+  const remaining = entries.reduce((s, e) => s + expensePaymentAdjustment(e.expected_cents, e.paid_date ? e.paid_cents : null, e.is_settled === true).openCents, 0);
   return {
-    total, paid, remaining: total - paid,
-    paidCount: paidEntries.length, count: entries.length,
+    total, paid, remaining,
+    paidCount: paidEntries.filter(e => e.is_settled === true).length, count: entries.length,
     pct: entries.length ? (paidEntries.length / entries.length) * 100 : 0,
     firstDue: entries[0]?.due_date ?? null, lastDue: entries[entries.length - 1]?.due_date ?? null,
   };
@@ -520,7 +522,7 @@ export const getContracts = createServerFn({ method: "POST" })
     let q = supabase.from("installment_contracts").select("*").order("created_at");
     if (!data.includeArchived) q = q.is("archived_at", null);
     const { data: contracts } = await q;
-    const { data: entries } = await supabase.from("installment_entries").select("contract_id, expected_cents, paid_date, paid_cents, due_date").order("due_date");
+    const { data: entries } = await supabase.from("installment_entries").select("contract_id, expected_cents, paid_date, paid_cents, due_date, is_settled").order("due_date");
     const byContract = new Map<string, any[]>();
     for (const e of entries ?? []) byContract.set(e.contract_id, [...(byContract.get(e.contract_id) ?? []), e]);
     return (contracts ?? []).map((c: any) => ({ ...c, kpis: contractKpis(byContract.get(c.id) ?? []) }));
@@ -541,10 +543,10 @@ export const getContractDetail = createServerFn({ method: "POST" })
 export const payInstallmentFn = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data: unknown) =>
-    z.object({ contractId: z.string(), number: z.number().int(), paidDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), paidCents: z.number().int().positive(), note: z.string().max(1000).optional() }).parse(data))
+    z.object({ contractId: z.string(), number: z.number().int(), paidDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), paidCents: z.number().int().positive(), note: z.string().max(1000).optional(), quits: z.boolean().default(false) }).parse(data))
   .handler(async ({ data, context }) => {
     const { supabase } = context as Ctx;
-    const { error } = await supabase.rpc("pay_installment", { p_contract_id: data.contractId, p_number: data.number, p_paid_date: data.paidDate, p_paid_cents: data.paidCents, p_note: data.note ?? "" });
+    const { error } = await supabase.rpc("record_expense_payment", { p_bill_id: null, p_contract_id: data.contractId, p_number: data.number, p_paid_date: data.paidDate, p_paid_cents: data.paidCents, p_note: data.note ?? "", p_is_settled: data.quits, p_revision: false });
     if (error) throw new Error(error.message);
     return { ok: true };
   });
@@ -552,10 +554,10 @@ export const payInstallmentFn = createServerFn({ method: "POST" })
 export const reviseInstallmentFn = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data: unknown) =>
-    z.object({ contractId: z.string(), number: z.number().int(), paidDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), paidCents: z.number().int().positive(), note: z.string().max(1000).optional() }).parse(data))
+    z.object({ contractId: z.string(), number: z.number().int(), paidDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), paidCents: z.number().int().positive(), note: z.string().max(1000).optional(), quits: z.boolean().default(false) }).parse(data))
   .handler(async ({ data, context }) => {
     const { supabase } = context as Ctx;
-    const { error } = await supabase.rpc("revise_installment", { p_contract_id: data.contractId, p_number: data.number, p_paid_date: data.paidDate, p_paid_cents: data.paidCents, p_note: data.note ?? "" });
+    const { error } = await supabase.rpc("record_expense_payment", { p_bill_id: null, p_contract_id: data.contractId, p_number: data.number, p_paid_date: data.paidDate, p_paid_cents: data.paidCents, p_note: data.note ?? "", p_is_settled: data.quits, p_revision: true });
     if (error) throw new Error(error.message);
     return { ok: true };
   });
@@ -649,7 +651,7 @@ export const getHistory = createServerFn({ method: "POST" })
     for (const b of bills ?? []) {
       items.push({
         kind: "bill", id: b.id, creditor: b.creditor, expectedCents: b.expected_cents, dueDate: b.due_date,
-        paidDate: b.paid_date, paidCents: b.paid_cents, note: b.paid_note,
+        paidDate: b.paid_date, paidCents: b.paid_cents, note: b.paid_note, is_settled: b.is_settled,
         contractId: b.contract_id, installmentNumber: b.installment_number,
       });
     }
@@ -659,7 +661,7 @@ export const getHistory = createServerFn({ method: "POST" })
       if (data.creditor && creditor !== data.creditor) continue;
       items.push({
         kind: "installment", id: `${e.contract_id}:${e.number}`, creditor, expectedCents: e.expected_cents,
-        dueDate: e.due_date, paidDate: e.paid_date, paidCents: e.paid_cents, note: e.note,
+        dueDate: e.due_date, paidDate: e.paid_date, paidCents: e.paid_cents, note: e.note, is_settled: e.is_settled,
         contractId: e.contract_id, installmentNumber: e.number,
       });
     }
@@ -845,7 +847,7 @@ export const getAnnualDebtTotals = createServerFn({ method: "GET" })
       }
       for (let from = 0; ; from += 1000) {
         const { data, error } = await supabase.from("finance_bills")
-          .select("source_annual_id,source_period,paid_cents,paid_date")
+          .select("source_annual_id,source_period,paid_cents,paid_date,is_settled")
           .eq("user_id", userId).in("source_annual_id", chunk).range(from, from + 999);
         if (error) throw new Error("Falha ao consultar pagamentos anuais: " + error.message);
         payments.push(...(data ?? []));
@@ -862,7 +864,7 @@ export const getAnnualDebtTotals = createServerFn({ method: "GET" })
       const chunk=contractIds.slice(i,i+50);
       for(let from=0;;from+=1000){
         const {data,error}=await supabase.from("installment_entries")
-          .select("contract_id,due_date,paid_date,paid_cents")
+          .select("contract_id,due_date,paid_date,paid_cents,is_settled")
           .eq("user_id",userId).in("contract_id",chunk)
           .gte("due_date",`${year}-01-01`)
           .range(from,from+999);
@@ -872,20 +874,22 @@ export const getAnnualDebtTotals = createServerFn({ method: "GET" })
       }
     }
     for(const row of contractRows){
-      const months = new Map<number,number>();
+      const months = new Map<number,{paidCents:number; isSettled:boolean}>();
       for(const inst of installments) {
         if(inst.contract_id !== row.source_contract_id || !inst.paid_date) continue;
         const month=Number(inst.due_date.slice(5,7));
         const dueYear=Number(inst.due_date.slice(0,4));
         const periodKey=dueYear*100+month;
-        months.set(periodKey,(months.get(periodKey)??0)+Math.max(0,Number(inst.paid_cents)||0));
+        const prev = months.get(periodKey) ?? {paidCents:0,isSettled:true};
+        months.set(periodKey,{paidCents:prev.paidCents+Math.max(0,Number(inst.paid_cents)||0),
+          isSettled:prev.isSettled && inst.is_settled === true});
       }
-      for(const [periodKey,paidCents] of months){
+      for(const [periodKey,amount] of months){
         const dueYear=Math.floor(periodKey/100);
         if(dueYear!==row.year) continue;
         const month=periodKey%100;
         payments.push({source_annual_id:row.id,source_period:`${dueYear}-${String(month).padStart(2,"0")}`,
-          paid_cents:paidCents,paid_date:`${year}-${String(month).padStart(2,"0")}-01`});
+          paid_cents:amount.paidCents,paid_date:`${year}-${String(month).padStart(2,"0")}-01`,is_settled:amount.isSettled});
       }
     }
     const currentRows = rows.filter(r => r.year === year);
