@@ -85,8 +85,8 @@ async function calculateDrivingRoute(points: string[], signal: AbortSignal): Pro
 function mapsUrl(points: string[]) {
   const params = new URLSearchParams({
     api: "1",
-    origin: points[0],
-    destination: points[points.length - 1],
+    origin: points[0] ?? "",
+    destination: points[points.length - 1] ?? "",
     travelmode: "driving",
   });
   if (points.length > 2) params.set("waypoints", points.slice(1, -1).join("|"));
@@ -98,8 +98,8 @@ function wazeUrl(destination: string) {
 
 function RouteSketch({ coordinates }: { coordinates: number[][] }) {
   if (!coordinates.length) return null;
-  const lons = coordinates.map(p => p[0]);
-  const lats = coordinates.map(p => p[1]);
+  const lons = coordinates.map(p => p[0] ?? 0);
+  const lats = coordinates.map(p => p[1] ?? 0);
   const minLon = Math.min(...lons), maxLon = Math.max(...lons);
   const minLat = Math.min(...lats), maxLat = Math.max(...lats);
   const xSpan = Math.max(maxLon - minLon, .001), ySpan = Math.max(maxLat - minLat, .001);
@@ -108,8 +108,8 @@ function RouteSketch({ coordinates }: { coordinates: number[][] }) {
   const x0 = (800 - width) / 2, y0 = (320 - height) / 2;
   const sampled = coordinates.filter((_,i) => i === 0 || i === coordinates.length - 1 || i % Math.max(1,Math.floor(coordinates.length / 300)) === 0);
   const points = sampled.map(p => [
-    (x0 + (p[0] - minLon) * scale).toFixed(1),
-    (y0 + (maxLat - p[1]) * scale).toFixed(1)
+    (x0 + ((p[0] ?? 0) - minLon) * scale).toFixed(1),
+    (y0 + (maxLat - (p[1] ?? 0)) * scale).toFixed(1)
   ].join(",")).join(" ");
   return (
     <div className="relative overflow-hidden rounded-xl border bg-slate-950 p-4">
@@ -195,7 +195,9 @@ export function CarRoadTripPlanner({ userEmail }: { userEmail?: string }) {
     const copy = [...stops];
     const next = i + d;
     if (next < 0 || next >= copy.length) return;
-    [copy[i],copy[next]] = [copy[next],copy[i]];
+    const first = copy[i], second = copy[next];
+    if (first === undefined || second === undefined) return;
+    copy[i] = second; copy[next] = first;
     setStops(copy); invalidate();
   }
   function locateMe() {
