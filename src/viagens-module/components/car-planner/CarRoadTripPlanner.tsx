@@ -55,6 +55,7 @@ import { PrfStation } from '../../data/placesAndPoiData';
 import { POPULAR_LOCATIONS } from '../../data/locations';
 import { SmartLocationSearchInput } from './SmartLocationSearchInput';
 import { GoogleMapRouteDirector } from './GoogleMapRouteDirector';
+import { RoadMapCanvas } from './RoadMapCanvas';
 import { ShareDriverModal } from './ShareDriverModal';
 import { ExportReportModal } from './ExportReportModal';
 import { GpsExportModal } from './GpsExportModal';
@@ -1080,25 +1081,7 @@ export function CarRoadTripPlanner({
               </label>
             </div>
 
-            {/* Quick Map Actions */}
-            <div className="bg-white/95 backdrop-blur-md px-2.5 py-1.5 rounded-xl shadow-lg border border-slate-200/80 flex items-center gap-1 pointer-events-auto">
-              <button
-                type="button"
-                onClick={() => setMapZoom(z => Math.min(z + 0.25, 2.5))}
-                title="Zoom In"
-                className="p-1 hover:bg-slate-100 rounded text-slate-700"
-              >
-                <ZoomIn className="w-4 h-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() => setMapZoom(z => Math.max(z - 0.25, 0.75))}
-                title="Zoom Out"
-                className="p-1 hover:bg-slate-100 rounded text-slate-700"
-              >
-                <ZoomOut className="w-4 h-4" />
-              </button>
-            </div>
+
           </div>
 
           {/* Interactive Map View */}
@@ -1197,138 +1180,27 @@ export function CarRoadTripPlanner({
                   ))}
                 </Map>
             ) : (
-              /* High-fidelity Vector Map Canvas */
-              <div 
-                className="w-full h-full relative select-none cursor-grab active:cursor-grabbing flex items-center justify-center p-4"
-                style={{ transform: `scale(${mapZoom})`, transition: 'transform 0.15s ease-out' }}
-              >
-                <svg
-                  viewBox="0 0 800 600"
-                  className="w-full h-full max-h-[750px] filter drop-shadow-2xl"
-                  xmlns="http://www.w3.org/2000/svg"
-                >
-                  <defs>
-                    <linearGradient id="routeGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                      <stop offset="0%" stopColor="#0284c7" />
-                      <stop offset="50%" stopColor="#38bdf8" />
-                      <stop offset="100%" stopColor="#0ea5e9" />
-                    </linearGradient>
-                    <radialGradient id="oceanGlow" cx="50%" cy="50%" r="50%">
-                      <stop offset="0%" stopColor="#0f172a" />
-                      <stop offset="100%" stopColor="#020617" />
-                    </radialGradient>
-                  </defs>
-
-                  {/* Brazilian Geographical Highway Canvas Background */}
-                  <rect width="800" height="600" fill="url(#oceanGlow)" rx="16" />
-                  
-                  {/* Highway corridor glow */}
-                  <polyline
-                    points={svgPolylinePoints}
-                    fill="none"
-                    stroke="#0284c7"
-                    strokeWidth="14"
-                    strokeOpacity="0.25"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-
-                  {/* Main Highway Route Line */}
-                  <polyline
-                    points={svgPolylinePoints}
-                    fill="none"
-                    stroke="url(#routeGradient)"
-                    strokeWidth="6"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-
-                  {/* Waypoint A (Origin) */}
-                  {(() => {
-                    const pt = projectToSvg(originWaypoint.lat, originWaypoint.lng);
-                    return (
-                      <g transform={`translate(${pt.x}, ${pt.y})`} className="cursor-pointer">
-                        <circle r="14" fill="#0284c7" stroke="#ffffff" strokeWidth="3" />
-                        <text y="4" textAnchor="middle" fill="#ffffff" fontSize="11" fontWeight="bold">A</text>
-                        <rect x="-60" y="-35" width="120" height="20" rx="6" fill="#0f172a" fillOpacity="0.9" />
-                        <text y="-21" textAnchor="middle" fill="#ffffff" fontSize="9" fontWeight="bold">
-                          {originWaypoint.name.split(',')[0]}
-                        </text>
-                      </g>
-                    );
-                  })()}
-
-                  {/* Intermediate Stops (B, C, D...) */}
-                  {relabeledIntermediateStops.map(stop => {
-                    const pt = projectToSvg(stop.lat, stop.lng);
-                    return (
-                      <g key={stop.id} transform={`translate(${pt.x}, ${pt.y})`} className="cursor-pointer">
-                        <circle r="12" fill="#f59e0b" stroke="#ffffff" strokeWidth="2.5" />
-                        <text y="4" textAnchor="middle" fill="#ffffff" fontSize="10" fontWeight="bold">{stop.label}</text>
-                      </g>
-                    );
-                  })}
-
-                  {/* Waypoint Dest (Finish) */}
-                  {(() => {
-                    const pt = projectToSvg(destWaypoint.lat, destWaypoint.lng);
-                    return (
-                      <g transform={`translate(${pt.x}, ${pt.y})`} className="cursor-pointer">
-                        <circle r="14" fill="#10b981" stroke="#ffffff" strokeWidth="3" />
-                        <text y="4" textAnchor="middle" fill="#ffffff" fontSize="11" fontWeight="bold">
-                          {destinationLabel}
-                        </text>
-                        <rect x="-60" y="-35" width="120" height="20" rx="6" fill="#0f172a" fillOpacity="0.9" />
-                        <text y="-21" textAnchor="middle" fill="#ffffff" fontSize="9" fontWeight="bold">
-                          {destWaypoint.name.split(',')[0]}
-                        </text>
-                      </g>
-                    );
-                  })()}
-
-                  {/* Toll Plaza Pins (Pedágios com Valor R$) */}
-                  {showTollsLayer && calculatedRoute.tollPlazas.map((p) => {
-                    const pt = projectToSvg(p.lat, p.lng);
-                    return (
-                      <g 
-                        key={p.id} 
-                        transform={`translate(${pt.x}, ${pt.y})`} 
-                        className="cursor-pointer transition-transform hover:scale-125"
-                        onClick={() => {
-                          setSelectedPrfForDetail(null);
-                          setSelectedPlazaForDetail(p);
-                        }}
-                      >
-                        <circle r="11" fill="#ea580c" stroke="#ffffff" strokeWidth="2" />
-                        <text y="3.5" textAnchor="middle" fill="#ffffff" fontSize="9" fontWeight="bold">$</text>
-                        <rect x="-35" y="14" width="70" height="18" rx="5" fill="#1e293b" fillOpacity="0.95" stroke="#f97316" strokeWidth="1" />
-                        <text y="26" textAnchor="middle" fill="#f97316" fontSize="9" fontWeight="bold">
-                          R$ {p.rates.car.toFixed(2).replace('.', ',')}
-                        </text>
-                      </g>
-                    );
-                  })}
-
-                  {/* PRF Station Pins */}
-                  {showPrfLayer && calculatedRoute.prfStations.map(prf => {
-                    const pt = projectToSvg(prf.lat, prf.lng);
-                    return (
-                      <g 
-                        key={prf.id} 
-                        transform={`translate(${pt.x}, ${pt.y})`} 
-                        className="cursor-pointer transition-transform hover:scale-125"
-                        onClick={() => {
-                          setSelectedPlazaForDetail(null);
-                          setSelectedPrfForDetail(prf);
-                        }}
-                      >
-                        <circle r="11" fill="#1e3a8a" stroke="#fbbf24" strokeWidth="2" />
-                        <text y="3.5" textAnchor="middle" fill="#fbbf24" fontSize="8" fontWeight="bold">PRF</text>
-                      </g>
-                    );
-                  })}
-                </svg>
-              </div>
+              /* Mapa geográfico OpenStreetMap sem necessidade de chave Google. */
+              <RoadMapCanvas
+                origin={originWaypoint}
+                destination={destWaypoint}
+                waypoints={relabeledIntermediateStops}
+                approximatePolyline={calculatedRoute.polyline}
+                tollPlazas={calculatedRoute.tollPlazas}
+                prfStations={calculatedRoute.prfStations}
+                gasStations={calculatedRoute.gasStations}
+                showTolls={showTollsLayer}
+                showPrf={showPrfLayer}
+                showGasStations={showGasStationsLayer}
+                onSelectToll={p => {
+                  setSelectedPrfForDetail(null);
+                  setSelectedPlazaForDetail(p);
+                }}
+                onSelectPrf={p => {
+                  setSelectedPlazaForDetail(null);
+                  setSelectedPrfForDetail(p);
+                }}
+              />
             )}
 
             {/* Floating Bottom Card: Toll Plaza Inspector Modal */}
