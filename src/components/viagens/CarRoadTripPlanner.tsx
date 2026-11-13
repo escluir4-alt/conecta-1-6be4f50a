@@ -125,7 +125,7 @@ function RouteSketch({ coordinates }: { coordinates: number[][] }) {
   );
 }
 
-export function CarRoadTripPlanner({ userEmail }: { userEmail?: string }) {
+export function CarRoadTripPlanner({ userEmail }: { userEmail?: string | undefined }) {
   const [origin,setOrigin] = useState("");
   const [destination,setDestination] = useState("");
   const [stops,setStops] = useState<string[]>([]);
