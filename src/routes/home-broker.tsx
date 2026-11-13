@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { RefreshCw, ArrowUpRight, Lock, Unlock, CalendarDays, BadgeCheck, CircleDollarSign } from "lucide-react";
+import { RefreshCw, ArrowUpRight, Lock, Unlock, CalendarDays, BadgeCheck } from "lucide-react";
 import { AppShell, useRequireUser } from "@/components/AppShell";
 import { PayDialog, type PayTarget } from "@/components/finance/PayDialog";
 import { AttachmentButton } from "@/components/finance/AttachmentButton";
@@ -229,9 +229,8 @@ function HomeBroker() {
   return <AppShell active="home-broker" user={user}>
     <div className="mx-auto max-w-[1600px] space-y-6 p-4 sm:p-6 lg:p-8">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div><h1 className="text-3xl font-extrabold tracking-tight">Painel Financeiro</h1>
-          <p className="text-sm text-muted-foreground">Visão consolidada do Axion, sem importar ou substituir cadastros.</p>
-          <p className="mt-1 text-xs text-muted-foreground" data-release="github-sync-20261107-3">Versão GitHub: 2026.11.07.3</p>
+        <div>
+          <h1 className="text-3xl font-extrabold tracking-tight text-[#a47c3e] dark:text-[#d9b76f]">Painel Financeiro</h1>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Link to="/receitas"><Button variant="outline">Receitas <ArrowUpRight className="size-4" /></Button></Link>
@@ -250,16 +249,11 @@ function HomeBroker() {
         <div className="mb-4 flex flex-wrap items-center gap-3">
           <CalendarDays className="size-5 text-primary" />
           <h2 className="text-xl font-bold">Resumo Anual</h2>
-          <span className="rounded-full bg-primary px-3 py-1 text-xs font-semibold text-primary-foreground">
-            Exercício vigente: {annualDebt.data?.year ?? currentExercise} (jan–dez)
-          </span>
         </div>
         <div className="grid gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
           <div className="min-w-0">
-            <div className="mb-2 flex flex-wrap items-center gap-2">
-              <CircleDollarSign className="size-4 text-primary" />
-              <h3 className="font-bold">Compromissos do ano vigente — Despesas Anuais</h3>
-              <span className="text-xs text-muted-foreground">Todos os compromissos cadastrados no exercício, independentemente da origem</span>
+            <div className="mb-2">
+              <h3 className="font-bold">Compromissos apurados para: {annualDebt.data?.year ?? currentExercise}</h3>
             </div>
             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
               <Kpi label="Total das dívidas" value={financialReady ? formatBRL(debtTotal) : "—"} emphasis bar={financialReady ? 100 - pct : undefined} trend={financialReady ? debtMonths.map(x=>x.expected) : undefined} />
@@ -274,9 +268,8 @@ function HomeBroker() {
               <h3 className="font-bold">Apuração de Consumo</h3>
               <span className="text-xs text-muted-foreground">Água, luz, internet, gás e outros</span>
             </div>
-            <div className="grid gap-2 sm:grid-cols-2">
+            <div className="grid gap-2">
               <Kpi label="Consumo apurado" value={consumptionReady ? formatBRL(consumption?.apurado ?? 0) : "—"} trend={consumptionReady ? consumptionMonths.map(x=>x.apurado) : undefined} />
-              <Kpi label="Consumo pago" value={consumptionReady ? formatBRL(consumption?.pago ?? 0) : "—"} trend={consumptionReady ? consumptionMonths.map(x=>x.pago) : undefined} />
             </div>
           </div>
         </div>
