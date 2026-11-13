@@ -9,6 +9,29 @@ import { SEED_ANNUAL, SEED_BILLS, SEED_CONTRACTS, SEED_INSTALLMENTS, SEED_YEAR, 
 
 type Ctx = { supabase: any; userId: string };
 
+// Compatibilidade temporária com bancos ainda sem a migração de quitação.
+// Não deduz descontos nem altera os pagamentos existentes.
+function isMissingSettlementColumn(error: {message?:string}|null|undefined) {
+  return /is_settled/i.test(error?.message ?? "");
+}
+async function paymentSettlementColumnExists(supabase:any, table:"finance_bills"|"installment_entries") {
+  const {error}=await supabase.from(table).select("is_settled").limit(1);
+  if(!error) return true;
+  if(isMissingSettlementColumn(error)) return false;
+  throw new Error("Falha ao verificar estrutura de quitação: "+error.message);
+}
+async function selectPaymentRows(
+  supabase:any, table:"finance_bills"|"installment_entries",
+  columns:string, filter:(q:any)=>any,
+):Promise<{data:any[]|null;error:any}> {
+  const first=await filter(supabase.from(table).select(columns));
+  if(!first.error || !isMissingSettlementColumn(first.error)) return first;
+  const withoutSettlement=columns.split(",").map(x=>x.trim()).filter(x=>x!=="is_settled").join(",");
+  const legacy=await filter(supabase.from(table).select(withoutSettlement));
+  if(legacy.error) return legacy;
+  return {...legacy,data:(legacy.data??[]).map((item:any)=>({...item,is_settled:null}))};
+}
+
 const periodSchema = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "Competência inválida (AAAA-MM)");
 
 function periodBounds(period: string): { start: string; end: string } {
@@ -105,6 +128,10 @@ export const getMonthExpenses = createServerFn({ method: "POST" })
     const [y = 0, m = 1] = period.split("-").map(Number);
     const { start, end } = periodBounds(period);
     const reviewFlags: string[] = [];
+    const billSettlementAvailable = await paymentSettlementColumnExists(supabase, "finance_bills");
+    if(!billSettlementAvailable) {
+      reviewFlags.push("A estrutura Quita ainda não está ativada no banco; os pagamentos existentes são mostrados sem inferir descontos.");
+    }
 
     // Sincronização anual → contas do mês (idempotente)
     const { data: rows, error: rowError } = await supabase.from("annual_expenses").select("*").eq("year", y).order("position");
@@ -136,9 +163,11 @@ export const getMonthExpenses = createServerFn({ method: "POST" })
       // Parcela única do contrato nesta competência
       let inst: any = null;
       if (contractId) {
-        const { data: entries } = await supabase
-          .from("installment_entries").select("number, paid_date, paid_cents, note, is_settled")
-          .eq("contract_id", contractId).gte("due_date", start).lt("due_date", end);
+        const { data: entries, error: entriesError } = await selectPaymentRows(
+          supabase, "installment_entries", "number,paid_date,paid_cents,note,is_settled",
+          (q:any)=>q.eq("contract_id",contractId).gte("due_date",start).lt("due_date",end)
+        );
+        if(entriesError) throw new Error("Falha ao consultar parcelas: "+entriesError.message);
         const candidates = (entries ?? []).filter((e: any) => !linkedInst.has(`${contractId}:${e.number}`));
         if (candidates.length === 1) inst = candidates[0];
       }
@@ -153,7 +182,7 @@ export const getMonthExpenses = createServerFn({ method: "POST" })
         expense_kind: row.expense_kind ?? "debt",
         contract_id: inst ? contractId : null, installment_number: inst?.number ?? null,
         paid_date: inst?.paid_date ?? null, paid_cents: inst?.paid_cents ?? null, paid_note: inst?.note ?? null,
-        is_settled: inst?.is_settled === true,
+        ...(billSettlementAvailable ? {is_settled: inst?.is_settled === true} : {}),
       });
       if (!error) {
         created++;
@@ -168,9 +197,10 @@ export const getMonthExpenses = createServerFn({ method: "POST" })
 
     // Inclui as parcelas desta competência sem criar cópias de finance_bills.
     // A baixa das parcelas virtuais usa a função canônica pay_installment.
-    const { data: monthInstallments, error: installmentError } = await supabase
-      .from("installment_entries").select("contract_id,number,expected_cents,paid_date,paid_cents,due_date,note,is_settled")
-      .gte("due_date", start).lt("due_date", end);
+    const {data:monthInstallments,error:installmentError}=await selectPaymentRows(
+      supabase,"installment_entries","contract_id,number,expected_cents,paid_date,paid_cents,due_date,note,is_settled",
+      (q:any)=>q.gte("due_date",start).lt("due_date",end)
+    );
     if (installmentError) throw new Error(installmentError.message);
     const { data: contractRows, error: contractError } = await supabase
       .from("installment_contracts").select("id,name");
@@ -186,6 +216,7 @@ export const getMonthExpenses = createServerFn({ method: "POST" })
         installment_number: inst.number, creditor: contractNames.get(inst.contract_id),
         due_date: inst.due_date, expected_cents: inst.expected_cents,
         paid_date: inst.paid_date, paid_cents: inst.paid_cents, paid_note: inst.note,
+        is_settled: inst.is_settled,
       });
     }
     list.sort((a, b) => a.due_date.localeCompare(b.due_date) || a.creditor.localeCompare(b.creditor));
@@ -355,11 +386,10 @@ export const getAnnualYear = createServerFn({ method: "POST" })
       paidMonths[b.source_annual_id] = [...new Set([...(paidMonths[b.source_annual_id] ?? []), mm])];
     }
     const { data: years } = await supabase.from("annual_years").select("year, archived_at").order("year", { ascending: false });
-    const { data: yearBills, error: yearBillsError } = ids.length ? await supabase
-      .from("finance_bills").select("expected_cents, paid_cents, paid_date, is_settled, source_period")
-      .in("source_annual_id", ids).gte("source_period", `${data.year}-01`)
-      .lte("source_period", `${data.year}-12`)
-      : {data:[],error:null};
+    const {data:yearBills,error:yearBillsError}=ids.length ? await selectPaymentRows(
+      supabase,"finance_bills","expected_cents,paid_cents,paid_date,is_settled,source_period",
+      (q:any)=>q.in("source_annual_id",ids).gte("source_period",`${data.year}-01`).lte("source_period",`${data.year}-12`)
+    ) : {data:[],error:null};
     if(yearBillsError) throw new Error("Falha ao consultar baixas das Despesas Anuais: "+yearBillsError.message);
     const paidYearBills = (yearBills ?? []).filter((b: any) => b.paid_date);
     const stats = {
@@ -523,7 +553,11 @@ export const getContracts = createServerFn({ method: "POST" })
     let q = supabase.from("installment_contracts").select("*").order("created_at");
     if (!data.includeArchived) q = q.is("archived_at", null);
     const { data: contracts } = await q;
-    const { data: entries } = await supabase.from("installment_entries").select("contract_id, expected_cents, paid_date, paid_cents, due_date, is_settled").order("due_date");
+    const {data:entries,error:entryError}=await selectPaymentRows(
+      supabase,"installment_entries","contract_id,expected_cents,paid_date,paid_cents,due_date,is_settled",
+      (q:any)=>q.order("due_date")
+    );
+    if(entryError) throw new Error("Falha ao consultar parcelas: "+entryError.message);
     const byContract = new Map<string, any[]>();
     for (const e of entries ?? []) byContract.set(e.contract_id, [...(byContract.get(e.contract_id) ?? []), e]);
     return (contracts ?? []).map((c: any) => ({ ...c, kpis: contractKpis(byContract.get(c.id) ?? []) }));
@@ -839,9 +873,10 @@ export const getAnnualDebtTotals = createServerFn({ method: "GET" })
         if ((data ?? []).length < 1000) break;
       }
       for (let from = 0; ; from += 1000) {
-        const { data, error } = await supabase.from("finance_bills")
-          .select("source_annual_id,source_period,paid_cents,paid_date,is_settled")
-          .eq("user_id", userId).in("source_annual_id", chunk).range(from, from + 999);
+        const {data,error}=await selectPaymentRows(
+          supabase,"finance_bills","source_annual_id,source_period,paid_cents,paid_date,is_settled",
+          (q:any)=>q.eq("user_id",userId).in("source_annual_id",chunk).range(from,from+999)
+        );
         if (error) throw new Error("Falha ao consultar pagamentos anuais: " + error.message);
         payments.push(...(data ?? []));
         if ((data ?? []).length < 1000) break;
@@ -856,11 +891,11 @@ export const getAnnualDebtTotals = createServerFn({ method: "GET" })
     for(let i=0;i<contractIds.length;i+=50) {
       const chunk=contractIds.slice(i,i+50);
       for(let from=0;;from+=1000){
-        const {data,error}=await supabase.from("installment_entries")
-          .select("contract_id,due_date,paid_date,paid_cents,is_settled")
-          .eq("user_id",userId).in("contract_id",chunk)
-          .gte("due_date",`${year}-01-01`)
-          .range(from,from+999);
+        const {data,error}=await selectPaymentRows(
+          supabase,"installment_entries","contract_id,due_date,paid_date,paid_cents,is_settled",
+          (q:any)=>q.eq("user_id",userId).in("contract_id",chunk)
+            .gte("due_date",`${year}-01-01`).range(from,from+999)
+        );
         if(error) throw new Error("Falha ao verificar pagamentos de contratos: "+error.message);
         installments.push(...(data??[]));
         if((data??[]).length<1000)break;
