@@ -137,7 +137,7 @@ export const getMonthExpenses = createServerFn({ method: "POST" })
       let inst: any = null;
       if (contractId) {
         const { data: entries } = await supabase
-          .from("installment_entries").select("number, paid_date, paid_cents, note")
+          .from("installment_entries").select("number, paid_date, paid_cents, note, is_settled")
           .eq("contract_id", contractId).gte("due_date", start).lt("due_date", end);
         const candidates = (entries ?? []).filter((e: any) => !linkedInst.has(`${contractId}:${e.number}`));
         if (candidates.length === 1) inst = candidates[0];
@@ -153,6 +153,7 @@ export const getMonthExpenses = createServerFn({ method: "POST" })
         expense_kind: row.expense_kind ?? "debt",
         contract_id: inst ? contractId : null, installment_number: inst?.number ?? null,
         paid_date: inst?.paid_date ?? null, paid_cents: inst?.paid_cents ?? null, paid_note: inst?.note ?? null,
+        is_settled: inst?.is_settled === true,
       });
       if (!error) {
         created++;
