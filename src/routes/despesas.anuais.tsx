@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { formatBRL, parseBRL } from "@/lib/finance/money";
 import {
-  addCreditor, deleteCreditor, getAnnualYear, setYearArchived, updateAnnualCell, updateCreditor,
+  addCreditor, deleteCreditor, getAnnualYear, getAnnualIndicatorTotals, setYearArchived, updateAnnualCell, updateCreditor,
 } from "@/lib/finance/finance.functions";
 import { getAnnualContractChoices, projectAnnualContract, projectFixedAnnualConsumption } from "@/lib/finance/annual-projections.functions";
 import { scheduleAnnualTax } from "@/lib/finance/annual-tax.functions";
@@ -58,6 +58,8 @@ function AnuaisPage() {
   const user = useRequireUser();
   const qc = useQueryClient();
   const [year, setYear] = useState(new Date().getFullYear());
+  const [indicatorScope, setIndicatorScope] = useState<"current"|"all">("current");
+  const currentYear = new Date().getFullYear();
   const [editCell, setEditCell] = useState<{ id: string; month: number; value: string } | null>(null);
   const [editCreditor, setEditCreditor] = useState<CreditorDraft | null>(null);
   const [savingCreditor, setSavingCreditor] = useState(false);
@@ -65,6 +67,7 @@ function AnuaisPage() {
   const [addOpen, setAddOpen] = useState(false);
 
   const getFn = useServerFn(getAnnualYear);
+  const indicatorFn = useServerFn(getAnnualIndicatorTotals);
   const cellFn = useServerFn(updateAnnualCell);
   const updCredFn = useServerFn(updateCreditor);
   const delCredFn = useServerFn(deleteCreditor);
@@ -89,6 +92,7 @@ function AnuaisPage() {
 
   const futureCardQuery = useQuery({queryKey:["card-installment-forecast",year],queryFn:()=>previewCardsFn({data:{year}}),enabled:!!user && cardProfilesAvailable && year>=new Date().getFullYear(),staleTime:300000});
   const q = useQuery({ queryKey: ["annual", year], queryFn: () => getFn({ data: { year } }), enabled: !!user });
+  const indicatorQuery = useQuery({queryKey:["annual-indicators",currentYear,indicatorScope],queryFn:()=>indicatorFn({data:{currentYear,scope:indicatorScope}}),enabled:!!user});
   const savedRows = q.data?.rows ?? [];
   const cardCreditors = savedRows.filter((r: {id:string;creditor:string;expense_source?:string|null}) => r.expense_source === "card");
   const unlinkedCardCreditors = cardProfilesAvailable
@@ -131,6 +135,7 @@ function AnuaisPage() {
 
   function refresh() {
     void qc.invalidateQueries({ queryKey: ["annual", year] });
+    void qc.invalidateQueries({queryKey:["annual-indicators"]});
     void qc.invalidateQueries({ queryKey: ["annual-debt-totals"] });
     void qc.invalidateQueries({ queryKey: ["annual-contract-choices"] });
     void qc.invalidateQueries({ queryKey: ["finance-profiles"] });
@@ -337,12 +342,23 @@ function AnuaisPage() {
           </div>
         )}
 
-        <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-          <Summary label="Total geral previsto" value={formatBRL(grandTotal)} />
-          <Summary label="Valor pago no ano" value={formatBRL(stats.paidCents)} tone="text-success" />
-          <Summary label="A pagar no ano" value={formatBRL(aPagar)} tone={aPagar > 0 ? "text-destructive" : undefined} />
-          <Summary label="Despesas cadastradas" value={String(savedRows.length)} />
-          <Summary label="Status do exercício" value={archived ? "Arquivo" : "Em andamento"} />
+        <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm font-medium text-muted-foreground">{indicatorScope==="current" ? `Compromissos apurados para: ${currentYear}` : `Compromissos apurados: todos os anos ${indicatorQuery.data?.firstYear ? `(${indicatorQuery.data.firstYear}–${indicatorQuery.data.lastYear})` : ""}`}</p>
+          <label className="flex items-center gap-2 text-sm">Indicadores:
+            <select aria-label="Período dos indicadores" className="h-9 rounded-md border bg-card px-2"
+              value={indicatorScope} onChange={e=>setIndicatorScope(e.target.value as "current"|"all")}>
+              <option value="current">Ano vigente ({currentYear})</option><option value="all">Todos os anos</option>
+            </select>
+          </label>
+        </div>
+        {indicatorQuery.error && <p role="alert" className="mt-2 text-destructive">Falha na apuração: {indicatorQuery.error.message}</p>}
+        <div className="mt-3 grid gap-4 sm:grid-cols-2 xl:grid-cols-5" aria-busy={indicatorQuery.isFetching}>
+          <Summary label="Total geral previsto" value={indicatorQuery.data?formatBRL(indicatorQuery.data.expected):"—"} />
+          <Summary label="Valor efetivamente pago" value={indicatorQuery.data?formatBRL(indicatorQuery.data.paid):"—"} tone="text-success" />
+          <Summary label="Saldo a pagar" value={indicatorQuery.data?formatBRL(indicatorQuery.data.open):"—"} tone={indicatorQuery.data?.open?"text-destructive":undefined} />
+          <Summary label="Despesas cadastradas" value={indicatorQuery.data?String(indicatorQuery.data.expenseCount):"—"} />
+          <Summary label={indicatorScope==="current"?"Status do exercício":"Exercícios abrangidos"}
+            value={!indicatorQuery.data?"—":indicatorScope==="current"?(indicatorQuery.data.archived?"Arquivo":"Em andamento"):String(indicatorQuery.data.yearCount)} />
         </div>
 
         {futureCardQuery.error && <p role="alert" className="mt-3 text-sm text-destructive">Não foi possível consultar parcelas futuras dos cartões: {futureCardQuery.error.message}</p>}
@@ -354,13 +370,13 @@ function AnuaisPage() {
         )}
         {futureCardQuery.data?.warnings.map((warning,i)=><p role="alert" key={i} className="mt-2 text-xs text-amber-700">{warning}</p>)}
         <div className="mt-6 overflow-x-auto rounded-2xl border bg-card shadow-soft">
-          <table className="w-full min-w-[1300px] text-sm">
+          <table className="w-full min-w-[1280px] table-fixed text-xs lg:text-[12px]">
             <thead>
               <tr className="bg-muted text-xs uppercase tracking-wide text-muted-foreground">
-                <th className="sticky left-0 z-10 bg-muted px-3 py-2.5 text-left">Credor</th>
-                <th className="px-2 py-2.5">Vencimento</th>
-                {MONTHS_SHORT.map((mn) => <th key={mn} className="px-2 py-2.5 text-right">{mn}</th>)}
-                <th className="px-3 py-2.5 text-right">Total anual</th>
+                <th className="sticky left-0 z-10 w-[174px] bg-muted px-2 py-2.5 text-left">Credor</th>
+                <th className="w-[80px] px-1 py-2.5">Vencimento</th>
+                {MONTHS_SHORT.map((mn) => <th key={mn} className="px-1 py-2.5 text-right">{mn}</th>)}
+                <th className="w-[122px] px-1 py-2.5 text-right">Total anual</th>
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -374,17 +390,11 @@ function AnuaisPage() {
                 const total = Array.from({ length: 12 }, (_, i) => cells?.get(i + 1) ?? 0).reduce((a, b) => a + b, 0);
                 return (
                   <tr key={r.id}>
-                    <td className="sticky left-0 z-10 bg-card px-3 py-1.5">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-semibold">{r.creditor}</span>
-                        {(() => {
-                          const source:SourceKind = r.expense_source === "contract" || r.expense_source === "card" || r.expense_source === "consumption" || r.expense_source === "annual_tax"
-                            ? r.expense_source : r.expense_kind === "consumption" ? "consumption" : "manual";
-                          return <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">{sourceName(source,r.consumption_value_type,r.annual_tax_kind)}</span>;
-                        })()}
-                        {r.forecast_only && <span className="text-[10px] text-muted-foreground">Previsão</span>}
-                        <button type="button" aria-label={`Editar credor ${r.creditor}`} title="Classificar e ajustar credor"
-                          disabled={archived || r.forecast_only} className="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-primary disabled:opacity-40"
+                    <td className="sticky left-0 z-10 bg-card px-2 py-1.5">
+                      <div className="flex items-center gap-1">
+                        <span title={r.creditor} className="min-w-0 truncate text-xs font-semibold">{r.creditor}</span>
+                         <button type="button" aria-label={`Editar credor ${r.creditor}`} title={r.forecast_only?"Previsão: somente leitura":"Classificar e ajustar credor"}
+                          disabled={archived || r.forecast_only} className="shrink-0 rounded-md p-0.5 text-muted-foreground hover:bg-accent hover:text-primary disabled:opacity-40"
                           onClick={() => {
                             const latest = Array.from({length:12},(_,i)=>cells?.get(12-i)??null).find(v=>v!==null && v>0);
                             const source:SourceKind = ["contract","card","consumption","annual_tax"].includes(r.expense_source)
@@ -432,14 +442,12 @@ function AnuaisPage() {
                               }}
                             />
                           ) : (
-                            <span className={`px-2 ${paid.has(month) ? "font-semibold text-success" : ""}`}>
-                              {v ? formatBRL(v) : ""}
-                            </span>
+                            <AccountingMoney cents={v} className={paid.has(month)?"font-semibold text-success":""} />
                           )}
                         </td>
                       );
                     })}
-                    <td className="px-3 py-1.5 text-right font-bold">{formatBRL(total)}</td>
+                    <td className="px-3 py-1.5 text-right font-bold"><AccountingMoney cents={total} showZero /></td>
                   </tr>
                 );
               })}
@@ -448,8 +456,8 @@ function AnuaisPage() {
               <tr className="border-t-2 bg-muted/60 font-semibold">
                 <td className="sticky left-0 z-10 bg-muted px-3 py-2">Total mensal</td>
                 <td className="px-2 py-2 text-center">—</td>
-                {monthTotals.map((t, i) => <td key={i} className="px-2 py-2 text-right">{formatBRL(t)}</td>)}
-                <td className="px-3 py-2 text-right font-extrabold">{formatBRL(grandTotal)}</td>
+                {monthTotals.map((t, i) => <td key={i} className="px-2 py-2 text-right"><AccountingMoney cents={t} showZero /></td>)}
+                <td className="px-3 py-2 text-right font-extrabold"><AccountingMoney cents={grandTotal} showZero /></td>
               </tr>
             </tfoot>
           </table>
@@ -571,6 +579,14 @@ function AnuaisPage() {
       <AddCreditorDialog open={addOpen} onOpenChange={setAddOpen} year={year} onSaved={refresh} contracts={contractsQuery.data??[]} cards={cardChoices} profiles={profiles} cardProfilesAvailable={cardProfilesAvailable} />
     </AppShell>
   );
+}
+
+function AccountingMoney({cents,className="",showZero=false}:{cents:number|null|undefined;className?:string;showZero?:boolean}) {
+  if(cents==null||(!showZero&&cents===0)) return null;
+  const number=new Intl.NumberFormat("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2}).format(Math.abs(cents)/100);
+  return <span className={`flex w-full items-baseline justify-between gap-1 whitespace-nowrap tabular-nums ${className}`}>
+    <span className="text-[10px]">R$</span><span className="ml-auto text-right">{cents<0?"−":""}{number}</span>
+  </span>;
 }
 
 function Summary({ label, value, tone }: { label: string; value: string; tone?: string | undefined }) {

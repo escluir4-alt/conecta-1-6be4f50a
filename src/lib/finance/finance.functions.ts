@@ -1,3 +1,4 @@
+import { calculateAnnualIndicators } from "@/lib/finance/annual-indicators";
 import { consolidateAnnualDashboard, summarizeConsumptionForPeriod } from "@/lib/finance/annual-dashboard";
 import { extendFixedConsumptionsForNewContract } from "@/lib/finance/annual-projections.functions";
 import { createServerFn } from "@tanstack/react-start";
@@ -407,6 +408,60 @@ export const importBillsCsv = createServerFn({ method: "POST" })
   });
 
 // ================= DESPESAS ANUAIS =================
+
+/** Totais anuais independentes do exercício aberto na grade mensal. */
+export const getAnnualIndicatorTotals = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data: unknown) => z.object({
+    currentYear: z.number().int().min(2000).max(2100),
+    scope: z.enum(["current","all"]),
+  }).parse(data))
+  .handler(async ({ data, context }) => {
+    const {supabase,userId}=context as Ctx;
+    // PostgREST limita respostas a mil linhas por padrão. Paginar para não perder parcelas.
+    async function allPages(makeQuery:()=>any) {
+      const result:any[]=[];
+      for(let offset=0;offset<1000000;offset+=500) {
+        const {data:page,error}=await makeQuery().range(offset,offset+499);
+        if(error) throw new Error("Falha na apuração de Despesas Anuais: "+error.message);
+        const items=page??[];
+        result.push(...items);
+        if(items.length<500) return result;
+      }
+      throw new Error("Limite de segurança excedido na apuração; não serão exibidos totais parciais.");
+    }
+    const rows=await allPages(()=> {
+      let query=supabase.from("annual_expenses").select("id,year").eq("user_id",userId).order("id");
+      if(data.scope==="current") query=query.eq("year",data.currentYear);
+      return query;
+    });
+    const ids=rows.map((r:any)=>r.id);
+    const cells:any[]=[], payments:any[]=[];
+    for(let i=0;i<ids.length;i+=100){
+      const part=ids.slice(i,i+100);
+      cells.push(...await allPages(()=>supabase.from("annual_expense_months")
+        .select("annual_expense_id,month,expected_cents").in("annual_expense_id",part).order("annual_expense_id").order("month")));
+      // Legado sem is_settled: usar a mesma regra de compatibilidade aplicada ao registro de pagamento.
+      const hasSettlement=await paymentSettlementColumnExists(supabase,"finance_bills");
+      payments.push(...await allPages(()=>{
+        const cols=hasSettlement
+          ?"source_annual_id,source_period,paid_cents,paid_date,is_settled"
+          :"source_annual_id,source_period,paid_cents,paid_date";
+        return supabase.from("finance_bills").select(cols)
+          .eq("user_id",userId).in("source_annual_id",part)
+          .not("paid_date","is",null).order("source_annual_id").order("source_period");
+      }));
+    }
+    const totals=calculateAnnualIndicators({
+      rows,cells,payments,currentYear:data.currentYear,scope:data.scope,
+    });
+    const {data:yearRow,error:yearError}=await supabase.from("annual_years")
+      .select("archived_at").eq("user_id",userId).eq("year",data.currentYear).maybeSingle();
+    if(yearError) throw new Error("Falha ao consultar status do exercício: "+yearError.message);
+    return {...totals,archived:!!yearRow?.archived_at};
+  });
+
+
 
 export const getAnnualYear = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
