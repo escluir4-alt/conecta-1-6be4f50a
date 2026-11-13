@@ -83,7 +83,7 @@ export function PayDialog({ target, onClose, onSaved }: { target: PayTarget | nu
         if (isRevision) await reviseBill({ data: payload });
         else await payBill({ data: payload });
       } else {
-        const payload = { contractId: target.contractId, number: target.number, paidDate: date, paidCents: cents, note };
+        const payload = { contractId: target.contractId, number: target.number, paidDate: date, paidCents: cents, note, quits };
         if (isRevision) await reviseInst({ data: payload });
         else await payInst({ data: payload });
       }
