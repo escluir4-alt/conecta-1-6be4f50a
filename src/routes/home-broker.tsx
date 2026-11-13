@@ -316,7 +316,7 @@ function HomeBroker() {
         {registerType === "despesas" ? <>
           <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-[repeat(4,minmax(0,1fr))_minmax(0,1.5fr)]">
             <Kpi label="Valor previsto" value={formatBRL(stats.expected)} bar={100} />
-            <Kpi label="Valor pago" value={formatBRL(stats.paid)} bar={stats.expected > 0 ? Math.min(100, Math.round(stats.covered / stats.expected * 100)) : 0} />
+            <Kpi label="Valor pago" value={formatBRL(stats.paid)} bar={stats.expected > 0 ? Math.min(100, Math.floor(stats.covered / stats.expected * 100)) : 0} />
             <Kpi label="Em aberto" value={formatBRL(stats.open)} bar={stats.expected > 0 ? Math.round(stats.open / stats.expected * 100) : 0} />
             <div className="rounded-2xl border bg-success-soft/30 p-3">
               <p className="axion-kpi-label">Consumo do mês selecionado</p>
@@ -340,7 +340,7 @@ function HomeBroker() {
                 <div><p className="text-xs text-muted-foreground">Pagas</p><p className="text-lg font-bold text-success">{paidCount}</p></div>
                 <div><p className="text-xs text-muted-foreground">Em aberto</p><p className="text-lg font-bold text-destructive">{Math.max(0, stats.count - paidCount)}</p></div>
               </div>
-              <p className="mt-2 text-center text-xs text-muted-foreground">{stats.expected ? Math.min(100, Math.round((stats.covered / stats.expected) * 100)) : 0}% quitado em valor</p>
+              <p className="mt-2 text-center text-xs text-muted-foreground">{stats.expected ? Math.min(100, (stats.covered / stats.expected) * 100).toFixed(2).replace(".", ",") : "0,00"}% quitado em valor</p>
             </div>
           </div>
           {(expenses.data?.reviewFlags ?? []).map(message => <p className="mt-3 rounded-lg border border-amber-400/40 p-3 text-sm" key={message}>{message}</p>)}
