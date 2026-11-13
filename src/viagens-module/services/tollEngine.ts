@@ -317,8 +317,10 @@ export function calculateRoadTripRoute({
   // Calculate total road distance by summing polyline segments (with road tortuosity factor 1.18x for realistic Brazilian highway topography)
   let straightDistance = 0;
   for (let i = 0; i < fullPolyline.length - 1; i++) {
-    const [lat1, lon1] = fullPolyline[i];
-    const [lat2, lon2] = fullPolyline[i + 1];
+    const start = fullPolyline[i], end = fullPolyline[i + 1];
+    if (!start || !end) continue;
+    const [lat1, lon1] = start;
+    const [lat2, lon2] = end;
     straightDistance += calculateDistanceKm(lat1, lon1, lat2, lon2);
   }
   const totalDistanceKm = Math.round(straightDistance * 1.16);
