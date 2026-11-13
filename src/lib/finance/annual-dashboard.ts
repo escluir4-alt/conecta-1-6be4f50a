@@ -82,7 +82,7 @@ export function consolidateAnnualDashboard(input: {
   }
 
   const open = Math.max(0, expected - covered);
-  const pct = expected > 0 ? Math.min(100, Math.round((covered / expected) * 100)) : 0;
+  const pct = expected > 0 ? Math.min(100, covered >= expected ? 100 : Math.floor((covered / expected) * 100)) : 0;
   return {
     year, currentMonth, expected, paid, open, pct,
     consumption: { apurado, pago: consumoPago, month: consumoMes }, consumptionTrend,
@@ -213,7 +213,7 @@ export function consolidateOpenCommitments(input: {
   const open = Math.max(0,expected-covered);
   return {
     expected, paid, open, active,
-    pct: expected > 0 ? Math.round(100*covered/expected) : 0,
+    pct: expected > 0 ? (covered >= expected ? 100 : Math.floor(100*covered/expected)) : 0,
     yearly: [...yearly.entries()].sort((a,b)=>a[0]-b[0])
       .map(([year,v])=>({year,...v})),
   };
