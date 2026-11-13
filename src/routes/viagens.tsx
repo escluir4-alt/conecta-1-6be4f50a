@@ -60,7 +60,11 @@ function Page() {
 
   function persist(next: Item[]) {
     setItems(next);
-    localStorage.setItem(storageKey, JSON.stringify(next));
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(next));
+    } catch {
+      // Preserva as alterações na sessão mesmo quando o armazenamento estiver indisponível.
+    }
   }
 
   function add(event: FormEvent<HTMLFormElement>) {
@@ -178,9 +182,9 @@ function Page() {
         <PontosMilhasModule {...(user?.email ? { userEmail: user.email } : {})} />
 
         <p className="mt-8 text-xs text-muted-foreground">
-          Planejamento de viagens e carteira de pontos e milhas são dados locais deste navegador.
-          A integração com serviços externos e sincronização em nuvem serão tratadas em etapas
-          posteriores.
+          Planejamentos de viagem são armazenados neste navegador. A carteira de pontos e milhas
+          utiliza sincronização com o Supabase quando disponível, com cópia local.
+          O comparador de emissão não consulta a disponibilidade real de passagens.
         </p>
       </div>
     </AppShell>
