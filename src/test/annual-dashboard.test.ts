@@ -33,7 +33,7 @@ describe("Resumo Anual — fonte exclusiva Despesas Anuais", () => {
     expect(result.paid).toBe(0);
   });
 
-  it("exclui consumo das dívidas e apura apenas competências passadas e o mês atual", () => {
+  it("inclui consumo no total de compromissos e apura consumo separadamente", () => {
     const result = consolidateAnnualDashboard({
       year: 2026, currentMonth: 11,
       rows: [row("financiamento", 2026), row("nio", 2026, "consumption"), row("agua", 2026, "consumption")],
@@ -44,7 +44,7 @@ describe("Resumo Anual — fonte exclusiva Despesas Anuais", () => {
       ],
       payments: [payment("nio", "2026-10", 11990), payment("nio", "2026-11", 6000)],
     });
-    expect(result.expected).toBe(150000);
+    expect(result.expected).toBe(194470);
     expect(result.consumption).toEqual({ apurado: 32480, pago: 17990, month: 20490 });
   });
 
