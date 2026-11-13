@@ -1,10 +1,11 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState, type FormEvent } from "react";
 import { AppShell, useRequireUser } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PontosMilhasModule } from "@/components/viagens/PontosMilhasModule";
+import { ArrowRight, CarFront } from "lucide-react";
 
 export const Route = createFileRoute("/viagens")({
   head: () => ({ meta: [{ title: "Viagens — Axion" }] }),
@@ -93,6 +94,20 @@ function Page() {
           Planeje destinos, datas e observações de viagem.
         </p>
 
+        <Link
+          to="/viagens/carro"
+          className="mt-6 flex flex-wrap items-center gap-4 rounded-2xl border bg-card p-5 transition-colors hover:border-primary/40 hover:bg-accent/40"
+        >
+          <span className="rounded-xl bg-primary/10 p-3 text-primary"><CarFront className="size-6" /></span>
+          <span className="min-w-0 flex-1">
+            <span className="block font-semibold">Viagem de carro</span>
+            <span className="block text-sm text-muted-foreground">
+              Planeje rotas, paradas, combustível e pedágios com um orçamento estimado.
+            </span>
+          </span>
+          <ArrowRight className="size-5 text-muted-foreground" />
+        </Link>
+
         <form
           onSubmit={add}
           className="mt-6 grid gap-4 rounded-2xl border bg-card p-5 md:grid-cols-[1fr_1fr_auto] md:items-end"
@@ -160,7 +175,7 @@ function Page() {
             ))}
         </div>
 
-        <PontosMilhasModule userEmail={user?.email} />
+        <PontosMilhasModule {...(user?.email ? { userEmail: user.email } : {})} />
 
         <p className="mt-8 text-xs text-muted-foreground">
           Planejamento de viagens e carteira de pontos e milhas são dados locais deste navegador.
