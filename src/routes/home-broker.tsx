@@ -211,7 +211,10 @@ function HomeBroker() {
   const consumption = annualDebt.data?.consumption;
   const debtMonths = annualDebt.data?.debtTrend ?? [];
   const consumptionMonths = annualDebt.data?.consumptionTrend ?? [];
-  const paidCount = bills.filter(b => b.paid_date && b.is_settled === true).length;
+  const paidCount = bills.filter(b => b.paid_date && (
+    b.is_settled === true ||
+    (b.is_settled == null && (b.paid_cents ?? 0) >= b.expected_cents)
+  )).length;
   const incomePaidCount = incomes.filter(entry => entry.expected_cents > 0 && (entry.received_cents ?? 0) >= entry.expected_cents).length;
   const incomePct = incomeExpected > 0 ? Math.min(100, Math.round(incomeReceived / incomeExpected * 100)) : 0;
   const refresh = () => {
