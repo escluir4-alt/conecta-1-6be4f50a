@@ -8,7 +8,7 @@ import { AppShell, useRequireUser } from "@/components/AppShell";
 import { PayDialog, type PayTarget } from "@/components/finance/PayDialog";
 import { AttachmentButton } from "@/components/finance/AttachmentButton";
 import { Button } from "@/components/ui/button";
-import { formatBRL, formatDateBR } from "@/lib/finance/money";
+import { expensePaymentAdjustment, formatAdjustmentPercent, formatBRL, formatDateBR } from "@/lib/finance/money";
 import { getMonthExpenses, getContracts, getAnnualDebtTotals, getConsumptionForPeriod, addManualBill, getCardLimitOverrides, saveCardLimitOverride, clearCardLimitOverride } from "@/lib/finance/finance.functions";
 import { getFinances } from "@/lib/pluggy.functions";
 import { getFinanceAccountProfiles } from "@/lib/finance/card-profile.functions";
@@ -58,6 +58,30 @@ function Kpi({ label, value, emphasis, bar, ring, trend }: {
     {bar != null && <MicroBar value={bar} tone={emphasis ? "light" : "gold"} />}
     {trend && <Sparkline values={trend} label={label} />}
   </div>;
+}
+
+function ExpenseDifference({ expected, paid, hasPayment, quits }: {
+  expected: number; paid: number | null; hasPayment: boolean; quits: boolean;
+}) {
+  const result = expensePaymentAdjustment(expected, hasPayment ? paid : null, quits);
+  if (result.kind === "discount" || result.kind === "surcharge") {
+    const blue = result.kind === "discount";
+    return (
+      <div className={`flex flex-col gap-0.5 font-semibold ${blue ? "text-blue-600 dark:text-blue-400" : "text-red-600 dark:text-red-400"}`}>
+        <span className="text-[11px]">{blue ? "Desconto" : "Acréscimo"}</span>
+        <span>{formatAdjustmentPercent(result.percent)}</span>
+        <span>{formatBRL(result.differenceCents)}</span>
+      </div>
+    );
+  }
+  if (result.kind === "settled") return <span className="text-success">Quitado</span>;
+  if (result.kind === "unpaid") return <span className="text-muted-foreground">{formatBRL(result.openCents)}</span>;
+  return (
+    <div className="flex flex-col gap-0.5 text-amber-700 dark:text-amber-300">
+      <span className="text-[11px]">{result.openCents ? "Em aberto" : "Aguardando quitação"}</span>
+      <span>{formatBRL(result.openCents)}</span>
+    </div>
+  );
 }
 
 function HomeBroker() {
@@ -176,7 +200,7 @@ function HomeBroker() {
       used: acc.used + (manual?.used_cents ?? Math.round(Math.max(0, card.creditLimit - card.available) * 100)),
     };
   }, { limit: 0, used: 0 }), [cards, overrides.data]);
-  const stats = expenses.data?.kpis ?? { expected: 0, paid: 0, open: 0, count: 0 };
+  const stats = expenses.data?.kpis ?? { expected: 0, paid: 0, covered: 0, open: 0, count: 0 };
   // DASH 1: somente Despesas Anuais do ano vigente. Não usa filtros do DASH 2.
   const financialReady = !!annualDebt.data && !annualDebt.error;
   const consumptionReady = financialReady && !annualDebt.data?.migrationRequired;
@@ -187,7 +211,7 @@ function HomeBroker() {
   const consumption = annualDebt.data?.consumption;
   const debtYears = annualDebt.data?.yearly ?? [];
   const consumptionMonths = annualDebt.data?.consumptionTrend ?? [];
-  const paidCount = bills.filter(b => b.expected_cents > 0 && (b.paid_cents ?? 0) >= b.expected_cents).length;
+  const paidCount = bills.filter(b => b.paid_date && b.is_settled === true).length;
   const incomePaidCount = incomes.filter(entry => entry.expected_cents > 0 && (entry.received_cents ?? 0) >= entry.expected_cents).length;
   const incomePct = incomeExpected > 0 ? Math.min(100, Math.round(incomeReceived / incomeExpected * 100)) : 0;
   const refresh = () => {
@@ -292,7 +316,7 @@ function HomeBroker() {
         {registerType === "despesas" ? <>
           <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-[repeat(4,minmax(0,1fr))_minmax(0,1.5fr)]">
             <Kpi label="Valor previsto" value={formatBRL(stats.expected)} bar={100} />
-            <Kpi label="Valor pago" value={formatBRL(stats.paid)} bar={stats.expected > 0 ? Math.round(stats.paid / stats.expected * 100) : 0} />
+            <Kpi label="Valor pago" value={formatBRL(stats.paid)} bar={stats.expected > 0 ? Math.min(100, Math.round(stats.covered / stats.expected * 100)) : 0} />
             <Kpi label="Em aberto" value={formatBRL(stats.open)} bar={stats.expected > 0 ? Math.round(stats.open / stats.expected * 100) : 0} />
             <div className="rounded-2xl border bg-success-soft/30 p-3">
               <p className="axion-kpi-label">Consumo do mês selecionado</p>
@@ -316,7 +340,7 @@ function HomeBroker() {
                 <div><p className="text-xs text-muted-foreground">Pagas</p><p className="text-lg font-bold text-success">{paidCount}</p></div>
                 <div><p className="text-xs text-muted-foreground">Em aberto</p><p className="text-lg font-bold text-destructive">{Math.max(0, stats.count - paidCount)}</p></div>
               </div>
-              <p className="mt-2 text-center text-xs text-muted-foreground">{stats.expected ? Math.round((stats.paid / stats.expected) * 100) : 0}% pago em valor</p>
+              <p className="mt-2 text-center text-xs text-muted-foreground">{stats.expected ? Math.min(100, Math.round((stats.covered / stats.expected) * 100)) : 0}% quitado em valor</p>
             </div>
           </div>
           {(expenses.data?.reviewFlags ?? []).map(message => <p className="mt-3 rounded-lg border border-amber-400/40 p-3 text-sm" key={message}>{message}</p>)}
@@ -330,15 +354,15 @@ function HomeBroker() {
               <tbody className="divide-y">
                 {expenses.isLoading && <tr><td colSpan={7} className="p-6 text-center">Carregando pagamentos…</td></tr>}
                 {!expenses.isLoading && !expenses.error && bills.length === 0 && <tr><td colSpan={7} className="p-6 text-center text-muted-foreground">Nenhum lançamento neste mês.</td></tr>}
-                {bills.map(b => <tr key={b.id} className={b.paid_date ? "bg-success-soft/40" : undefined}>
+                {bills.map(b => <tr key={b.id} className={b.paid_date ? (b.is_settled ? "bg-success-soft/40" : "bg-warning-soft/20") : undefined}>
                   <td className="p-3 font-semibold">{b.creditor}</td><td className="p-3">{formatBRL(b.expected_cents)}</td>
                   <td className="p-3">{formatDateBR(b.due_date)}</td><td className="p-3">{formatDateBR(b.paid_date)}</td>
                   <td className="p-3">{b.paid_date ? formatBRL(b.paid_cents) : "—"}</td>
-                  <td className="p-3">{formatBRL(Math.max(0, b.expected_cents - (b.paid_cents ?? 0)))}</td>
+                  <td className="p-3"><ExpenseDifference expected={b.expected_cents} paid={b.paid_cents} hasPayment={!!b.paid_date} quits={b.is_settled === true} /></td>
                   <td className="p-3"><div className="flex items-center gap-2">
                     <Button size="sm" variant={b.paid_date ? "outline" : "brand"} onClick={() => setTarget({
                       ...(b.kind === "installment" ? { kind: "installment" as const, contractId: b.contract_id, number: b.installment_number } : { kind: "bill" as const, id: b.id }), creditor: b.creditor, due_date: b.due_date,
-                      expected_cents: b.expected_cents, paid_date: b.paid_date, paid_cents: b.paid_cents, note: b.paid_note,
+                      expected_cents: b.expected_cents, paid_date: b.paid_date, paid_cents: b.paid_cents, note: b.paid_note, is_settled: b.is_settled,
                     })}>{b.paid_date ? "Corrigir" : "Confirmar pagamento"}</Button>
                     <AttachmentButton entityType={b.kind === "installment" ? "installment" : "bill"} entityId={b.kind === "installment" ? `${b.contract_id}:${b.installment_number}` : b.id} />
                   </div></td>
