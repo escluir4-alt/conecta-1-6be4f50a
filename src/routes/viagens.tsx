@@ -3,7 +3,6 @@ import { useEffect, useState, type FormEvent } from "react";
 import { AppShell, useRequireUser } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { AxionTripCompare } from "@/components/AxionTripCompare";
 import { Label } from "@/components/ui/label";
 import { PontosMilhasModule } from "@/components/viagens/PontosMilhasModule";
 
@@ -161,7 +160,6 @@ function Page() {
             ))}
         </div>
 
-        <AxionTripCompare />
         <PontosMilhasModule userEmail={user?.email} />
 
         <p className="mt-8 text-xs text-muted-foreground">
