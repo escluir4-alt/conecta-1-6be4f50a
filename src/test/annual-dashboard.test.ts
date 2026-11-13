@@ -159,3 +159,43 @@ describe("Índices de compromissos ativos — todos os anos", () => {
     expect(result).toMatchObject({expected:0,paid:0,open:0,pct:0,active:0,yearly:[]});
   });
 });
+
+
+describe("Descontos e quitação nos painéis anuais", () => {
+  const debtRow = { id: "c6", year: 2026, creditor: "Empréstimo C6 Bank", expense_kind: "debt" as const };
+  const debtCell = { annual_expense_id: "c6", month: 11, expected_cents: 136068 };
+  const bill = { source_annual_id: "c6", source_period: "2026-11", paid_cents: 135883, paid_date: "2026-11-11" };
+
+  it("baixa com desconto confirmado mantém dinheiro pago real e saldo zero", () => {
+    const result = consolidateAnnualDashboard({
+      year: 2026, currentMonth: 11, rows: [debtRow], cells: [debtCell],
+      payments: [{ ...bill, is_settled: true }],
+    });
+    expect(result).toMatchObject({ expected: 136068, paid: 135883, open: 0, pct: 100 });
+  });
+
+  it("sem Quita preserva o desconto aparente como R$ 1,85 em aberto", () => {
+    const result = consolidateAnnualDashboard({
+      year: 2026, currentMonth: 11, rows: [debtRow], cells: [debtCell],
+      payments: [{ ...bill, is_settled: false }],
+    });
+    expect(result).toMatchObject({ expected: 136068, paid: 135883, open: 185 });
+    expect(result.pct).toBeLessThan(100);
+  });
+
+  it("parcela quitada com desconto é excluída de compromissos ativos", () => {
+    const result = consolidateOpenCommitments({
+      currentYear: 2026, rows: [debtRow], cells: [debtCell],
+      payments: [{ ...bill, is_settled: true }],
+    });
+    expect(result).toMatchObject({ expected: 0, paid: 0, open: 0, active: 0 });
+  });
+
+  it("parcela sem quitação expressa ainda é uma obrigação ativa", () => {
+    const result = consolidateOpenCommitments({
+      currentYear: 2026, rows: [debtRow], cells: [debtCell],
+      payments: [{ ...bill, is_settled: false }],
+    });
+    expect(result).toMatchObject({ expected: 136068, paid: 135883, open: 185, active: 1 });
+  });
+});
