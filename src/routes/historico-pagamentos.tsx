@@ -198,8 +198,8 @@ function HistoricoPage() {
                               onClick={() =>
                                 setPayTarget(
                                   it.kind === "bill"
-                                    ? { kind: "bill", id: it.id, creditor: it.creditor, due_date: it.dueDate, expected_cents: it.expectedCents, paid_date: it.paidDate, paid_cents: it.paidCents, note: it.note }
-                                    : { kind: "installment", contractId: it.contractId!, number: it.installmentNumber!, creditor: it.creditor, due_date: it.dueDate, expected_cents: it.expectedCents, paid_date: it.paidDate, paid_cents: it.paidCents, note: it.note },
+                                    ? { kind: "bill", id: it.id, creditor: it.creditor, due_date: it.dueDate, expected_cents: it.expectedCents, paid_date: it.paidDate, paid_cents: it.paidCents, note: it.note, is_settled: it.is_settled }
+                                    : { kind: "installment", contractId: it.contractId!, number: it.installmentNumber!, creditor: it.creditor, due_date: it.dueDate, expected_cents: it.expectedCents, paid_date: it.paidDate, paid_cents: it.paidCents, note: it.note, is_settled: it.is_settled },
                                 )
                               }
                             >
