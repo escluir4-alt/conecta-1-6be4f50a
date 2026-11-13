@@ -12,7 +12,7 @@ export type AnnualDashboardCell = {
 };
 export type AnnualDashboardPayment = {
   source_annual_id: string | null; source_period: string | null;
-  paid_cents: number | null; paid_date: string | null;
+  paid_cents: number | null; paid_date: string | null; is_settled?: boolean | null;
 };
 export type AnnualDashboardTotals = {
   year: number; currentMonth: number; expected: number; paid: number;
@@ -35,16 +35,22 @@ export function consolidateAnnualDashboard(input: {
   const kinds = new Map(
     input.rows.filter(row => row.year === year).map(row => [row.id, row.expense_kind ?? "debt"]),
   );
-  const payments = new Map<string, number>();
+  const payments = new Map<string, { paid: number; settled: boolean }>();
   for (const payment of input.payments) {
     if (!payment.source_annual_id || !payment.source_period || !payment.paid_date ||
         !kinds.has(payment.source_annual_id)) continue;
     const key = `${payment.source_annual_id}:${payment.source_period}`;
     // A ligação anual deve ser única; se houver espelhos repetidos, não somar pagamentos em duplicidade.
-    payments.set(key, Math.max(payments.get(key) ?? 0, cents(payment.paid_cents)));
+    const amount = cents(payment.paid_cents);
+    const previous = payments.get(key);
+    payments.set(key, {
+      paid: Math.max(previous?.paid ?? 0, amount),
+      // Em lançamentos espelhados, qualquer quitação confirmada é suficiente.
+      settled: Boolean(previous?.settled || payment.is_settled === true),
+    });
   }
 
-  let expected = 0, paid = 0, apurado = 0, consumoPago = 0, consumoMes = 0;
+  let expected = 0, paid = 0, covered = 0, apurado = 0, consumoPago = 0, consumoMes = 0;
   const consumptionTrend = Array.from({length:12},(_,i)=>({month:i+1,apurado:0,pago:0}));
   const seen = new Set<string>();
   for (const cell of input.cells) {
@@ -55,24 +61,28 @@ export function consolidateAnnualDashboard(input: {
     if (seen.has(key)) throw new Error(`Competência anual duplicada: ${key}`);
     seen.add(key);
     const value = cents(cell.expected_cents);
-    const settled = payments.get(key) ?? 0;
+    const payment = payments.get(key);
+    const paidAmount = payment?.paid ?? 0;
+    const fullyCovered = payment?.settled === true || (paidAmount >= value && !payment?.settled);
+    const credited = fullyCovered ? value : Math.min(value, paidAmount);
     if (kind === "consumption") {
       // Futuros permanecem projeções. Consumo do mês usa a célula do exercício vigente.
-      if (cell.month <= currentMonth || settled > 0) apurado += value;
-      consumoPago += settled;
+      if (cell.month <= currentMonth || paidAmount > 0) apurado += value;
+      consumoPago += paidAmount;
       const point = consumptionTrend[cell.month-1]!;
-      if (cell.month <= currentMonth || settled > 0) point.apurado += value;
-      point.pago += settled;
+      if (cell.month <= currentMonth || paidAmount > 0) point.apurado += value;
+      point.pago += paidAmount;
       if (cell.month === currentMonth) consumoMes += value;
     } else {
       expected += value;
       // Encargos excedentes não reduzem o principal além do valor devido da competência.
-      paid += Math.min(value, settled);
+      paid += Math.min(value, paidAmount);
+      covered += credited;
     }
   }
 
-  const open = Math.max(0, expected - paid);
-  const pct = expected > 0 ? Math.min(100, Math.round((paid / expected) * 100)) : 0;
+  const open = Math.max(0, expected - covered);
+  const pct = expected > 0 ? Math.min(100, Math.round((covered / expected) * 100)) : 0;
   return {
     year, currentMonth, expected, paid, open, pct,
     consumption: { apurado, pago: consumoPago, month: consumoMes }, consumptionTrend,
@@ -144,14 +154,19 @@ export function consolidateOpenCommitments(input: {
       (r.source_contract_id != null && input.rows.some(a =>
         a.year === input.currentYear && a.source_contract_id === r.source_contract_id))));
   const rowById = new Map(selected.map(r => [r.id, r]));
-  const paidByCell = new Map<string, number>();
+  const paidByCell = new Map<string, { paid: number; settled: boolean; explicitUnconfirmed: boolean }>();
   for (const p of input.payments) {
     if (!p.source_annual_id || !p.source_period || !p.paid_date ||
         !rowById.has(p.source_annual_id)) continue;
     const key = `${p.source_annual_id}:${p.source_period}`;
-    paidByCell.set(key, Math.max(paidByCell.get(key) ?? 0, cents(p.paid_cents)));
+    const previous = paidByCell.get(key);
+    paidByCell.set(key, {
+      paid: Math.max(previous?.paid ?? 0, cents(p.paid_cents)),
+      settled: Boolean(previous?.settled || p.is_settled === true),
+      explicitUnconfirmed: Boolean(previous?.explicitUnconfirmed || p.is_settled === false),
+    });
   }
-  const groups = new Map<string, { expected: number; paid: number; yearly: Map<number, {expected:number;paid:number}> }>();
+  const groups = new Map<string, { expected: number; paid: number; covered: number; unconfirmed: boolean; yearly: Map<number, {expected:number;paid:number;covered:number}> }>();
   const seen = new Set<string>();
   for (const cell of input.cells) {
     const row = rowById.get(cell.annual_expense_id);
@@ -162,36 +177,43 @@ export function consolidateOpenCommitments(input: {
     const groupId = row.source_contract_id
       ? `contract:${row.source_contract_id}`
       : `creditor:${row.creditor.trim().toLocaleLowerCase("pt-BR")}`;
-    const group = groups.get(groupId) ?? { expected: 0, paid: 0, yearly: new Map() };
+    const group = groups.get(groupId) ?? { expected: 0, paid: 0, covered: 0, unconfirmed: false, yearly: new Map() };
     const expected = cents(cell.expected_cents);
-    const paid = Math.min(expected, paidByCell.get(key) ?? 0);
+    const payment = paidByCell.get(key);
+    const paid = Math.min(expected, payment?.paid ?? 0);
+    const complete = payment?.settled === true || (payment?.explicitUnconfirmed !== true && paid >= expected);
+    const covered = complete ? expected : paid;
     group.expected += expected;
     group.paid += paid;
-    const year = group.yearly.get(row.year) ?? {expected:0,paid:0};
+    group.covered += covered;
+    if (payment?.explicitUnconfirmed === true && !payment.settled) group.unconfirmed = true;
+    const year = group.yearly.get(row.year) ?? {expected:0,paid:0,covered:0};
     year.expected += expected;
     year.paid += paid;
+    year.covered += covered;
     group.yearly.set(row.year, year);
     groups.set(groupId, group);
   }
   const yearly = new Map<number, {expected:number;paid:number;open:number}>();
-  let expected = 0, paid = 0, active = 0;
+  let expected = 0, paid = 0, covered = 0, active = 0;
   for (const group of groups.values()) {
-    if (group.expected <= 0 || group.paid >= group.expected) continue;
+    if (group.expected <= 0 || (group.covered >= group.expected && !group.unconfirmed)) continue;
     active++;
     expected += group.expected;
     paid += group.paid;
+    covered += group.covered;
     for (const [year, item] of group.yearly) {
       const prev = yearly.get(year) ?? {expected:0,paid:0,open:0};
       prev.expected += item.expected;
       prev.paid += item.paid;
-      prev.open += Math.max(0,item.expected-item.paid);
+      prev.open += Math.max(0,item.expected-item.covered);
       yearly.set(year,prev);
     }
   }
-  const open = Math.max(0,expected-paid);
+  const open = Math.max(0,expected-covered);
   return {
     expected, paid, open, active,
-    pct: expected > 0 ? Math.round(100*paid/expected) : 0,
+    pct: expected > 0 ? Math.round(100*covered/expected) : 0,
     yearly: [...yearly.entries()].sort((a,b)=>a[0]-b[0])
       .map(([year,v])=>({year,...v})),
   };
