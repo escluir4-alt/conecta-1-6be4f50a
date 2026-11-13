@@ -175,7 +175,7 @@ function Page() {
             ))}
         </div>
 
-        <PontosMilhasModule userEmail={user?.email} />
+        <PontosMilhasModule {...(user?.email ? { userEmail: user.email } : {})} />
 
         <p className="mt-8 text-xs text-muted-foreground">
           Planejamento de viagens e carteira de pontos e milhas são dados locais deste navegador.
