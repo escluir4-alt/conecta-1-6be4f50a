@@ -50,7 +50,7 @@ describe("PontosMilhasModule", () => {
   it("loads user programs from Supabase", async () => {
     mocks.list.mockResolvedValueOnce({ data: [userRow], error: null });
     render(<PontosMilhasModule userEmail="person@example.com" />);
-    expect(await screen.findByText("5.000")).toBeInTheDocument();
+    expect(await screen.findAllByText("5.000")).toHaveLength(2);
     expect(screen.getByText(/Livelo/)).toBeInTheDocument();
     expect(mocks.list).toHaveBeenCalledWith("user-1");
   });
@@ -60,7 +60,7 @@ describe("PontosMilhasModule", () => {
     fireEvent.change(screen.getByLabelText("Saldo"), { target: { value: "5000" } });
     fireEvent.change(screen.getByLabelText("Valor estimado por ponto (R$)"), { target: { value: "0,012" } });
     fireEvent.click(screen.getByRole("button", { name: "Adicionar programa" }));
-    expect(await screen.findByText("5.000")).toBeInTheDocument();
+    expect(await screen.findAllByText("5.000")).toHaveLength(2);
     expect(JSON.parse(localStorage.getItem("axion:viagens:pontos-milhas:guest") ?? "[]")).toHaveLength(1);
   });
 
@@ -82,13 +82,13 @@ describe("PontosMilhasModule", () => {
     }]));
     render(<PontosMilhasModule userEmail="person@example.com" />);
     expect(await screen.findByText("Modo local / offline")).toBeInTheDocument();
-    expect(screen.getByText("1.200")).toBeInTheDocument();
+    expect(await screen.findAllByText("1.200")).toHaveLength(2);
   });
 
   it("removes a cloud program", async () => {
     mocks.list.mockResolvedValueOnce({ data: [userRow], error: null });
     render(<PontosMilhasModule userEmail="person@example.com" />);
-    await screen.findByText("5.000");
+    expect(await screen.findAllByText("5.000")).toHaveLength(2);
     fireEvent.click(screen.getByRole("button", { name: "Excluir Livelo" }));
     await waitFor(() => expect(mocks.remove).toHaveBeenCalledWith(userRow.id, "user-1"));
     expect(await screen.findByText("Nenhum programa cadastrado ainda.")).toBeInTheDocument();
