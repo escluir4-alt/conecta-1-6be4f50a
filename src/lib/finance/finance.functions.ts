@@ -539,7 +539,9 @@ function contractKpis(entries: any[]) {
   const remaining = entries.reduce((s, e) => s + expensePaymentAdjustment(e.expected_cents, e.paid_date ? e.paid_cents : null, e.is_settled === true).openCents, 0);
   return {
     total, paid, remaining,
-    paidCount: paidEntries.filter(e => e.is_settled === true).length, count: entries.length,
+    paidCount: paidEntries.filter(e => e.is_settled === true ||
+      (e.is_settled == null && (e.paid_cents ?? 0) >= e.expected_cents)).length,
+    count: entries.length,
     pct: entries.length ? (paidEntries.length / entries.length) * 100 : 0,
     firstDue: entries[0]?.due_date ?? null, lastDue: entries[entries.length - 1]?.due_date ?? null,
   };
