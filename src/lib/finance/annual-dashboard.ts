@@ -19,6 +19,8 @@ export type AnnualDashboardTotals = {
   open: number; pct: number;
   consumption: { apurado: number; pago: number; month: number };
   consumptionTrend: Array<{month:number;apurado:number;pago:number}>;
+  yearly: Array<{year:number;expected:number;paid:number;open:number}>;
+  debtTrend: Array<{month:number;expected:number;paid:number;open:number}>;
 };
 
 const cents = (value: number | null | undefined) => {
@@ -52,6 +54,7 @@ export function consolidateAnnualDashboard(input: {
 
   let expected = 0, paid = 0, covered = 0, apurado = 0, consumoPago = 0, consumoMes = 0;
   const consumptionTrend = Array.from({length:12},(_,i)=>({month:i+1,apurado:0,pago:0}));
+  const debtTrend = Array.from({length:12},(_,i)=>({month:i+1,expected:0,paid:0,open:0}));
   const seen = new Set<string>();
   for (const cell of input.cells) {
     const kind = kinds.get(cell.annual_expense_id);
@@ -65,6 +68,15 @@ export function consolidateAnnualDashboard(input: {
     const paidAmount = payment?.paid ?? 0;
     const fullyCovered = payment?.settled === true || (paidAmount >= value && !payment?.settled);
     const credited = fullyCovered ? value : Math.min(value, paidAmount);
+    // Todos os compromissos registrados em Despesas Anuais, inclusive consumo,
+    // entram no resumo anual. A apuração de consumo é apenas um recorte adicional.
+    expected += value;
+    paid += Math.min(value, paidAmount);
+    covered += credited;
+    const pointDebt = debtTrend[cell.month - 1]!;
+    pointDebt.expected += value;
+    pointDebt.paid += Math.min(value, paidAmount);
+    pointDebt.open += Math.max(0, value - credited);
     if (kind === "consumption") {
       // Futuros permanecem projeções. Consumo do mês usa a célula do exercício vigente.
       if (cell.month <= currentMonth || paidAmount > 0) apurado += value;
@@ -73,11 +85,6 @@ export function consolidateAnnualDashboard(input: {
       if (cell.month <= currentMonth || paidAmount > 0) point.apurado += value;
       point.pago += paidAmount;
       if (cell.month === currentMonth) consumoMes += value;
-    } else {
-      expected += value;
-      // Encargos excedentes não reduzem o principal além do valor devido da competência.
-      paid += Math.min(value, paidAmount);
-      covered += credited;
     }
   }
 
@@ -86,6 +93,7 @@ export function consolidateAnnualDashboard(input: {
   return {
     year, currentMonth, expected, paid, open, pct,
     consumption: { apurado, pago: consumoPago, month: consumoMes }, consumptionTrend,
+    debtTrend, yearly: [{year,expected,paid,open}],
   };
 }
 

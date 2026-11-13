@@ -33,7 +33,7 @@ describe("Resumo Anual — fonte exclusiva Despesas Anuais", () => {
     expect(result.paid).toBe(0);
   });
 
-  it("exclui consumo das dívidas e apura apenas competências passadas e o mês atual", () => {
+  it("inclui consumo no total de compromissos e apura consumo separadamente", () => {
     const result = consolidateAnnualDashboard({
       year: 2026, currentMonth: 11,
       rows: [row("financiamento", 2026), row("nio", 2026, "consumption"), row("agua", 2026, "consumption")],
@@ -44,7 +44,7 @@ describe("Resumo Anual — fonte exclusiva Despesas Anuais", () => {
       ],
       payments: [payment("nio", "2026-10", 11990), payment("nio", "2026-11", 6000)],
     });
-    expect(result.expected).toBe(150000);
+    expect(result.expected).toBe(194470);
     expect(result.consumption).toEqual({ apurado: 32480, pago: 17990, month: 20490 });
   });
 
@@ -197,5 +197,40 @@ describe("Descontos e quitação nos painéis anuais", () => {
       payments: [{ ...bill, is_settled: false }],
     });
     expect(result).toMatchObject({ expected: 136068, paid: 135883, open: 185, active: 1 });
+  });
+});
+
+
+describe("Regra final — todos os compromissos do ano vigente", () => {
+  it("inclui contratos, cartões, tributos, consumo e avulsos presentes em 2026, mas nunca 2027", () => {
+    const result = consolidateAnnualDashboard({
+      year: 2026, currentMonth: 11,
+      rows: [
+        row("contrato26",2026),row("cartao26",2026),row("ipva26",2026),
+        row("consumo26",2026,"consumption"),row("avulso26",2026),
+        row("contrato27",2027),row("consumo27",2027,"consumption")
+      ],
+      cells: [
+        cell("contrato26",1,10000),cell("cartao26",2,20000),
+        cell("ipva26",3,30000),cell("consumo26",4,40000),cell("avulso26",5,50000),
+        cell("contrato27",1,999999),cell("consumo27",1,999999)
+      ],
+      payments: [
+        payment("contrato26","2026-01",10000),
+        payment("consumo26","2026-04",15000),
+        payment("contrato27","2027-01",999999)
+      ]
+    });
+    expect(result).toMatchObject({year:2026,expected:150000,paid:25000,open:125000});
+    expect(result.consumption).toMatchObject({apurado:40000,pago:15000});
+    expect(result.debtTrend).toHaveLength(12);
+    expect(result.yearly).toEqual([{year:2026,expected:150000,paid:25000,open:125000}]);
+  });
+  it("na virada para 2027 considera só células de 2027", () => {
+    const rows=[row("a26",2026),row("a27",2027)];
+    const cells=[cell("a26",12,10000),cell("a27",1,40000)];
+    const result=consolidateAnnualDashboard({year:2027,currentMonth:1,rows,cells,payments:[]});
+    expect(result.expected).toBe(40000);
+    expect(result.yearly[0]?.year).toBe(2027);
   });
 });
