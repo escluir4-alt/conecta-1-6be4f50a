@@ -51,7 +51,7 @@ describe("PontosMilhasModule", () => {
     mocks.list.mockResolvedValueOnce({ data: [userRow], error: null });
     render(<PontosMilhasModule userEmail="person@example.com" />);
     expect(await screen.findAllByText("5.000")).toHaveLength(2);
-    expect(screen.getByText(/Livelo/)).toBeInTheDocument();
+    expect(await screen.findAllByText("Livelo")).toHaveLength(2);
     expect(mocks.list).toHaveBeenCalledWith("user-1");
   });
 
