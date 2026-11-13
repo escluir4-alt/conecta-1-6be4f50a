@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { supabase } from "@/integrations/supabase/client";
 
 type ProgramType = "milhas" | "pontos";
 
@@ -13,6 +14,19 @@ type LoyaltyProgram = {
   expiration: string;
   valuePerPoint: number;
   notes: string;
+};
+
+type TravelLoyaltyProgramRow = {
+  id: string;
+  user_id: string;
+  program_name: string;
+  program_type: ProgramType;
+  balance: number;
+  expiration_date: string | null;
+  value_per_point: number;
+  notes: string;
+  created_at: string;
+  updated_at: string;
 };
 
 const PROGRAM_OPTIONS = [
@@ -80,6 +94,34 @@ const defaultPrograms: LoyaltyProgram[] = [
   },
 ];
 
+function normalizeRow(row: TravelLoyaltyProgramRow): LoyaltyProgram {
+  return {
+    id: row.id,
+    program: row.program_name,
+    type: row.program_type,
+    balance: row.balance,
+    expiration: row.expiration_date ?? "",
+    valuePerPoint: Number(row.value_per_point) || 0,
+    notes: row.notes ?? "",
+  };
+}
+
+function readLocalPrograms(storageKey: string): LoyaltyProgram[] {
+  try {
+    const raw = localStorage.getItem(storageKey);
+    if (!raw) return defaultPrograms;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return defaultPrograms;
+    return parsed as LoyaltyProgram[];
+  } catch {
+    return defaultPrograms;
+  }
+}
+
+function writeLocalPrograms(storageKey: string, programs: LoyaltyProgram[]) {
+  localStorage.setItem(storageKey, JSON.stringify(programs));
+}
+
 export function PontosMilhasModule({ userEmail }: { userEmail?: string }) {
   const storageKey = useMemo(
     () => `axion:viagens:pontos-milhas:${userEmail ?? "guest"}`,
@@ -93,34 +135,119 @@ export function PontosMilhasModule({ userEmail }: { userEmail?: string }) {
   const [expiration, setExpiration] = useState("2026-12-15");
   const [valuePerPoint, setValuePerPoint] = useState("0,015");
   const [notes, setNotes] = useState("");
+  const [syncing, setSyncing] = useState(false);
 
   useEffect(() => {
-    if (!userEmail) return;
-    try {
-      const raw = localStorage.getItem(storageKey);
-      if (!raw) {
-        setPrograms(defaultPrograms);
-        return;
-      }
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        setPrograms(parsed);
-      }
-    } catch {
-      setPrograms(defaultPrograms);
+    if (!userEmail) {
+      setPrograms(readLocalPrograms(storageKey));
+      return;
     }
+
+    const loadFromSupabase = async () => {
+      try {
+        const { data: userData, error: userError } = await supabase.auth.getUser();
+        if (userError || !userData.user?.id) {
+          setPrograms(readLocalPrograms(storageKey));
+          return;
+        }
+
+        const { data, error } = await supabase
+          .from("travel_loyalty_programs")
+          .select("*")
+          .eq("user_id", userData.user.id)
+          .order("created_at", { ascending: false });
+
+        if (error) throw error;
+
+        const nextPrograms = data && data.length > 0 ? data.map(normalizeRow) : readLocalPrograms(storageKey);
+        setPrograms(nextPrograms);
+        writeLocalPrograms(storageKey, nextPrograms);
+      } catch {
+        setPrograms(readLocalPrograms(storageKey));
+      }
+    };
+
+    void loadFromSupabase();
   }, [storageKey, userEmail]);
 
   useEffect(() => {
-    if (!userEmail) return;
-    localStorage.setItem(storageKey, JSON.stringify(programs));
+    if (!userEmail) {
+      writeLocalPrograms(storageKey, programs);
+    }
   }, [programs, storageKey, userEmail]);
 
   const totalBalance = programs.reduce((sum, item) => sum + item.balance, 0);
   const estimatedValue = programs.reduce((sum, item) => sum + item.balance * item.valuePerPoint, 0);
   const expiringSoon = programs.filter((item) => isExpiringSoon(item.expiration));
 
-  const addProgram = () => {
+  const persistProgram = async (nextItem: LoyaltyProgram) => {
+    if (!userEmail) return;
+
+    try {
+      const { data: userData, error: userError } = await supabase.auth.getUser();
+      if (userError || !userData.user?.id) return;
+
+      const payload = {
+        user_id: userData.user.id,
+        program_name: nextItem.program,
+        program_type: nextItem.type,
+        balance: nextItem.balance,
+        expiration_date: nextItem.expiration || null,
+        value_per_point: nextItem.valuePerPoint,
+        notes: nextItem.notes,
+      };
+
+      const { error } = await supabase.from("travel_loyalty_programs").insert(payload);
+      if (!error) {
+        const { data: rows, error: selectError } = await supabase
+          .from("travel_loyalty_programs")
+          .select("*")
+          .eq("user_id", userData.user.id)
+          .order("created_at", { ascending: false });
+
+        if (!selectError && rows) {
+          const synced = rows.map(normalizeRow);
+          setPrograms(synced);
+          writeLocalPrograms(storageKey, synced);
+        }
+      }
+    } catch {
+      // Intentionally ignore backend sync failures and keep the local state as source of truth.
+    }
+  };
+
+  const removeProgramFromSupabase = async (id: string) => {
+    if (!userEmail) return;
+
+    try {
+      const { data: userData, error: userError } = await supabase.auth.getUser();
+      if (userError || !userData.user?.id) return;
+
+      const { error } = await supabase
+        .from("travel_loyalty_programs")
+        .delete()
+        .eq("id", id)
+        .eq("user_id", userData.user.id);
+
+      if (!error) {
+        const { data: rows, error: selectError } = await supabase
+          .from("travel_loyalty_programs")
+          .select("*")
+          .eq("user_id", userData.user.id)
+          .order("created_at", { ascending: false });
+
+        if (!selectError && rows) {
+          const synced = rows.map(normalizeRow);
+          setPrograms(synced);
+          writeLocalPrograms(storageKey, synced);
+        }
+      }
+    } catch {
+      // Intentionally ignore backend sync failures and keep the local state as source of truth.
+    }
+  };
+
+  const addProgram = async () => {
     const balanceValue = parseNumber(balance);
     const pointValue = parseNumber(valuePerPoint);
 
@@ -136,17 +263,27 @@ export function PontosMilhasModule({ userEmail }: { userEmail?: string }) {
       notes: notes.trim(),
     };
 
-    setPrograms((prev) => [nextItem, ...prev]);
+    const nextPrograms = [nextItem, ...programs];
+    setPrograms(nextPrograms);
+    writeLocalPrograms(storageKey, nextPrograms);
     setProgram(PROGRAM_OPTIONS[0]);
     setProgramType("milhas");
     setBalance("");
     setExpiration("");
     setValuePerPoint("0,015");
     setNotes("");
+    setSyncing(true);
+    await persistProgram(nextItem);
+    setSyncing(false);
   };
 
-  const removeProgram = (id: string) => {
-    setPrograms((prev) => prev.filter((item) => item.id !== id));
+  const removeProgram = async (id: string) => {
+    const nextPrograms = programs.filter((item) => item.id !== id);
+    setPrograms(nextPrograms);
+    writeLocalPrograms(storageKey, nextPrograms);
+    setSyncing(true);
+    await removeProgramFromSupabase(id);
+    setSyncing(false);
   };
 
   const [cashValue, setCashValue] = useState("1500");
@@ -283,9 +420,9 @@ export function PontosMilhasModule({ userEmail }: { userEmail?: string }) {
             </div>
           </div>
 
-          <div className="mt-4 flex justify-end">
-            <Button type="button" onClick={addProgram}>
-              Adicionar programa
+          <div className="mt-4 flex justify-end gap-2">
+            <Button type="button" onClick={() => void addProgram()} disabled={syncing}>
+              {syncing ? "Salvando..." : "Adicionar programa"}
             </Button>
           </div>
         </div>
@@ -338,7 +475,12 @@ export function PontosMilhasModule({ userEmail }: { userEmail?: string }) {
                 <span className={isExpiringSoon(item.expiration) ? "text-amber-600" : "text-muted-foreground"}>
                   {formatDate(item.expiration)}
                 </span>
-                <Button variant="ghost" size="sm" onClick={() => removeProgram(item.id)}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => void removeProgram(item.id)}
+                  disabled={syncing}
+                >
                   Excluir
                 </Button>
               </div>
