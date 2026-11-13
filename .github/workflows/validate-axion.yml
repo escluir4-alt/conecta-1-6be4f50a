@@ -3,7 +3,7 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [main, feature/viagens-pontos-milhas]
+    branches: [main]
 jobs:
   check:
     runs-on: ubuntu-latest
