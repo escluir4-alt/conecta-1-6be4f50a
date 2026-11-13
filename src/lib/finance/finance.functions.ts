@@ -1,4 +1,4 @@
-import { consolidateAnnualDashboard, consolidateOpenCommitments, summarizeConsumptionForPeriod } from "@/lib/finance/annual-dashboard";
+import { consolidateAnnualDashboard, summarizeConsumptionForPeriod } from "@/lib/finance/annual-dashboard";
 import { extendFixedConsumptionsForNewContract } from "@/lib/finance/annual-projections.functions";
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
@@ -805,7 +805,7 @@ export const getAnnualDebtTotals = createServerFn({ method: "GET" })
     let migrationRequired = false;
     for (let start = 0; ; start += 1000) {
       const { data, error } = await supabase.from("annual_expenses")
-        .select("id,year,creditor,expense_kind,source_contract_id").eq("user_id", userId).gte("year", year)
+        .select("id,year,creditor,expense_kind,source_contract_id").eq("user_id", userId).eq("year", year)
         .range(start, start + 999);
       if(error) {
         // O app segue consultável enquanto a migração SQL aguarda aplicação.
@@ -814,7 +814,7 @@ export const getAnnualDebtTotals = createServerFn({ method: "GET" })
           throw new Error("Falha ao consultar Despesas Anuais: "+error.message);
         migrationRequired = true;
         const {data:legacy,error:legacyError}=await supabase.from("annual_expenses")
-          .select("id,year,creditor").eq("user_id",userId).gte("year",year).range(start,start+999);
+          .select("id,year,creditor").eq("user_id",userId).eq("year",year).range(start,start+999);
         if(legacyError) throw new Error("Falha ao consultar Despesas Anuais: "+legacyError.message);
         rows.push(...(legacy ?? []).map((x:any)=>({...x,expense_kind:"debt",source_contract_id:null})));
         if((legacy??[]).length < 1000) break;
@@ -824,14 +824,6 @@ export const getAnnualDebtTotals = createServerFn({ method: "GET" })
       }
     }
 
-    const {data: archivedYearRows, error: archivedYearsError} = await supabase.from("annual_years")
-      .select("year").eq("user_id",userId).not("archived_at","is",null);
-    if(archivedYearsError) throw new Error("Falha ao consultar exercícios arquivados: "+archivedYearsError.message);
-    const {data: archivedContractRows, error: archivedContractsError} = await supabase.from("installment_contracts")
-      .select("id").eq("user_id",userId).not("archived_at","is",null);
-    if(archivedContractsError) throw new Error("Falha ao consultar contratos arquivados: "+archivedContractsError.message);
-    const archivedYears = (archivedYearRows??[]).map((r:any)=>Number(r.year));
-    const archivedContracts = (archivedContractRows??[]).map((r:any)=>String(r.id));
     const cells: any[] = [];
     const payments: any[] = [];
     const ids = rows.map(row => row.id as string);
@@ -895,10 +887,7 @@ export const getAnnualDebtTotals = createServerFn({ method: "GET" })
     }
     const currentRows = rows.filter(r => r.year === year);
     const totals=consolidateAnnualDashboard({ year, currentMonth, rows:currentRows, cells, payments });
-    const openCommitments=consolidateOpenCommitments({
-      currentYear:year,rows,cells,payments,archivedYears,archivedContracts,
-    });
-    return {...totals,...openCommitments,migrationRequired};
+    return {...totals,migrationRequired};
   });
 
 
