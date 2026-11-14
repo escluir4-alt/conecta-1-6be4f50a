@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { formatBRL, parseBRL } from "@/lib/finance/money";
+import type { IndicatorTrendPoint } from "@/lib/finance/annual-indicators";
 import {
   addCreditor, deleteCreditor, getAnnualYear, getAnnualIndicatorTotals, setYearArchived, updateAnnualCell, updateCreditor,
 } from "@/lib/finance/finance.functions";
@@ -363,39 +364,45 @@ function AnuaisPage() {
 
         {indicatorQuery.error && <p role="alert" className="mt-6 text-destructive">Falha na apuração de Despesas Anuais: {indicatorQuery.error.message}</p>}
 
-        <section className="mt-6 space-y-3" aria-label="Compromissos apurados" aria-busy={indicatorQuery.isFetching}>
-          <div>
-            <h2 className="text-lg font-bold text-foreground">Compromissos apurados</h2>
-            <p className="text-sm text-muted-foreground">
-              {indicatorQuery.data?.all.lastYear != null && indicatorQuery.data.all.lastYear > currentYear
-                ? `De ${currentYear} até ${indicatorQuery.data.all.lastYear} — exercícios com compromissos cadastrados`
-                : `A partir de ${currentYear} — somente compromissos cadastrados`}
-            </p>
-          </div>
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-            <Summary label="Total geral previsto" value={indicatorQuery.data ? formatBRL(indicatorQuery.data.all.expected) : "—"} />
-            <Summary label="Valor efetivamente pago" value={indicatorQuery.data ? formatBRL(indicatorQuery.data.all.paid) : "—"} tone="text-success" />
-            <Summary label="Saldo a pagar" value={indicatorQuery.data ? formatBRL(indicatorQuery.data.all.open) : "—"} tone={indicatorQuery.data?.all.open ? "text-destructive" : undefined} />
-            <Summary label="Despesas cadastradas" value={indicatorQuery.data ? String(indicatorQuery.data.all.expenseCount) : "—"} />
-            <Summary label="Exercícios abrangidos" value={indicatorQuery.data ? String(indicatorQuery.data.all.yearCount) : "—"} />
-          </div>
-        </section>
+        <div className="mt-6 grid gap-4 xl:grid-cols-2" aria-busy={indicatorQuery.isFetching}>
+          <section aria-label="Compromissos apurados"
+            className="min-w-0 rounded-2xl border bg-card/70 p-4 shadow-soft sm:p-5">
+            <h2 className="text-lg font-bold tracking-tight text-foreground">Compromissos apurados</h2>
+            <div className="mt-4 grid gap-3 sm:grid-cols-3">
+              <Summary label="Total geral previsto"
+                value={indicatorQuery.data ? formatBRL(indicatorQuery.data.all.expected) : "—"}
+                trend={indicatorQuery.data?.all.trend} metric="expected" />
+              <Summary label="Valor efetivamente pago"
+                value={indicatorQuery.data ? formatBRL(indicatorQuery.data.all.paid) : "—"}
+                trend={indicatorQuery.data?.all.trend} metric="paid"
+                totalExpected={indicatorQuery.data?.all.expected} tone="text-success" />
+              <Summary label="Saldo a pagar"
+                value={indicatorQuery.data ? formatBRL(indicatorQuery.data.all.open) : "—"}
+                trend={indicatorQuery.data?.all.trend} metric="open"
+                totalExpected={indicatorQuery.data?.all.expected} tone="text-destructive" />
+            </div>
+          </section>
 
-        <section className="mt-8 space-y-3" aria-label="Despesas para esse ano" aria-busy={indicatorQuery.isFetching}>
-          <div>
-            <h2 className="text-lg font-bold text-foreground">Despesas para esse ano</h2>
-            <p className="text-sm text-muted-foreground">Janeiro a dezembro de {indicatorQuery.data?.currentYear ?? currentYear} — ano vigente</p>
-          </div>
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-            <Summary label="Total geral previsto" value={indicatorQuery.data ? formatBRL(indicatorQuery.data.current.expected) : "—"} />
-            <Summary label="Valor efetivamente pago" value={indicatorQuery.data ? formatBRL(indicatorQuery.data.current.paid) : "—"} tone="text-success" />
-            <Summary label="Saldo a pagar" value={indicatorQuery.data ? formatBRL(indicatorQuery.data.current.open) : "—"} tone={indicatorQuery.data?.current.open ? "text-destructive" : undefined} />
-            <Summary label="Despesas cadastradas" value={indicatorQuery.data ? String(indicatorQuery.data.current.expenseCount) : "—"} />
-            <Summary label="Status do exercício" value={!indicatorQuery.data ? "—" : indicatorQuery.data.archived ? "Arquivo" : "Em andamento"} />
-          </div>
-        </section>
+          <section aria-label="Despesas para esse ano"
+            className="min-w-0 rounded-2xl border bg-card/70 p-4 shadow-soft sm:p-5">
+            <h2 className="text-lg font-bold tracking-tight text-foreground">Despesas para esse ano</h2>
+            <div className="mt-4 grid gap-3 sm:grid-cols-3">
+              <Summary label="Total geral previsto"
+                value={indicatorQuery.data ? formatBRL(indicatorQuery.data.current.expected) : "—"}
+                trend={indicatorQuery.data?.current.trend} metric="expected" />
+              <Summary label="Valor efetivamente pago"
+                value={indicatorQuery.data ? formatBRL(indicatorQuery.data.current.paid) : "—"}
+                trend={indicatorQuery.data?.current.trend} metric="paid"
+                totalExpected={indicatorQuery.data?.current.expected} tone="text-success" />
+              <Summary label="Saldo a pagar"
+                value={indicatorQuery.data ? formatBRL(indicatorQuery.data.current.open) : "—"}
+                trend={indicatorQuery.data?.current.trend} metric="open"
+                totalExpected={indicatorQuery.data?.current.expected} tone="text-destructive" />
+            </div>
+          </section>
+        </div>
 
-        {futureCardQuery.error && <p role="alert" className="mt-3 text-sm text-destructive">Não foi possível consultar parcelas futuras dos cartões: {futureCardQuery.error.message}</p>}
+                {futureCardQuery.error && <p role="alert" className="mt-3 text-sm text-destructive">Não foi possível consultar parcelas futuras dos cartões: {futureCardQuery.error.message}</p>}
         {year > new Date().getFullYear() && futureCardQuery.isSuccess && linkedFutureCards.length > 0 && cardForecasts.length === 0 && (
           <p role="status" className="mt-3 text-xs text-amber-700">
             Os cartões vinculados estão listados, mas o Open Finance não forneceu parcelas futuras identificáveis para {year}.
@@ -661,11 +668,58 @@ function AccountingMoney({cents,className="",showZero=false}:{cents:number|null|
   </span>;
 }
 
-function Summary({ label, value, tone }: { label: string; value: string; tone?: string | undefined }) {
+type IndicatorMetric = "expected" | "paid" | "open";
+
+function IndicatorTrend({trend,metric,label}:{
+  trend: IndicatorTrendPoint[]; metric: IndicatorMetric; label: string;
+}) {
+  if(trend.length===0) return <p className="mt-3 text-[11px] text-muted-foreground">Sem lançamentos para gráfico</p>;
+  const amounts=trend.map(point=>point[metric]);
+  const maximum=Math.max(1,...amounts);
+  const points=amounts.map((amount,index)=>({
+    x:trend.length===1?60:4+index*112/(trend.length-1),
+    y:31-25*Math.max(0,amount)/maximum,
+  }));
+  const coordinates=points.map(p=>`${p.x},${p.y}`).join(" ");
+  const description=trend.map((point,index)=>
+    `${point.period}: ${formatBRL(amounts[index])}`).join("; ");
   return (
-    <div className="rounded-2xl border bg-card p-4 shadow-soft">
-      <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</div>
-      <div className={`mt-1.5 text-xl font-extrabold ${tone ?? "text-primary"}`}>{value}</div>
+    <svg viewBox="0 0 120 36" preserveAspectRatio="none"
+      className="mt-3 h-10 w-full text-current opacity-80"
+      role="img" aria-label={`${label} — valores por período registrado: ${description}`}>
+      <path d="M4 32 H116" fill="none" stroke="currentColor" strokeOpacity=".16" strokeWidth="1" />
+      {points.length>1
+        ? <polyline points={coordinates} fill="none" stroke="currentColor"
+            strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+        : <path d={`M${points[0]!.x} 32 V${points[0]!.y}`} stroke="currentColor"
+            strokeWidth="3" strokeLinecap="round" vectorEffect="non-scaling-stroke" />}
+      {points.map((point,index)=><circle key={trend[index]!.period}
+        cx={point.x} cy={point.y} r="2" fill="currentColor" />)}
+    </svg>
+  );
+}
+
+function Summary({ label, value, tone, trend, metric, totalExpected }: {
+  label:string;value:string;tone?:string|undefined;
+  trend?:IndicatorTrendPoint[]|undefined;metric:IndicatorMetric;totalExpected?:number|undefined;
+}) {
+  const amount=trend?.reduce((sum,point)=>sum+point[metric],0)??0;
+  const percentage=totalExpected && totalExpected>0
+    ? Math.max(0,Math.min(100,amount/totalExpected*100)):0;
+  return (
+    <div className={`min-w-0 rounded-xl border bg-card p-3 shadow-sm ${tone??"text-primary"}`}>
+      <p className="min-h-8 text-[10px] font-semibold uppercase leading-4 tracking-wide text-muted-foreground">
+        {label}
+      </p>
+      <p className="mt-1 truncate text-lg font-extrabold tabular-nums tracking-tight" title={value}>
+        {value}
+      </p>
+      {metric!=="expected" && totalExpected!=null && totalExpected>0 && (
+        <div className="mt-3 h-1 w-full overflow-hidden rounded-full bg-muted" aria-hidden="true">
+          <div className="h-full rounded-full bg-current" style={{width:`${percentage}%`}} />
+        </div>
+      )}
+      {trend && <IndicatorTrend trend={trend} metric={metric} label={label} />}
     </div>
   );
 }
