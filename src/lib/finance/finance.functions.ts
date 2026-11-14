@@ -466,33 +466,93 @@ export const getAnnualYear = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data: unknown) => z.object({ year: z.number().int().min(2000).max(2100) }).parse(data))
   .handler(async ({ data, context }) => {
-    const { supabase } = context as Ctx;
-    const { data: yearRow } = await supabase.from("annual_years").select("*").eq("year", data.year).maybeSingle();
-    const { data: rows, error: annualError } = await supabase.from("annual_expenses").select("*").eq("year", data.year).order("position");
+    const { supabase, userId } = context as Ctx;
+    const { data: yearRow, error: yearError } = await supabase.from("annual_years")
+      .select("*").eq("user_id", userId).eq("year", data.year).maybeSingle();
+    if (yearError) throw new Error("Falha ao consultar exercício: "+yearError.message);
+    const { data: rows, error: annualError } = await supabase.from("annual_expenses")
+      .select("*").eq("user_id", userId).eq("year", data.year).order("position");
     if(annualError) throw new Error("Falha ao consultar Despesas Anuais: " + annualError.message);
     const ids = (rows ?? []).map((r: any) => r.id);
-    const { data: months } = ids.length
+    const { data: months, error: monthError } = ids.length
       ? await supabase.from("annual_expense_months").select("*").in("annual_expense_id", ids)
-      : { data: [] };
-    const { data: paidBills } = ids.length
-      ? await supabase.from("finance_bills").select("source_annual_id, source_period").in("source_annual_id", ids).not("paid_date", "is", null)
-      : { data: [] };
-    const paidMonths: Record<string, number[]> = {};
-    for (const b of paidBills ?? []) {
-      const mm = Number(b.source_period?.slice(5, 7));
-      if (!mm) continue;
-      paidMonths[b.source_annual_id] = [...new Set([...(paidMonths[b.source_annual_id] ?? []), mm])];
-    }
-    const { data: years } = await supabase.from("annual_years").select("year, archived_at").order("year", { ascending: false });
+      : { data: [], error: null };
+    if (monthError) throw new Error("Falha ao consultar meses das despesas: "+monthError.message);
+    const { data: years } = await supabase.from("annual_years")
+      .select("year, archived_at").order("year", { ascending: false });
+
+    // A coluna Total anual considera apenas baixas de competência ligadas pelo ID
+    // ao credor anual. Espelhos da mesma baixa não geram dois pagamentos.
     const {data:yearBills,error:yearBillsError}=ids.length ? await selectPaymentRows(
-      supabase,"finance_bills","expected_cents,paid_cents,paid_date,is_settled,source_period",
-      (q:any)=>q.in("source_annual_id",ids).gte("source_period",`${data.year}-01`).lte("source_period",`${data.year}-12`)
+      supabase,"finance_bills",
+      "source_annual_id,expected_cents,paid_cents,paid_date,is_settled,source_period",
+      (q:any)=>q.eq("user_id",userId).in("source_annual_id",ids)
+        .gte("source_period",`${data.year}-01`).lte("source_period",`${data.year}-12`)
+        .order("source_annual_id").order("source_period")
     ) : {data:[],error:null};
     if(yearBillsError) throw new Error("Falha ao consultar baixas das Despesas Anuais: "+yearBillsError.message);
     const paidYearBills = (yearBills ?? []).filter((b: any) => b.paid_date);
+
+    type MonthPayment={paidCents:number;isSettled:boolean|null;paidDate:string};
+    const monthPayments:Record<string,Record<number,MonthPayment>>={};
+    const paidMonths:Record<string,number[]>={};
+    function joinPayment(rowId:string, month:number, amount:number, settled:boolean|null, paymentDate:string) {
+      if(!Number.isInteger(month)||month<1||month>12 || !rowId || !paymentDate)return;
+      const existing=monthPayments[rowId]?.[month];
+      const paidCents=Math.max(existing?.paidCents??0,Math.max(0,Math.round(Number(amount)||0)));
+      monthPayments[rowId]??={};
+      monthPayments[rowId][month]={
+        paidCents,
+        isSettled: existing?.isSettled===true || settled===true ? true
+          : existing?.isSettled===false || settled===false ? false : null,
+        paidDate: paymentDate,
+      };
+      paidMonths[rowId]=[...new Set([...(paidMonths[rowId]??[]),month])];
+    }
+    for(const bill of paidYearBills){
+      const month=Number(bill.source_period?.slice(5,7));
+      if(bill.source_period!==`${data.year}-${String(month).padStart(2,"0")}`)continue;
+      joinPayment(bill.source_annual_id,month,bill.paid_cents??0,bill.is_settled??null,bill.paid_date);
+    }
+
+    // Parcelas com vínculo técnico explícito também quitam sua competência anual.
+    // Caso exista um espelho em finance_bills, prevalece o maior valor registrado
+    // para a competência, nunca a soma dos dois.
+    const contractRows=(rows??[]).filter((r:any)=>!!r.source_contract_id);
+    const contractIds=[...new Set<string>(contractRows.map((r:any)=>r.source_contract_id as string))];
+    const byContractMonth=new Map<string,{paid:number;hasPayment:boolean;settled:boolean}>();
+    for(let i=0;i<contractIds.length;i+=50){
+      const part=contractIds.slice(i,i+50);
+      const {data:installments,error:installmentError}=await selectPaymentRows(
+        supabase,"installment_entries","contract_id,due_date,paid_date,paid_cents,is_settled",
+        (q:any)=>q.eq("user_id",userId).in("contract_id",part)
+          .gte("due_date",`${data.year}-01-01`).lt("due_date",`${data.year+1}-01-01`)
+      );
+      if(installmentError) throw new Error("Falha ao consultar baixas dos contratos: "+installmentError.message);
+      for(const inst of installments??[]){
+        const month=Number(inst.due_date?.slice(5,7));
+        if(!Number.isInteger(month)||month<1||month>12)continue;
+        const key=`${inst.contract_id}:${month}`;
+        const previous=byContractMonth.get(key)??{paid:0,hasPayment:false,settled:true};
+        byContractMonth.set(key,{
+          paid:previous.paid+(inst.paid_date?Math.max(0,Number(inst.paid_cents)||0):0),
+          hasPayment:previous.hasPayment||!!inst.paid_date,
+          settled:previous.settled && inst.is_settled===true && !!inst.paid_date,
+        });
+      }
+    }
+    for(const row of contractRows){
+      for(let month=1;month<=12;month++){
+        const record=byContractMonth.get(`${row.source_contract_id}:${month}`);
+        if(record?.hasPayment)
+          joinPayment(row.id,month,record.paid,record.settled,
+            `${data.year}-${String(month).padStart(2,"0")}-01`);
+      }
+    }
     const stats = {
       paidCents: paidYearBills.reduce((s: number, b: any) => s + (b.paid_cents ?? 0), 0),
-      paidExpected: paidYearBills.reduce((s: number, b: any) => s + (b.is_settled ? b.expected_cents : Math.min(b.expected_cents, b.paid_cents ?? 0)), 0),
+      paidExpected: paidYearBills.reduce((s: number, b: any) =>
+        s + (b.is_settled ? b.expected_cents : Math.min(b.expected_cents, b.paid_cents ?? 0)), 0),
     };
     // Nome de apresentação unificado pelo vínculo técnico account_id → credor anual.
     // Não renomeia registros históricos ou muda os valores originais.
@@ -506,7 +566,7 @@ export const getAnnualYear = createServerFn({ method: "POST" })
       creditor: alias.get(row.id) || row.creditor,
       creditor_original: row.creditor,
     }));
-    return { year: yearRow ?? null, rows: visibleRows, months: months ?? [], paidMonths, years: years ?? [], stats,
+    return { year: yearRow ?? null, rows: visibleRows, months: months ?? [], paidMonths, monthPayments, years: years ?? [], stats,
       migrationRequired: visibleRows.some((row:any)=>row.expense_kind === undefined || row.expense_source === undefined) };
   });
 
