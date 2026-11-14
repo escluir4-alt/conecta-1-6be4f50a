@@ -412,12 +412,12 @@ export const importBillsCsv = createServerFn({ method: "POST" })
 /** Totais anuais independentes do exercício aberto na grade mensal. */
 export const getAnnualIndicatorTotals = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((data: unknown) => z.object({
-    currentYear: z.number().int().min(2000).max(2100),
-    scope: z.enum(["current","all"]),
-  }).parse(data))
-  .handler(async ({ data, context }) => {
+  .handler(async ({ context }) => {
     const {supabase,userId}=context as Ctx;
+    // O ano é definido pelo servidor no fuso do Axion, nunca pelo filtro da grade.
+    const currentYear = Number(new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/Sao_Paulo", year: "numeric",
+    }).format(new Date()));
     // PostgREST limita respostas a mil linhas por padrão. Paginar para não perder parcelas.
     async function allPages(makeQuery:()=>any) {
       const result:any[]=[];
@@ -430,11 +430,9 @@ export const getAnnualIndicatorTotals = createServerFn({ method: "POST" })
       }
       throw new Error("Limite de segurança excedido na apuração; não serão exibidos totais parciais.");
     }
-    const rows=await allPages(()=> {
-      let query=supabase.from("annual_expenses").select("id,year").eq("user_id",userId).order("id");
-      if(data.scope==="current") query=query.eq("year",data.currentYear);
-      return query;
-    });
+    const rows=await allPages(()=>supabase.from("annual_expenses")
+      .select("id,year").eq("user_id",userId).gte("year",currentYear)
+      .order("year").order("id"));
     const ids=rows.map((r:any)=>r.id);
     const cells:any[]=[], payments:any[]=[];
     for(let i=0;i<ids.length;i+=100){
@@ -452,13 +450,14 @@ export const getAnnualIndicatorTotals = createServerFn({ method: "POST" })
           .not("paid_date","is",null).order("source_annual_id").order("source_period");
       }));
     }
-    const totals=calculateAnnualIndicators({
-      rows,cells,payments,currentYear:data.currentYear,scope:data.scope,
-    });
+    // Os dois painéis usam o MESMO conjunto de registros, sem segunda consulta
+    // e sem somar a apuração do ano vigente novamente à apuração geral.
+    const all=calculateAnnualIndicators({rows,cells,payments,currentYear,scope:"all"});
+    const current=calculateAnnualIndicators({rows,cells,payments,currentYear,scope:"current"});
     const {data:yearRow,error:yearError}=await supabase.from("annual_years")
-      .select("archived_at").eq("user_id",userId).eq("year",data.currentYear).maybeSingle();
+      .select("archived_at").eq("user_id",userId).eq("year",currentYear).maybeSingle();
     if(yearError) throw new Error("Falha ao consultar status do exercício: "+yearError.message);
-    return {...totals,archived:!!yearRow?.archived_at};
+    return {currentYear,all,current,archived:!!yearRow?.archived_at};
   });
 
 
