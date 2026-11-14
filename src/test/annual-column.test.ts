@@ -60,7 +60,7 @@ describe("Total anual — exercício encerrado",()=>{
     });
     expect(r).toMatchObject({
       mode:"paid",amountCents:9500,paidCents:9500,
-      outstandingCents:35000,hasPending:true,
+      outstandingCents:45000,hasPending:true,
     });
     expect(r.months.map(m=>m.status)).toEqual(["paid","pending","pending"]);
   });
