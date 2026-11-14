@@ -39,7 +39,7 @@ type SourceKind = "manual" | "card" | "contract" | "consumption" | "annual_tax";
 type AnnualTaxKind = "iptu" | "ipva" | "other";
 const TAX_LABELS:Record<AnnualTaxKind,string> = {iptu:"IPTU",ipva:"IPVA",other:"Outro tributo anual"};
 type CreditorDraft = {
-  id: string; creditor: string; dueDay: string;
+  id: string; creditor: string; originalCreditor: string; dueDay: string;
   expenseSource: SourceKind; sourceContractId: string; cardAccountId: string;
   consumptionValueType: "fixed" | "variable"; fixedValue: string;
   annualTaxKind: AnnualTaxKind; taxTotal: string; taxFirstMonth: number; taxInstallments: number;
@@ -63,6 +63,9 @@ function AnuaisPage() {
   const [editCell, setEditCell] = useState<{ id: string; month: number; value: string } | null>(null);
   const [editCreditor, setEditCreditor] = useState<CreditorDraft | null>(null);
   const [savingCreditor, setSavingCreditor] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [deletingCreditor, setDeletingCreditor] = useState(false);
   const [syncingCards, setSyncingCards] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
 
@@ -271,15 +274,27 @@ function AnuaisPage() {
     } finally {setSavingCreditor(false);}
   }
 
-  async function removeCreditor(id: string, name: string) {
-    if (!window.confirm(`Excluir o credor "${name}" do exercício ${year}?`)) return;
+  function closeCreditorEditor() {
+    if (deletingCreditor || savingCreditor) return;
+    setEditCreditor(null);
+    setDeleteConfirmOpen(false);
+    setDeleteConfirmText("");
+  }
+
+  async function removeCreditor() {
+    if (!editCreditor || !deleteConfirmOpen || deleteConfirmText !== "Excluir" || deletingCreditor) return;
+    setDeletingCreditor(true);
     try {
-      await delCredFn({ data: { expenseId: id } });
-      toast.success("Credor excluído.");
+      await delCredFn({ data: { expenseId: editCreditor.id, confirmation: deleteConfirmText } });
+      toast.success(`Credor "${editCreditor.originalCreditor}" excluído do exercício ${year}.`);
       setEditCreditor(null);
+      setDeleteConfirmOpen(false);
+      setDeleteConfirmText("");
       refresh();
     } catch (e) {
-      toast.error((e as Error).message);
+      toast.error(e instanceof Error ? e.message : "Não foi possível excluir o credor.");
+    } finally {
+      setDeletingCreditor(false);
     }
   }
 
@@ -399,6 +414,7 @@ function AnuaisPage() {
                             const source:SourceKind = ["contract","card","consumption","annual_tax"].includes(r.expense_source)
                               ? r.expense_source : r.expense_kind==="consumption" ? "consumption" : "manual";
                             setEditCreditor({ id:r.id,creditor:r.creditor_original??r.creditor,
+                              originalCreditor:r.creditor_original??r.creditor,
                               dueDay:r.due_day?String(r.due_day):"",expenseSource:source,
                               sourceContractId:r.source_contract_id??"",
                               cardAccountId:profiles.find(p=>p.annual_expense_id===r.id)?.account_id??"",
@@ -468,8 +484,43 @@ function AnuaisPage() {
         )}
       </div>
 
-      <Dialog open={!!editCreditor} onOpenChange={(o) => !o && setEditCreditor(null)}>
+      <Dialog open={!!editCreditor} onOpenChange={(o) => !o && closeCreditorEditor()}>
         <DialogContent className="max-w-md">
+          {deleteConfirmOpen ? (
+            <>
+              <DialogHeader>
+                <DialogTitle>Confirmar exclusão do credor</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4 text-sm">
+                <p>Você está prestes a excluir <strong>{editCreditor?.originalCreditor}</strong> do exercício <strong>{year}</strong> em Despesas Anuais.</p>
+                <p className="text-muted-foreground">
+                  Esta ação remove o cadastro anual e suas competências deste exercício.
+                  Não exclui o contrato parcelado ou o cartão de origem. Credores com contas já geradas
+                  ou pagamentos vinculados não podem ser excluídos, para preservar o histórico.
+                </p>
+                <div className="space-y-2">
+                  <Label htmlFor="confirm-delete-creditor">Digite <strong>Excluir</strong> para confirmar</Label>
+                  <Input
+                    id="confirm-delete-creditor"
+                    autoFocus
+                    autoComplete="off"
+                    value={deleteConfirmText}
+                    onChange={e=>setDeleteConfirmText(e.target.value)}
+                    placeholder="Excluir"
+                    disabled={deletingCreditor}
+                    onKeyDown={e=>{if(e.key==="Enter" && deleteConfirmText==="Excluir"){e.preventDefault();void removeCreditor();}}}
+                  />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" disabled={deletingCreditor} onClick={()=>{setDeleteConfirmOpen(false);setDeleteConfirmText("");}}>Voltar sem excluir</Button>
+                <Button variant="destructive" disabled={deleteConfirmText!=="Excluir" || deletingCreditor} onClick={()=>void removeCreditor()}>
+                  <Trash2 className="size-4" />{deletingCreditor?"Excluindo…":"Excluir credor"}
+                </Button>
+              </DialogFooter>
+            </>
+          ) : (
+          <>
           <DialogHeader><DialogTitle>Editar despesa / credor</DialogTitle></DialogHeader>
           {editCreditor && (
             <div className="space-y-4">
@@ -565,14 +616,16 @@ function AnuaisPage() {
             </div>
           )}
           <DialogFooter className="flex items-center justify-between sm:justify-between">
-            <Button variant="outline" className="text-destructive" onClick={() => editCreditor && removeCreditor(editCreditor.id, editCreditor.creditor)}>
-              <Trash2 />Excluir
+            <Button variant="outline" className="text-destructive" disabled={savingCreditor} onClick={() => {setDeleteConfirmText("");setDeleteConfirmOpen(true);}}>
+              <Trash2 />Excluir credor
             </Button>
             <div className="flex gap-2">
-              <Button variant="outline" onClick={() => setEditCreditor(null)}>Cancelar</Button>
+              <Button variant="outline" onClick={closeCreditorEditor}>Cancelar</Button>
               <Button variant="brand" disabled={savingCreditor} onClick={()=>void saveCreditor()}>{savingCreditor?"Salvando…":"Salvar e atualizar"}</Button>
             </div>
           </DialogFooter>
+          </>
+          )}
         </DialogContent>
       </Dialog>
 

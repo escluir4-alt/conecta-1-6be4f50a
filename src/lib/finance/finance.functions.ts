@@ -601,15 +601,25 @@ export const updateCreditor = createServerFn({ method: "POST" })
 
 export const deleteCreditor = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((data: unknown) => z.object({ expenseId: z.string().uuid() }).parse(data))
+  .inputValidator((data: unknown) => z.object({
+    expenseId: z.string().uuid(),
+    confirmation: z.literal("Excluir"),
+  }).parse(data))
   .handler(async ({ data, context }) => {
-    const { supabase } = context as Ctx;
-    const { data: row } = await supabase.from("annual_expenses").select("year, creditor").eq("id", data.expenseId).single();
-    if (!row) throw new Error("Credor não encontrado");
+    const { supabase, userId } = context as Ctx;
+    // O próprio servidor exige a confirmação, não apenas o botão da interface.
+    const { data: row, error: readError } = await supabase.from("annual_expenses")
+      .select("year, creditor").eq("id", data.expenseId).eq("user_id", userId).maybeSingle();
+    if (readError) throw new Error("Falha ao consultar credor: " + readError.message);
+    if (!row) throw new Error("Credor não encontrado.");
     await assertYearOpen(supabase, row.year);
-    const { count } = await supabase.from("finance_bills").select("id", { count: "exact", head: true }).eq("source_annual_id", data.expenseId);
+    const { count, error: countError } = await supabase.from("finance_bills")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", userId).eq("source_annual_id", data.expenseId);
+    if (countError) throw new Error("Falha ao verificar histórico do credor: " + countError.message);
     if ((count ?? 0) > 0) throw new Error("Este credor já gerou contas mensais e não pode ser excluído (o histórico seria perdido).");
-    const { error } = await supabase.from("annual_expenses").delete().eq("id", data.expenseId);
+    const { error } = await supabase.from("annual_expenses").delete()
+      .eq("id", data.expenseId).eq("user_id", userId);
     if (error) throw new Error(error.message);
     await audit(supabase, "delete_creditor", "annual_expense", data.expenseId, row, null);
     return { ok: true };
