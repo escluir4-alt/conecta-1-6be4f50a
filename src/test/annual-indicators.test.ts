@@ -99,3 +99,65 @@ describe("Dois resumos simultâneos — janela do ano vigente em diante",()=>{
     expect(all.open).toBe(20000);
   });
 });
+
+
+describe("Gráficos dos indicadores — apenas dados persistidos",()=>{
+  const yearRows=[
+    {id:"historico",year:2025},
+    {id:"contrato-26",year:2026},
+    {id:"consumo-26",year:2026},
+    {id:"contrato-27",year:2027},
+  ];
+  const monthCells=[
+    {annual_expense_id:"historico",month:1,expected_cents:500000},
+    {annual_expense_id:"contrato-26",month:12,expected_cents:10000},
+    {annual_expense_id:"contrato-26",month:1,expected_cents:20000},
+    {annual_expense_id:"consumo-26",month:1,expected_cents:5000},
+    {annual_expense_id:"contrato-27",month:3,expected_cents:30000},
+  ];
+  const actualPayments=[
+    payment("historico","2025-01",500000,true),
+    payment("contrato-26","2026-01",18000,true),
+    payment("contrato-26","2026-01",18000,true),
+    payment("consumo-26","2026-01",3000,false),
+    payment("contrato-27","2027-03",30000,true),
+  ];
+  it("série anual mostra só 2026 e 2027 e deduplica pagamentos",()=>{
+    const result=calculateAnnualIndicators({
+      rows:yearRows,cells:monthCells,payments:actualPayments,currentYear:2026,scope:"all"
+    });
+    expect(result.trend).toEqual([
+      {period:2026,expected:35000,paid:21000,open:12000},
+      {period:2027,expected:30000,paid:30000,open:0},
+    ]);
+    expect(result).toMatchObject({expected:65000,paid:51000,open:12000});
+    expect(result.trend.reduce((sum,point)=>sum+point.expected,0)).toBe(result.expected);
+    expect(result.trend.reduce((sum,point)=>sum+point.paid,0)).toBe(result.paid);
+    expect(result.trend.reduce((sum,point)=>sum+point.open,0)).toBe(result.open);
+  });
+  it("série mensal ignora futuro e mês sem lançamentos, mas preserva mês 12",()=>{
+    const result=calculateAnnualIndicators({
+      rows:yearRows,cells:monthCells,payments:actualPayments,currentYear:2026,scope:"current"
+    });
+    expect(result.trend).toEqual([
+      {period:1,expected:25000,paid:21000,open:2000},
+      {period:12,expected:10000,paid:0,open:10000},
+    ]);
+  });
+  it("retorna série vazia sem valores registrados e não cria projeções",()=>{
+    const result=calculateAnnualIndicators({
+      rows:[{id:"sem-lancamentos",year:2026}],
+      cells:[{annual_expense_id:"sem-lancamentos",month:2,expected_cents:null}],
+      payments:[],currentYear:2026,scope:"all",
+    });
+    expect(result).toMatchObject({expected:0,paid:0,open:0,trend:[]});
+  });
+  it("com um único período registrado, mantém apenas um ponto real",()=>{
+    const result=calculateAnnualIndicators({
+      rows:[{id:"unico",year:2028}],
+      cells:[{annual_expense_id:"unico",month:9,expected_cents:4900}],
+      payments:[],currentYear:2026,scope:"all",
+    });
+    expect(result.trend).toEqual([{period:2028,expected:4900,paid:0,open:4900}]);
+  });
+});
