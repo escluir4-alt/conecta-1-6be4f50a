@@ -58,8 +58,9 @@ function AnuaisPage() {
   const user = useRequireUser();
   const qc = useQueryClient();
   const [year, setYear] = useState(new Date().getFullYear());
-  const [indicatorScope, setIndicatorScope] = useState<"current"|"all">("current");
-  const currentYear = new Date().getFullYear();
+  const currentYear = Number(new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Sao_Paulo", year: "numeric",
+  }).format(new Date()));
   const [editCell, setEditCell] = useState<{ id: string; month: number; value: string } | null>(null);
   const [editCreditor, setEditCreditor] = useState<CreditorDraft | null>(null);
   const [savingCreditor, setSavingCreditor] = useState(false);
@@ -95,7 +96,10 @@ function AnuaisPage() {
 
   const futureCardQuery = useQuery({queryKey:["card-installment-forecast",year],queryFn:()=>previewCardsFn({data:{year}}),enabled:!!user && cardProfilesAvailable && year>=new Date().getFullYear(),staleTime:300000});
   const q = useQuery({ queryKey: ["annual", year], queryFn: () => getFn({ data: { year } }), enabled: !!user });
-  const indicatorQuery = useQuery({queryKey:["annual-indicators",currentYear,indicatorScope],queryFn:()=>indicatorFn({data:{currentYear,scope:indicatorScope}}),enabled:!!user});
+  const indicatorQuery = useQuery({
+    queryKey:["annual-indicators",currentYear],
+    queryFn:()=>indicatorFn(), enabled:!!user,
+  });
   const savedRows = q.data?.rows ?? [];
   const cardCreditors = savedRows.filter((r: {id:string;creditor:string;expense_source?:string|null}) => r.expense_source === "card");
   const unlinkedCardCreditors = cardProfilesAvailable
@@ -357,24 +361,39 @@ function AnuaisPage() {
           </div>
         )}
 
-        <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
-          <p className="text-sm font-medium text-muted-foreground">{indicatorScope==="current" ? `Compromissos apurados para: ${currentYear}` : `Compromissos apurados: todos os anos ${indicatorQuery.data?.firstYear ? `(${indicatorQuery.data.firstYear}–${indicatorQuery.data.lastYear})` : ""}`}</p>
-          <label className="flex items-center gap-2 text-sm">Indicadores:
-            <select aria-label="Período dos indicadores" className="h-9 rounded-md border bg-card px-2"
-              value={indicatorScope} onChange={e=>setIndicatorScope(e.target.value as "current"|"all")}>
-              <option value="current">Ano vigente ({currentYear})</option><option value="all">Todos os anos</option>
-            </select>
-          </label>
-        </div>
-        {indicatorQuery.error && <p role="alert" className="mt-2 text-destructive">Falha na apuração: {indicatorQuery.error.message}</p>}
-        <div className="mt-3 grid gap-4 sm:grid-cols-2 xl:grid-cols-5" aria-busy={indicatorQuery.isFetching}>
-          <Summary label="Total geral previsto" value={indicatorQuery.data?formatBRL(indicatorQuery.data.expected):"—"} />
-          <Summary label="Valor efetivamente pago" value={indicatorQuery.data?formatBRL(indicatorQuery.data.paid):"—"} tone="text-success" />
-          <Summary label="Saldo a pagar" value={indicatorQuery.data?formatBRL(indicatorQuery.data.open):"—"} tone={indicatorQuery.data?.open?"text-destructive":undefined} />
-          <Summary label="Despesas cadastradas" value={indicatorQuery.data?String(indicatorQuery.data.expenseCount):"—"} />
-          <Summary label={indicatorScope==="current"?"Status do exercício":"Exercícios abrangidos"}
-            value={!indicatorQuery.data?"—":indicatorScope==="current"?(indicatorQuery.data.archived?"Arquivo":"Em andamento"):String(indicatorQuery.data.yearCount)} />
-        </div>
+        {indicatorQuery.error && <p role="alert" className="mt-6 text-destructive">Falha na apuração de Despesas Anuais: {indicatorQuery.error.message}</p>}
+
+        <section className="mt-6 space-y-3" aria-label="Compromissos apurados" aria-busy={indicatorQuery.isFetching}>
+          <div>
+            <h2 className="text-lg font-bold text-foreground">Compromissos apurados</h2>
+            <p className="text-sm text-muted-foreground">
+              {indicatorQuery.data?.all.lastYear != null && indicatorQuery.data.all.lastYear > currentYear
+                ? `De ${currentYear} até ${indicatorQuery.data.all.lastYear} — exercícios com compromissos cadastrados`
+                : `A partir de ${currentYear} — somente compromissos cadastrados`}
+            </p>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+            <Summary label="Total geral previsto" value={indicatorQuery.data ? formatBRL(indicatorQuery.data.all.expected) : "—"} />
+            <Summary label="Valor efetivamente pago" value={indicatorQuery.data ? formatBRL(indicatorQuery.data.all.paid) : "—"} tone="text-success" />
+            <Summary label="Saldo a pagar" value={indicatorQuery.data ? formatBRL(indicatorQuery.data.all.open) : "—"} tone={indicatorQuery.data?.all.open ? "text-destructive" : undefined} />
+            <Summary label="Despesas cadastradas" value={indicatorQuery.data ? String(indicatorQuery.data.all.expenseCount) : "—"} />
+            <Summary label="Exercícios abrangidos" value={indicatorQuery.data ? String(indicatorQuery.data.all.yearCount) : "—"} />
+          </div>
+        </section>
+
+        <section className="mt-8 space-y-3" aria-label="Despesas para esse ano" aria-busy={indicatorQuery.isFetching}>
+          <div>
+            <h2 className="text-lg font-bold text-foreground">Despesas para esse ano</h2>
+            <p className="text-sm text-muted-foreground">Janeiro a dezembro de {indicatorQuery.data?.currentYear ?? currentYear} — ano vigente</p>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+            <Summary label="Total geral previsto" value={indicatorQuery.data ? formatBRL(indicatorQuery.data.current.expected) : "—"} />
+            <Summary label="Valor efetivamente pago" value={indicatorQuery.data ? formatBRL(indicatorQuery.data.current.paid) : "—"} tone="text-success" />
+            <Summary label="Saldo a pagar" value={indicatorQuery.data ? formatBRL(indicatorQuery.data.current.open) : "—"} tone={indicatorQuery.data?.current.open ? "text-destructive" : undefined} />
+            <Summary label="Despesas cadastradas" value={indicatorQuery.data ? String(indicatorQuery.data.current.expenseCount) : "—"} />
+            <Summary label="Status do exercício" value={!indicatorQuery.data ? "—" : indicatorQuery.data.archived ? "Arquivo" : "Em andamento"} />
+          </div>
+        </section>
 
         {futureCardQuery.error && <p role="alert" className="mt-3 text-sm text-destructive">Não foi possível consultar parcelas futuras dos cartões: {futureCardQuery.error.message}</p>}
         {year > new Date().getFullYear() && futureCardQuery.isSuccess && linkedFutureCards.length > 0 && cardForecasts.length === 0 && (
