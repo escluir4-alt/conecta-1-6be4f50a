@@ -520,7 +520,7 @@ export const getAnnualYear = createServerFn({ method: "POST" })
     // para a competência, nunca a soma dos dois.
     const contractRows=(rows??[]).filter((r:any)=>!!r.source_contract_id);
     const contractIds=[...new Set<string>(contractRows.map((r:any)=>r.source_contract_id as string))];
-    const byContractMonth=new Map<string,{paid:number;hasPayment:boolean;settled:boolean}>();
+    const byContractMonth=new Map<string,{paid:number;hasPayment:boolean;settled:boolean;paidDate:string|null}>();
     for(let i=0;i<contractIds.length;i+=50){
       const part=contractIds.slice(i,i+50);
       const {data:installments,error:installmentError}=await selectPaymentRows(
@@ -533,11 +533,12 @@ export const getAnnualYear = createServerFn({ method: "POST" })
         const month=Number(inst.due_date?.slice(5,7));
         if(!Number.isInteger(month)||month<1||month>12)continue;
         const key=`${inst.contract_id}:${month}`;
-        const previous=byContractMonth.get(key)??{paid:0,hasPayment:false,settled:true};
+        const previous=byContractMonth.get(key)??{paid:0,hasPayment:false,settled:true,paidDate:null};
         byContractMonth.set(key,{
           paid:previous.paid+(inst.paid_date?Math.max(0,Number(inst.paid_cents)||0):0),
           hasPayment:previous.hasPayment||!!inst.paid_date,
           settled:previous.settled && inst.is_settled===true && !!inst.paid_date,
+          paidDate:inst.paid_date??previous.paidDate,
         });
       }
     }
@@ -545,8 +546,7 @@ export const getAnnualYear = createServerFn({ method: "POST" })
       for(let month=1;month<=12;month++){
         const record=byContractMonth.get(`${row.source_contract_id}:${month}`);
         if(record?.hasPayment)
-          joinPayment(row.id,month,record.paid,record.settled,
-            `${data.year}-${String(month).padStart(2,"0")}-01`);
+          joinPayment(row.id,month,record.paid,record.settled,record.paidDate!);
       }
     }
     const stats = {
