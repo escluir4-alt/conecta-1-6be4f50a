@@ -1,4 +1,5 @@
-import { PDFDocument } from "pdf-lib";
+import { PDFDocument, StandardFonts } from "pdf-lib";
+import { parseFiscalXml } from "@/lib/fiscal/nfce-xml";
 import { supabase } from "@/integrations/supabase/client";
 
 export type FiscalDoc = {
@@ -24,36 +25,51 @@ export function checkDate(value:string){
  const [y=0,m=0,d=0]=value.split("-").map(Number);const dt=new Date(Date.UTC(y,m-1,d));
  return dt.getUTCFullYear()===y&&dt.getUTCMonth()===m-1&&dt.getUTCDate()===d;
 }
+const xmlFile=(f:File)=>/\.xml$/i.test(f.name)&&(!f.type||f.type==="text/xml"||f.type==="application/xml"||f.type==="application/octet-stream");
+const pdfFile=(f:File)=>/\.pdf$/i.test(f.name)&&(!f.type||f.type==="application/pdf"||f.type==="application/octet-stream");
 export function validateFiscal(file:File,draft:FiscalDraft){
- if(!["application/pdf","image/png","image/jpeg","image/webp"].includes(file.type)) throw Error("Somente PDF, JPEG, PNG e WebP");
+ if(!xmlFile(file)&&!pdfFile(file)) throw Error("Anexe o XML fiscal ou um PDF, nunca uma fotografia.");
  if(file.size>15*1024*1024||!file.size) throw Error("Arquivo vazio ou superior a 15 MB");
  if(!draft.issuer.trim()||!checkDate(draft.issued_on)) throw Error("Informe emitente e data válida");
  if(draft.access_key.trim()&&!/^\d{44}$/.test(draft.access_key.trim())) throw Error("A chave deve conter 44 dígitos");
  return parseBRL(draft.total);
 }
 async function realFileType(file:File){
- const a=new Uint8Array(await file.slice(0,12).arrayBuffer());
- const pdf=[37,80,68,70,45],png=[137,80,78,71,13,10,26,10],jpg=[255,216,255];
- const begins=(bytes:number[])=>bytes.every((b,i)=>a[i]===b);
- const webp=String.fromCharCode(...a.slice(0,4))==="RIFF"&&String.fromCharCode(...a.slice(8,12))==="WEBP";
- if(!(file.type==="application/pdf"&&begins(pdf)||file.type==="image/png"&&begins(png)||file.type==="image/jpeg"&&begins(jpg)||file.type==="image/webp"&&webp))throw Error("A assinatura do arquivo não corresponde ao formato");
+ if(xmlFile(file)){parseFiscalXml(await file.text());return;}
+ const a=new Uint8Array(await file.slice(0,5).arrayBuffer());
+ if(!pdfFile(file)||![37,80,68,70,45].every((n,i)=>a[i]===n))throw Error("O arquivo não é um PDF válido");
 }
 async function buildPdf(file:File):Promise<File>{
- if(file.type==="application/pdf")return file;
- const doc=await PDFDocument.create();const bytes=new Uint8Array(await file.arrayBuffer());
- let image;
- if(file.type==="image/jpeg")image=await doc.embedJpg(bytes);
- else if(file.type==="image/png")image=await doc.embedPng(bytes);
- else {
-   const bmp=await createImageBitmap(file);
-   const canvas=document.createElement("canvas");canvas.width=bmp.width;canvas.height=bmp.height;
-   const ctx=canvas.getContext("2d");if(!ctx)throw Error("Não foi possível converter WebP");
-   ctx.drawImage(bmp,0,0);bmp.close();
-   image=await doc.embedPng(new Uint8Array(await (await fetch(canvas.toDataURL("image/png"))).arrayBuffer()));
- }
- const w=image.width,h=image.height; const scale=Math.min(595/w,842/h,1);
- const page=doc.addPage([595,842]);page.drawImage(image,{x:(595-w*scale)/2,y:(842-h*scale)/2,width:w*scale,height:h*scale});
- return new File([Uint8Array.from(await doc.save())],"nota.pdf",{type:"application/pdf"});
+ if(pdfFile(file))return file;
+ const data=parseFiscalXml(await file.text());
+ const pdf=await PDFDocument.create();
+ const normal=await pdf.embedFont(StandardFonts.Helvetica);
+ const bold=await pdf.embedFont(StandardFonts.HelveticaBold);
+ let page=pdf.addPage([595,842]),y=800;
+ const ascii=(s:string)=>s.normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^\x20-\x7E]/g,"?");
+ const line=(t:string,size=10,emphasis=false)=>{
+   if(y<48){page=pdf.addPage([595,842]);y=800;}
+   page.drawText(ascii(t).slice(0,112),{x:34,y,size,font:emphasis?bold:normal});
+   y-=size+9;
+ };
+ line("AXION - REPRESENTACAO DE DADOS DO XML FISCAL",14,true);
+ line("Esta visualizacao NAO substitui a consulta oficial ou o XML assinado.",9);
+ y-=12;
+ line(data.issuer,13,true);
+ line("CNPJ: "+data.issuerCnpj+"  Emissao: "+data.issuedOn);
+ line("Documento: "+(data.model==="65"?"NFC-e":"NF-e")+"  Numero: "+data.documentNumber+"  Serie: "+data.series);
+ line("Chave de acesso: "+data.accessKey,9);
+ if(data.protocol)line("Protocolo informado no XML: "+data.protocol,9);
+ y-=14;
+ line("ITENS DO DOCUMENTO",12,true);
+ data.items.forEach((it,index)=>{
+   line(String(index+1).padStart(3,"0")+" - "+it.description.slice(0,70),10,true);
+   line("     Qtd: "+it.quantity+" | Unit.: R$ "+(it.unit_price_cents/100).toFixed(2)+" | Total: R$ "+(it.total_cents/100).toFixed(2),9);
+ });
+ y-=8;
+ line("TOTAL DO DOCUMENTO: R$ "+(data.totalCents/100).toFixed(2),13,true);
+ line("Original XML preservado no arquivo fiscal do Axion.",9);
+ return new File([Uint8Array.from(await pdf.save())],"representacao-fiscal.pdf",{type:"application/pdf"});
 }
 export async function getDocuments():Promise<FiscalDoc[]>{
  const {data,error}=await client.from("fiscal_documents").select("*").order("issued_on",{ascending:false});
@@ -78,8 +94,8 @@ export async function saveDocument(file:File,draft:FiscalDraft,items:Omit<Fiscal
  }
  const id=crypto.randomUUID();const [year,month,day]=draft.issued_on.split("-");
  const root=`${user.id}/${year}/${month}/${day}/${id}`;
- const ext=file.type==="application/pdf"?"pdf":file.type==="image/png"?"png":file.type==="image/webp"?"webp":"jpg";
- const originalPath=`${root}/original.${ext}`,pdfPath=`${root}/nota.pdf`;
+ const ext=xmlFile(file)?"xml":"pdf";
+ const originalPath=`${root}/original.${ext}`,pdfPath=pdfFile(file)?originalPath:`${root}/nota.pdf`;
  const saved:string[]=[];let inserted=false;
  try{
   const {error:originalError}=await supabase.storage.from(BUCKET).upload(originalPath,file,{contentType:file.type,upsert:false});
@@ -92,8 +108,8 @@ export async function saveDocument(file:File,draft:FiscalDraft,items:Omit<Fiscal
   const {error:insertError}=await client.from("fiscal_documents").insert({
    id,user_id:user.id,issuer:draft.issuer.trim(),issued_on:draft.issued_on,
    document_number:draft.document_number.trim()||null,access_key:draft.access_key.trim()||null,
-   category:draft.category,total_cents:cents,original_path:originalPath,pdf_path:file.type==="application/pdf"?originalPath:pdfPath,
-   original_name:file.name,file_sha256:hash,verified:true
+   category:draft.category,total_cents:cents,original_path:originalPath,pdf_path:pdfPath,
+   original_name:file.name,file_sha256:hash,verified:false
   });
   if(insertError)throw insertError;inserted=true;
   if(items.length){
@@ -129,7 +145,7 @@ export async function updateFiscalMetadata(id:string,draft:FiscalDraft){
  const {data:{user},error:authError}=await supabase.auth.getUser();
  if(authError||!user)throw Error("Sessão inválida");
  if(!draft.issuer.trim()||!checkDate(draft.issued_on))throw Error("Informe fornecedor e data válidos");
- if(draft.access_key.trim()&&!/^\\d{44}$/.test(draft.access_key.trim()))throw Error("Chave de acesso inválida");
+ if(draft.access_key.trim()&&!/^\d{44}$/.test(draft.access_key.trim()))throw Error("Chave de acesso inválida");
  const {data,error}=await client.from("fiscal_documents").update({
  issuer:draft.issuer.trim(),issued_on:draft.issued_on,document_number:draft.document_number.trim()||null,
  access_key:draft.access_key.trim()||null,total_cents:parseBRL(draft.total),category:draft.category
