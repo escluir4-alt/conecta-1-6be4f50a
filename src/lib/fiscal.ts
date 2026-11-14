@@ -25,8 +25,8 @@ export function checkDate(value:string){
  const [y=0,m=0,d=0]=value.split("-").map(Number);const dt=new Date(Date.UTC(y,m-1,d));
  return dt.getUTCFullYear()===y&&dt.getUTCMonth()===m-1&&dt.getUTCDate()===d;
 }
-const xmlFile=(f:File)=>/\.xml$/i.test(f.name)&&(!f.type||f.type==="text/xml"||f.type==="application/xml");
-const pdfFile=(f:File)=>/\.pdf$/i.test(f.name)&&(!f.type||f.type==="application/pdf");
+const xmlFile=(f:File)=>/\.xml$/i.test(f.name)&&(!f.type||f.type==="text/xml"||f.type==="application/xml"||f.type==="application/octet-stream");
+const pdfFile=(f:File)=>/\.pdf$/i.test(f.name)&&(!f.type||f.type==="application/pdf"||f.type==="application/octet-stream");
 export function validateFiscal(file:File,draft:FiscalDraft){
  if(!xmlFile(file)&&!pdfFile(file)) throw Error("Anexe o XML fiscal ou um PDF, nunca uma fotografia.");
  if(file.size>15*1024*1024||!file.size) throw Error("Arquivo vazio ou superior a 15 MB");
@@ -145,7 +145,7 @@ export async function updateFiscalMetadata(id:string,draft:FiscalDraft){
  const {data:{user},error:authError}=await supabase.auth.getUser();
  if(authError||!user)throw Error("Sessão inválida");
  if(!draft.issuer.trim()||!checkDate(draft.issued_on))throw Error("Informe fornecedor e data válidos");
- if(draft.access_key.trim()&&!/^\\d{44}$/.test(draft.access_key.trim()))throw Error("Chave de acesso inválida");
+ if(draft.access_key.trim()&&!/^\d{44}$/.test(draft.access_key.trim()))throw Error("Chave de acesso inválida");
  const {data,error}=await client.from("fiscal_documents").update({
  issuer:draft.issuer.trim(),issued_on:draft.issued_on,document_number:draft.document_number.trim()||null,
  access_key:draft.access_key.trim()||null,total_cents:parseBRL(draft.total),category:draft.category
