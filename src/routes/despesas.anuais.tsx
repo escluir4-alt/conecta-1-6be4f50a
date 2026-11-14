@@ -392,8 +392,7 @@ function AnuaisPage() {
                   <tr key={r.id}>
                     <td className="sticky left-0 z-10 bg-card px-2 py-1.5">
                       <div className="flex items-center gap-1">
-                        <span title={r.creditor} className="min-w-0 truncate text-xs font-semibold">{r.creditor}</span>
-                         <button type="button" aria-label={`Editar credor ${r.creditor}`} title={r.forecast_only?"Previsão: somente leitura":"Classificar e ajustar credor"}
+                        <button type="button" aria-label={`Editar credor ${r.creditor}`} title={r.forecast_only?"Previsão: somente leitura":"Classificar e ajustar credor"}
                           disabled={archived || r.forecast_only} className="shrink-0 rounded-md p-0.5 text-muted-foreground hover:bg-accent hover:text-primary disabled:opacity-40"
                           onClick={() => {
                             const latest = Array.from({length:12},(_,i)=>cells?.get(12-i)??null).find(v=>v!==null && v>0);
@@ -413,6 +412,7 @@ function AnuaisPage() {
                           }}>
                           <Pencil className="size-3.5" />
                         </button>
+                        <span title={r.creditor} className="min-w-0 truncate text-xs font-semibold">{r.creditor}</span>
                       </div>
                     </td>
                     <td className="px-2 py-1.5 text-center text-muted-foreground">{r.due_day ?? "—"}</td>
