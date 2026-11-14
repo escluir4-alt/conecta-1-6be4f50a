@@ -5,6 +5,8 @@
 export type IndicatorAnnualRow = {id:string;year:number};
 export type IndicatorAnnualCell = {annual_expense_id:string;month:number;expected_cents:number|null};
 export type IndicatorAnnualPayment = {source_annual_id:string|null;source_period:string|null;paid_cents:number|null;paid_date:string|null;is_settled:boolean|null;expected_cents?:number|null};
+export type IndicatorTrendPoint = {period:number;expected:number;paid:number;open:number};
+
 
 export function calculateAnnualIndicators(input:{
   rows:IndicatorAnnualRow[];
@@ -34,6 +36,9 @@ export function calculateAnnualIndicators(input:{
     });
   }
   let expected=0,paid=0,covered=0;
+  // Posições reais: 1–12 para o ano vigente; ano civil para o consolidado.
+  // Meses/anos sem células lançadas não se transformam em previsão ou valor fictício.
+  const trendBuckets=new Map<number,{expected:number;paid:number;covered:number}>();
   const seen=new Set<string>();
   for(const cell of input.cells){
     const y=rowYears.get(cell.annual_expense_id);
@@ -45,13 +50,28 @@ export function calculateAnnualIndicators(input:{
     const p=byPeriod.get(key);
     const amount=p?.paid??0;
     const isCovered=p?.settled===true || (p?.explicitOpen!==true && amount>=value);
+    const credited=isCovered?value:Math.min(value,amount);
     expected+=value;
     paid+=amount;
-    covered+=isCovered?value:Math.min(value,amount);
+    covered+=credited;
+    if(cell.expected_cents!=null || amount>0){
+      const period=input.scope==="current"?cell.month:y;
+      const bucket=trendBuckets.get(period)??{expected:0,paid:0,covered:0};
+      bucket.expected+=value;
+      bucket.paid+=amount;
+      bucket.covered+=credited;
+      trendBuckets.set(period,bucket);
+    }
   }
+  const trend:IndicatorTrendPoint[]=[...trendBuckets.entries()]
+    .sort(([a],[b])=>a-b)
+    .map(([period,v])=>({
+      period,expected:v.expected,paid:v.paid,open:Math.max(0,v.expected-v.covered),
+    }));
   return {
     expected,paid,open:Math.max(0,expected-covered),
     expenseCount:currentRows.length,yearCount:years.length,
     firstYear:years[0]??null,lastYear:years.at(-1)??null,
+    trend,
   };
 }
