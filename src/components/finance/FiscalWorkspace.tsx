@@ -198,14 +198,6 @@ export function FiscalWorkspace({view="notas"}:{view?:View}){
  </div>;
  return <AppShell active="notas-fiscais" user={user}><div className="mx-auto max-w-[1700px] space-y-5 p-4 md:p-6">
   <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-3"><FileText className="size-9 text-primary"/><div><h1 className="text-2xl font-bold">{view==="mercado"?"Notas de Mercado":view==="arquivo"?"Arquivo Fiscal":"Notas Fiscais"}</h1><p className="text-sm text-muted-foreground">Identifique a NFC-e pelo QR Code ou chave e arquive os dados eletrônicos originais.</p></div></div><div className="flex flex-wrap gap-2"><Button asChild variant={view==="notas"?"default":"outline"} size="sm"><Link to="/notas-fiscais">Notas fiscais</Link></Button><Button asChild variant={view==="arquivo"?"default":"outline"} size="sm"><Link to="/arquivo-fiscal">Arquivo fiscal</Link></Button><Button asChild variant={view==="mercado"?"default":"outline"} size="sm"><Link to="/mercado-fiscal">Notas de mercado</Link></Button></div></div>
-  {view==="notas"&&<section className={surface+" p-4"} aria-label="Integração Nota Legal DF">
-    <div className="flex flex-wrap items-center justify-between gap-3">
-      <div><h2 className="text-sm font-semibold">Nota Legal DF · Importação assistida</h2>
-      <p className="mt-1 text-xs text-muted-foreground">Seu arquivo fiscal já possui {docs.length} documento(s). Os registros existentes serão preservados e comparados antes de novas importações.</p>
-      <p className="mt-1 text-xs text-muted-foreground">A consulta automática por CPF ainda depende de acesso oficial autorizado. Não informe sua senha do Nota Legal no Axion.</p></div>
-      <a href="https://www.notalegal.df.gov.br/" target="_blank" rel="noopener noreferrer" className="inline-flex items-center rounded-lg border border-border px-3 py-2 text-sm font-medium hover:bg-muted">Abrir Nota Legal DF</a>
-    </div>
-  </section>}
   {buttons}{metrics}
   {view==="mercado"?<>{marketPanel}<div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(360px,.8fr)]">{details}</div></>:<div className="grid gap-4 xl:grid-cols-[minmax(0,1.4fr)_minmax(370px,1fr)]"><section className={surface+" min-w-0 overflow-hidden"}><div className="p-4"><div className="mb-3 flex flex-wrap items-center justify-between gap-2"><h2 className="text-lg font-bold">{view==="arquivo"?"Arquivo de notas fiscais":"Histórico de notas fiscais"}</h2><span className="text-xs text-muted-foreground">Ano › Mês › Dia</span></div>{filters}</div>{table}</section>{details}</div>}
   <p className="text-xs text-muted-foreground">Documentos privados vinculados à conta. O arquivo original é preservado. As notas não geram despesas automaticamente.</p>
