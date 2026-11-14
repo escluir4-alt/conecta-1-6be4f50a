@@ -13,7 +13,10 @@ export function calculateAnnualIndicators(input:{
   currentYear:number;
   scope:"current"|"all";
 }) {
-  const currentRows=input.rows.filter(r=>input.scope==="all"||r.year===input.currentYear);
+  // "Todos os anos" começa no ano vigente: históricos anteriores não fazem parte
+  // dos compromissos apurados do presente até o último exercício cadastrado.
+  const currentRows=input.rows.filter(r=>r.year>=input.currentYear &&
+    (input.scope==="all" || r.year===input.currentYear));
   const rowYears=new Map(currentRows.map(r=>[r.id,r.year]));
   const years=[...new Set(currentRows.map(r=>r.year))].sort((a,b)=>a-b);
   const byPeriod=new Map<string,{paid:number;settled:boolean;explicitOpen:boolean}>();
