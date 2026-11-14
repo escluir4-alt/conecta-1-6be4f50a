@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { formatBRL, parseBRL } from "@/lib/finance/money";
+import { calculateCreditorAnnualColumn } from "@/lib/finance/annual-column";
 import type { IndicatorTrendPoint } from "@/lib/finance/annual-indicators";
 import {
   addCreditor, deleteCreditor, getAnnualYear, getAnnualIndicatorTotals, setYearArchived, updateAnnualCell, updateCreditor,
@@ -121,6 +122,8 @@ function AnuaisPage() {
     }));
   const rows = [...savedRows,...virtualCardRows];
   const archived = !!q.data?.year?.archived_at;
+  // Ano já terminado ou encerrado manualmente: Total anual representa apenas baixas quitadas.
+  const closedYear = archived || year < currentYear;
   const stats = q.data?.stats ?? { paidCents: 0, paidExpected: 0 };
 
   const monthsByRow = new Map<string, Map<number, number | null>>();
@@ -140,6 +143,21 @@ function AnuaisPage() {
     rows.reduce((s: number, r: any) => s + (monthsByRow.get(r.id)?.get(i + 1) ?? 0), 0));
   const grandTotal = monthTotals.reduce((a, b) => a + b, 0);
   const aPagar = grandTotal - stats.paidExpected;
+  // Somente a última coluna troca de significado conforme a situação do credor.
+  // A grade mensal e seus totais históricos de valores previstos são preservados.
+  const columnByCreditor = new Map(rows.map((row: any) => [
+    row.id as string,
+    calculateCreditorAnnualColumn({
+      months: Array.from({ length: 12 }, (_, i) => ({
+        month:i+1,
+        expectedCents: monthsByRow.get(row.id)?.get(i+1) ?? null,
+      })),
+      payments: q.data?.monthPayments?.[row.id] ?? {},
+      closed: closedYear,
+    }),
+  ] as const));
+  const columnTotal = [...columnByCreditor.values()]
+    .reduce((sum, record) => sum + record.amountCents, 0);
 
   function refresh() {
     void qc.invalidateQueries({ queryKey: ["annual", year] });
@@ -427,7 +445,7 @@ function AnuaisPage() {
               )}
               {rows.map((r: any) => {
                 const cells = monthsByRow.get(r.id);
-                const paid = new Set(q.data?.paidMonths?.[r.id] ?? []);
+                const column = columnByCreditor.get(r.id)!;
                 const total = Array.from({ length: 12 }, (_, i) => cells?.get(i + 1) ?? 0).reduce((a, b) => a + b, 0);
                 return (
                   <tr key={r.id}>
@@ -462,10 +480,18 @@ function AnuaisPage() {
                       const month = i + 1;
                       const v = cells?.get(month);
                       const editing = editCell?.id === r.id && editCell?.month === month;
+                      const detail = column.months[i]!;
+                      const isGreen = detail.status === "paid";
+                      const isRed = closedYear && detail.status === "pending";
                       return (
                         <td
                           key={month}
-                          className={`px-1 py-1 text-right ${paid.has(month) ? "bg-success-soft" : ""} ${archived ? "" : "cursor-pointer hover:bg-accent"}`}
+                          title={isGreen ? `Quitado: ${formatBRL(detail.paidCents)} efetivamente pago`
+                            : isRed ? `Encerrado com ${formatBRL(detail.remainingCents)} em aberto`
+                            : detail.status === "pending" && detail.paidCents > 0
+                              ? `Pagamento parcial: ${formatBRL(detail.paidCents)} pago; ${formatBRL(detail.remainingCents)} em aberto`
+                              : undefined}
+                          className={`px-1 py-1 text-right ${isGreen ? "bg-success-soft" : isRed ? "bg-red-500/10" : ""} ${archived ? "" : "cursor-pointer hover:bg-accent"}`}
                           onClick={() => {
                             if (archived || editing || r.forecast_only) return;
                             setEditCell({ id: r.id, month, value: v ? (v / 100).toFixed(2).replace(".", ",") : "" });
@@ -484,12 +510,20 @@ function AnuaisPage() {
                               }}
                             />
                           ) : (
-                            <AccountingMoney cents={v} className={paid.has(month)?"font-semibold text-success":""} />
+                            <AccountingMoney cents={v} className={isGreen ? "font-semibold text-success" : isRed ? "font-semibold text-red-600 dark:text-red-400" : ""} />
                           )}
                         </td>
                       );
                     })}
-                    <td className="px-3 py-1.5 text-right font-bold"><AccountingMoney cents={total} showZero /></td>
+                    <td
+                      title={column.mode==="paid"
+                        ? "Total efetivamente pago nas competências quitadas deste credor"
+                        : "Saldo ainda devido nas competências não quitadas deste credor"}
+                      className={`px-3 py-1.5 text-right font-extrabold tabular-nums ${column.mode==="paid"
+                        ? "bg-success-soft/40 text-success"
+                        : "bg-amber-500/10 text-amber-700 dark:text-amber-300"}`}>
+                      <AccountingMoney cents={column.amountCents} showZero />
+                    </td>
                   </tr>
                 );
               })}
@@ -499,7 +533,9 @@ function AnuaisPage() {
                 <td className="sticky left-0 z-10 bg-muted px-3 py-2">Total mensal</td>
                 <td className="px-2 py-2 text-center">—</td>
                 {monthTotals.map((t, i) => <td key={i} className="px-2 py-2 text-right"><AccountingMoney cents={t} showZero /></td>)}
-                <td className="px-3 py-2 text-right font-extrabold"><AccountingMoney cents={grandTotal} showZero /></td>
+                <td className="px-3 py-2 text-right font-extrabold" title="Soma dos valores exibidos na coluna Total anual">
+                  <AccountingMoney cents={columnTotal} showZero />
+                </td>
               </tr>
             </tfoot>
           </table>
