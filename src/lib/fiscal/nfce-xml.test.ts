@@ -16,7 +16,7 @@ describe("Axion fiscal: documento eletrônico", () => {
     expect(key).toHaveLength(44);
     expect(extractFiscalAccessKey(key)).toBe(key);
     expect(extractFiscalAccessKey("https://www.fazenda.df.gov.br/nfce/qrcode?p="+key+"%7C2%7C1")).toBe(key);
-    expect(extractFiscalAccessKey(key.slice(0,43)+"9")).toBeNull();
+    expect(extractFiscalAccessKey(key.slice(0,43)+"8")).toBeNull();
     expect(extractFiscalAccessKey("7891000123456")).toBeNull();
   });
   it("somente confia na URL do serviço oficial do DF", () => {
