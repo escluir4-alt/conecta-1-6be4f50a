@@ -20,8 +20,8 @@ export type ImportedFiscalDocument = {
   series: string;
   totalCents: number;
   items: ImportedFiscalProduct[];
-  qrCodeUrl?: string;
-  protocol?: string;
+  qrCodeUrl?: string | undefined;
+  protocol?: string | undefined;
 };
 
 function node(parent: Document | Element | null | undefined, name: string): Element | undefined {
